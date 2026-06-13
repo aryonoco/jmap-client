@@ -21,9 +21,11 @@
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedSetErrorBlobNotFound:
+testCase tcapturedSetErrorBlobNotFound:
   let j = loadCapturedFixture("set-error-blob-not-found-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -40,9 +42,9 @@ block tcapturedSetErrorBlobNotFound:
     doAssert se.rawType == "invalidProperties",
       "Stalwart 0.15.5 collapses blobNotFound onto 'invalidProperties' " &
         "(RFC mandates 'blobNotFound'); got " & se.rawType
-    doAssert se.errorType == setInvalidProperties,
-      "errorType must project to setInvalidProperties, got " & $se.errorType
-    doAssert se.errorType == parseSetErrorType(se.rawType),
+    doAssert se.kind == setInvalidProperties,
+      "errorType must project to setInvalidProperties, got " & $se.kind
+    doAssert se.kind == parseSetErrorKind(se.rawType),
       "errorType / rawType must be derived consistently"
     doAssert se.properties == @["blobId"],
       "Stalwart names the offending property; got " & $se.properties

@@ -30,24 +30,20 @@
 ##  4. Email/set destroy — cleanup leg so subsequent runs see a clean
 ##     baseline for this discriminator.
 
-import std/json
 import std/sets
 import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailQueryGetChainLive:
+testCase temailQueryGetChainLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    var client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -77,20 +73,21 @@ block temailQueryGetChainLive:
     # fresh-client poll bypasses Cyrus's per-session index cache.
     discard pollEmailQueryIndexed(target, mailAccountId, filter, [seedId].toHashSet)
       .expect("pollEmailQueryIndexed[" & $target.kind & "]")
-    let queryParams = QueryParams(limit: Opt.some(UnsignedInt(50)))
+    let queryParams = QueryParams(limit: Opt.some(parseUnsignedInt(50).get()))
     let (b3a, queryHandle) = addEmailQuery(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       filter = Opt.some(filter),
       queryParams = queryParams,
     )
-    let (b3b, getHandle) = addEmailGet(
+    let (b3b, getHandle) = addPartialEmailGet(
       b3a,
       mailAccountId,
-      ids = Opt.some(queryHandle.idsRef()),
-      properties = Opt.some(@["id", "subject", "from", "receivedAt"]),
+      ids = Opt.some(reference[seq[Id]](queryHandle, mnEmailQuery, rpIds)),
+      properties = parseNonEmptySeq(@[egpId, egpSubject, egpFrom, egpReceivedAt]).get(),
     )
-    let resp3 = client.send(b3b).expect("send Email/query+get[" & $target.kind & "]")
+    let resp3 =
+      client.send(b3b.freeze()).expect("send Email/query+get[" & $target.kind & "]")
     let queryResp =
       resp3.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
     assertOn target,
@@ -100,19 +97,24 @@ block temailQueryGetChainLive:
       getResp.list.len == queryResp.ids.len,
       "Email/get list count must match Email/query ids count"
     var sawSeed = false
-    for node in getResp.list:
-      assertOn target, not node{"id"}.isNil, "every Email/get entry must have an id"
+    for email in getResp.list:
+      assertOn target, email.id.isSome, "every Email/get entry must have an id"
       assertOn target,
-        not node{"subject"}.isNil, "every Email/get entry must have a subject"
-      if node{"subject"}.getStr("") == seedSubject:
-        sawSeed = true
+        email.subject.kind == fekValue, "every Email/get entry must have a subject"
+      case email.subject.kind
+      of fekValue:
+        if email.subject.value == seedSubject:
+          sawSeed = true
+      of fekAbsent, fekNull:
+        discard
     assertOn target, sawSeed, "Email/get list must include the seeded subject"
 
     # --- Step 4: cleanup — destroy the seed so re-runs stay bounded ------
-    let (b4, cleanHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[seedId]))
+    let (b4, cleanHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, destroy = directIds(@[seedId])
+    )
     let respClean =
-      client.send(b4).expect("send Email/set cleanup[" & $target.kind & "]")
+      client.send(b4.freeze()).expect("send Email/set cleanup[" & $target.kind & "]")
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
@@ -123,4 +125,3 @@ block temailQueryGetChainLive:
     do:
       assertOn target, false, "cleanup must report an outcome for seedId"
     assertOn target, cleaned
-    client.close()

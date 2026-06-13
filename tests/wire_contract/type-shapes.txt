@@ -1,0 +1,1513 @@
+# Public-type-shape snapshot — the public-field signature of every type
+# reachable through `import jmap_client` / `import jmap_client/convenience`
+# (A25). Private fields are excluded. Locked by
+# tests/lint/h17_type_shape_snapshot.nim (P1/P2).
+# Regenerate with: just freeze-type-shapes
+# Update PR label: [TYPE-SHAPE-CHANGE]
+## Account [jmap_client/internal/types/session]
+
+## AccountCapabilityEntry [jmap_client/internal/types/account_capability_schemas]
+  case kind*: CapabilityKind
+  of ckMail:
+  of ckSubmission:
+  of ckVacationResponse:
+  of ckCore:
+  of ckWebsocket:
+  of ckMdn:
+  of ckSmimeVerify:
+  of ckBlob:
+  of ckQuota:
+  of ckContacts:
+  of ckCalendars:
+  of ckSieve:
+  of ckUnknown:
+
+## AccountId [jmap_client/internal/types/identifiers]
+
+## AccountPolicy [jmap_client/internal/types/session]
+  apOwned
+  apOwnedReadOnly
+  apShared
+  apSharedReadOnly
+
+## AddedItem [jmap_client/internal/types/framework]
+  index*: UnsignedInt
+
+## AnyEmailSubmission [jmap_client/internal/mail/email_submission]
+  case state*: UndoStatus
+  of usPending:
+  of usFinal:
+  of usCanceled:
+
+## AuthScheme [jmap_client/internal/types/credential]
+  asBearer = "Bearer"
+  asBasic = "Basic"
+
+## BlobId [jmap_client/internal/types/identifiers]
+
+## BlueprintBodyPart [jmap_client/internal/mail/body]
+  contentType*: string
+  name*: Opt[string]
+  disposition*: Opt[ContentDisposition]
+  cid*: Opt[string]
+  language*: Opt[seq[string]]
+  location*: Opt[string]
+  extraHeaders*: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]
+  case isMultipart*: bool
+  of true:
+    subParts*: seq[BlueprintBodyPart]
+  of false:
+    leaf*: BlueprintLeafPart
+
+## BlueprintBodyValue [jmap_client/internal/mail/body]
+  value*: string
+
+## BlueprintLeafPart [jmap_client/internal/mail/body]
+  case source*: BlueprintPartSource
+  of bpsInline:
+    partId*: PartId
+    value*: BlueprintBodyValue
+  of bpsBlobRef:
+    blobId*: BlobId
+    size*: Opt[UnsignedInt]
+    charset*: Opt[string]
+
+## BlueprintPartSource [jmap_client/internal/mail/body]
+  bpsInline
+  bpsBlobRef
+
+## BodyEncoding [jmap_client/internal/mail/submission_param]
+  beSevenBit = "7BIT"
+  beEightBitMime = "8BITMIME"
+  beBinaryMime = "BINARYMIME"
+
+## BodyPartLocation [jmap_client/internal/mail/email_blueprint]
+  case kind*: BodyPartLocationKind
+  of bplInline:
+    partId*: PartId
+  of bplBlobRef:
+    blobId*: BlobId
+  of bplMultipart:
+    path*: BodyPartPath
+
+## BodyPartLocationKind [jmap_client/internal/mail/email_blueprint]
+  bplInline
+  bplBlobRef
+  bplMultipart
+
+## BodyPartPath [jmap_client/internal/mail/email_blueprint]
+
+## BodyValueScope [jmap_client/internal/mail/email]
+  bvsNone
+  bvsText
+  bvsHtml
+  bvsTextAndHtml
+  bvsAll
+
+## BuilderId [jmap_client/internal/types/identifiers]
+
+## BuiltRequest [jmap_client/internal/protocol/builder]
+
+## CapabilityKind [jmap_client/internal/types/capabilities]
+  ckMail = "urn:ietf:params:jmap:mail"
+  ckCore = "urn:ietf:params:jmap:core"
+  ckSubmission = "urn:ietf:params:jmap:submission"
+  ckVacationResponse = "urn:ietf:params:jmap:vacationresponse"
+  ckWebsocket = "urn:ietf:params:jmap:websocket"
+  ckMdn = "urn:ietf:params:jmap:mdn"
+  ckSmimeVerify = "urn:ietf:params:jmap:smimeverify"
+  ckBlob = "urn:ietf:params:jmap:blob"
+  ckQuota = "urn:ietf:params:jmap:quota"
+  ckContacts = "urn:ietf:params:jmap:contacts"
+  ckCalendars = "urn:ietf:params:jmap:calendars"
+  ckSieve = "urn:ietf:params:jmap:sieve"
+  ckUnknown
+
+## CapabilityUri [jmap_client/internal/types/capabilities]
+
+## ChangesGetHandles [jmap_client/convenience]
+  changes*: ResponseHandle[ChangesResponse[T]]
+  get*: ResponseHandle[GetResponse[T]]
+
+## ChangesGetResults [jmap_client/convenience]
+  changes*: ChangesResponse[T]
+  get*: GetResponse[T]
+
+## ChangesRequest [jmap_client/internal/protocol/methods]
+  accountId*: AccountId
+  sinceState*: JmapState
+  maxChanges*: Opt[MaxChanges]
+
+## ChangesResponse [jmap_client/internal/protocol/methods]
+  accountId*: AccountId
+  oldState*: JmapState
+  newState*: JmapState
+  hasMoreChanges*: bool
+  created*: seq[Id]
+  updated*: seq[Id]
+  destroyed*: seq[Id]
+
+## ClientError [jmap_client/internal/types/errors]
+  case kind*: ClientErrorKind
+  of cekTransport:
+    transport*: TransportError
+  of cekRequest:
+    request*: RequestError
+
+## ClientErrorKind [jmap_client/internal/types/errors]
+  cekTransport
+  cekRequest
+
+## CloseProc [jmap_client/internal/transport]
+
+## CollationAlgorithm [jmap_client/internal/types/collation]
+  case rawKind: CollationAlgorithmKind
+  of caOther:
+  of caAsciiCasemap, caOctet, caAsciiNumeric, caUnicodeCasemap:
+
+## CollationAlgorithmKind [jmap_client/internal/types/collation]
+  caAsciiCasemap = "i;ascii-casemap"
+  caOctet = "i;octet"
+  caAsciiNumeric = "i;ascii-numeric"
+  caUnicodeCasemap = "i;unicode-casemap"
+  caOther
+
+## Comparator [jmap_client/internal/types/framework]
+  direction*: SortDirection
+  collation*: Opt[CollationAlgorithm]
+
+## CompoundHandles [jmap_client/internal/protocol/dispatch]
+  primary*: ResponseHandle[A]
+  implicit*: NameBoundHandle[B]
+
+## CompoundResults [jmap_client/internal/protocol/dispatch]
+  primary*: A
+  implicit*: B
+
+## ContentDisposition [jmap_client/internal/mail/body]
+  case rawKind: ContentDispositionKind
+  of cdExtension:
+  of cdInline, cdAttachment:
+
+## ContentDispositionKind [jmap_client/internal/mail/body]
+  cdInline = "inline"
+  cdAttachment = "attachment"
+  cdExtension
+
+## CopyDestroyMode [jmap_client/internal/protocol/methods]
+  case kind*: CopyDestroyModeKind
+  of cdmKeep:
+  of cdmDestroyAfterSuccess:
+    destroyIfInState*: Opt[JmapState]
+
+## CopyDestroyModeKind [jmap_client/internal/protocol/methods]
+  cdmKeep
+  cdmDestroyAfterSuccess
+
+## CopyRequest [jmap_client/internal/protocol/methods]
+  fromAccountId*: AccountId
+  ifFromInState*: Opt[JmapState]
+  accountId*: AccountId
+  ifInState*: Opt[JmapState]
+  create*: Table[CreationId, CopyItem]
+  destroyMode*: CopyDestroyMode
+
+## CopyResponse [jmap_client/internal/protocol/methods]
+  fromAccountId*: AccountId
+  accountId*: AccountId
+  oldState*: Opt[JmapState]
+  newState*: Opt[JmapState]
+  createResults*: Table[CreationId, Result[T, SetError]]
+
+## CoreCapabilities [jmap_client/internal/types/capabilities]
+
+## CreationId [jmap_client/internal/types/identifiers]
+
+## Credential [jmap_client/internal/types/credential]
+  case rawScheme: AuthScheme
+  of asBearer:
+  of asBasic:
+
+## Date [jmap_client/internal/types/primitives]
+
+## DebugCallback [jmap_client/internal/client]
+
+## DeleteAuthority [jmap_client/internal/mail/identity]
+  daUnreported
+  daYes
+  daNo
+
+## DeliveredState [jmap_client/internal/mail/submission_status]
+  dsQueued = "queued"
+  dsYes = "yes"
+  dsNo = "no"
+  dsUnknown = "unknown"
+  dsOther
+
+## DeliveryByMode [jmap_client/internal/mail/submission_param]
+  dbmReturn = "R"
+  dbmNotify = "N"
+  dbmReturnTrace = "RT"
+  dbmNotifyTrace = "NT"
+
+## DeliveryStatus [jmap_client/internal/mail/submission_status]
+  smtpReply*: ParsedSmtpReply
+  delivered*: ParsedDeliveredState
+  displayed*: ParsedDisplayedState
+
+## DeliveryStatusMap [jmap_client/internal/mail/submission_status]
+
+## DetailCode [jmap_client/internal/mail/submission_status]
+
+## DispatchedResponse [jmap_client/internal/protocol/dispatch]
+
+## DisplayedState [jmap_client/internal/mail/submission_status]
+  dpUnknown = "unknown"
+  dpYes = "yes"
+  dpOther
+
+## DsnNotifyFlag [jmap_client/internal/mail/submission_param]
+  dnfNever = "NEVER"
+  dnfSuccess = "SUCCESS"
+  dnfFailure = "FAILURE"
+  dnfDelay = "DELAY"
+
+## DsnRetType [jmap_client/internal/mail/submission_param]
+  retFull = "FULL"
+  retHdrs = "HDRS"
+
+## Email [jmap_client/internal/mail/email]
+  id*: Opt[Id]
+  blobId*: Opt[BlobId]
+  threadId*: Opt[Id]
+  mailboxIds*: Opt[MailboxIdSet]
+  keywords*: Opt[KeywordSet]
+  size*: Opt[UnsignedInt]
+  receivedAt*: Opt[UTCDate]
+  messageId*: Opt[seq[string]]
+  inReplyTo*: Opt[seq[string]]
+  references*: Opt[seq[string]]
+  sender*: Opt[seq[EmailAddress]]
+  fromAddr*: Opt[seq[EmailAddress]]
+  to*: Opt[seq[EmailAddress]]
+  cc*: Opt[seq[EmailAddress]]
+  bcc*: Opt[seq[EmailAddress]]
+  replyTo*: Opt[seq[EmailAddress]]
+  subject*: Opt[string]
+  sentAt*: Opt[Date]
+  headers*: seq[EmailHeader]
+  requestedHeaders*: Table[HeaderPropertyKey, HeaderValue]
+  requestedHeadersAll*: Table[HeaderPropertyKey, seq[HeaderValue]]
+  bodyStructure*: Opt[EmailBodyPart]
+  bodyValues*: Table[PartId, EmailBodyValue]
+  textBody*: seq[EmailBodyPart]
+  htmlBody*: seq[EmailBodyPart]
+  attachments*: seq[EmailBodyPart]
+  hasAttachment*: bool
+  preview*: string
+
+## EmailAddress [jmap_client/internal/mail/addresses]
+  name*: Opt[string]
+  email*: string
+
+## EmailAddressGroup [jmap_client/internal/mail/addresses]
+  name*: Opt[string]
+  addresses*: seq[EmailAddress]
+
+## EmailBlueprint [jmap_client/internal/mail/email_blueprint]
+
+## EmailBlueprintBody [jmap_client/internal/mail/email_blueprint]
+  case kind*: EmailBodyKind
+  of ebkStructured:
+    bodyStructure*: BlueprintBodyPart
+  of ebkFlat:
+    textBody*: Opt[BlueprintBodyPart]
+    htmlBody*: Opt[BlueprintBodyPart]
+    attachments*: seq[BlueprintBodyPart]
+
+## EmailBlueprintConstraint [jmap_client/internal/mail/email_blueprint]
+  ebcEmailTopLevelHeaderDuplicate
+  ebcBodyStructureHeaderDuplicate
+  ebcBodyPartHeaderDuplicate
+  ebcTextBodyNotTextPlain
+  ebcHtmlBodyNotTextHtml
+  ebcAllowedFormRejected
+  ebcBodyPartDepthExceeded
+
+## EmailBlueprintError [jmap_client/internal/mail/email_blueprint]
+  case constraint*: EmailBlueprintConstraint
+  of ebcEmailTopLevelHeaderDuplicate:
+    dupName*: string
+  of ebcBodyStructureHeaderDuplicate:
+    bodyStructureDupName*: string
+  of ebcBodyPartHeaderDuplicate:
+    where*: BodyPartLocation
+    bodyPartDupName*: string
+  of ebcTextBodyNotTextPlain:
+    actualTextType*: string
+  of ebcHtmlBodyNotTextHtml:
+    actualHtmlType*: string
+  of ebcAllowedFormRejected:
+    rejectedName*: string
+    rejectedForm*: HeaderForm
+  of ebcBodyPartDepthExceeded:
+    observedDepth*: int
+    depthLocation*: BodyPartLocation
+
+## EmailBlueprintErrors [jmap_client/internal/mail/email_blueprint]
+
+## EmailBodyFetchOptions [jmap_client/internal/mail/email]
+  bodyProperties*: Opt[NonEmptySeq[EmailBodyProperty]]
+  fetchBodyValues*: BodyValueScope
+  maxBodyValueBytes*: Opt[UnsignedInt]
+
+## EmailBodyKind [jmap_client/internal/mail/email_blueprint]
+  ebkStructured
+  ebkFlat
+
+## EmailBodyPart [jmap_client/internal/mail/body]
+  headers*: seq[EmailHeader]
+  name*: Opt[string]
+  contentType*: string
+  charset*: Opt[string]
+  disposition*: Opt[ContentDisposition]
+  cid*: Opt[string]
+  language*: Opt[seq[string]]
+  location*: Opt[string]
+  size*: UnsignedInt
+  case isMultipart*: bool
+  of true:
+    subParts*: seq[EmailBodyPart]
+  of false:
+    partId*: PartId
+    blobId*: BlobId
+
+## EmailBodyProperty [jmap_client/internal/mail/email]
+  case rawKind: EmailBodyPropertyKind
+  of ebpkHeader:
+  of ebpkOther:
+  of ebpkPartId, ebpkBlobId, ebpkSize, ebpkName, ebpkType, ebpkCharset, ebpkDisposition,
+
+## EmailBodyPropertyKind [jmap_client/internal/mail/email]
+  ebpkPartId = "partId"
+  ebpkBlobId = "blobId"
+  ebpkSize = "size"
+  ebpkName = "name"
+  ebpkType = "type"
+  ebpkCharset = "charset"
+  ebpkDisposition = "disposition"
+  ebpkCid = "cid"
+  ebpkLanguage = "language"
+  ebpkLocation = "location"
+  ebpkSubParts = "subParts"
+  ebpkHeaders = "headers"
+  ebpkHeader
+  ebpkOther
+
+## EmailBodyValue [jmap_client/internal/mail/body]
+  value*: string
+  isEncodingProblem*: bool
+  isTruncated*: bool
+
+## EmailComparator [jmap_client/internal/mail/email]
+  direction*: SortDirection
+  collation*: Opt[CollationAlgorithm]
+  case kind*: EmailComparatorKind
+  of eckPlain:
+    property*: PlainSortProperty
+  of eckKeyword:
+    keywordProperty*: KeywordSortProperty
+    keyword*: Keyword
+
+## EmailComparatorKind [jmap_client/internal/mail/email]
+  eckPlain
+  eckKeyword
+
+## EmailCopyHandles [jmap_client/internal/mail/mail_builders]
+
+## EmailCopyItem [jmap_client/internal/mail/email]
+  id*: Id
+  mailboxIds*: Opt[NonEmptyMailboxIdSet]
+  keywords*: Opt[KeywordSet]
+  receivedAt*: Opt[UTCDate]
+
+## EmailCopyResults [jmap_client/internal/mail/mail_builders]
+
+## EmailCreatedItem [jmap_client/internal/mail/email]
+  id*: Id
+  blobId*: BlobId
+  threadId*: Id
+  size*: UnsignedInt
+
+## EmailFilterCondition [jmap_client/internal/mail/mail_filters]
+  inMailbox*: Opt[Id]
+  inMailboxOtherThan*: Opt[seq[Id]]
+  before*: Opt[UTCDate]
+  after*: Opt[UTCDate]
+  minSize*: Opt[UnsignedInt]
+  maxSize*: Opt[UnsignedInt]
+  allInThreadHaveKeyword*: Opt[Keyword]
+  someInThreadHaveKeyword*: Opt[Keyword]
+  noneInThreadHaveKeyword*: Opt[Keyword]
+  hasKeyword*: Opt[Keyword]
+  notKeyword*: Opt[Keyword]
+  hasAttachment*: HasAttachmentFilter
+  text*: Opt[string]
+  fromAddr*: Opt[string]
+  to*: Opt[string]
+  cc*: Opt[string]
+  bcc*: Opt[string]
+  subject*: Opt[string]
+  body*: Opt[string]
+  header*: Opt[EmailHeaderFilter]
+
+## EmailGetProperty [jmap_client/internal/mail/email]
+  case rawKind: EmailGetPropertyKind
+  of egkHeader:
+  of egkOther:
+  of egkId, egkBlobId, egkThreadId, egkMailboxIds, egkKeywords, egkSize, egkReceivedAt,
+
+## EmailGetPropertyKind [jmap_client/internal/mail/email]
+  egkId = "id"
+  egkBlobId = "blobId"
+  egkThreadId = "threadId"
+  egkMailboxIds = "mailboxIds"
+  egkKeywords = "keywords"
+  egkSize = "size"
+  egkReceivedAt = "receivedAt"
+  egkHeaders = "headers"
+  egkMessageId = "messageId"
+  egkInReplyTo = "inReplyTo"
+  egkReferences = "references"
+  egkSender = "sender"
+  egkFrom = "from"
+  egkTo = "to"
+  egkCc = "cc"
+  egkBcc = "bcc"
+  egkReplyTo = "replyTo"
+  egkSubject = "subject"
+  egkSentAt = "sentAt"
+  egkBodyStructure = "bodyStructure"
+  egkBodyValues = "bodyValues"
+  egkTextBody = "textBody"
+  egkHtmlBody = "htmlBody"
+  egkAttachments = "attachments"
+  egkHasAttachment = "hasAttachment"
+  egkPreview = "preview"
+  egkHeader
+  egkOther
+
+## EmailHeader [jmap_client/internal/mail/headers]
+  name*: string
+  value*: string
+
+## EmailHeaderFilter [jmap_client/internal/mail/mail_filters]
+  value*: Opt[string]
+
+## EmailImportItem [jmap_client/internal/mail/email]
+  blobId*: BlobId
+  mailboxIds*: NonEmptyMailboxIdSet
+  keywords*: Opt[KeywordSet]
+  receivedAt*: Opt[UTCDate]
+
+## EmailImportResponse [jmap_client/internal/mail/email]
+  accountId*: AccountId
+  oldState*: Opt[JmapState]
+  newState*: Opt[JmapState]
+  createResults*: Table[CreationId, Result[EmailCreatedItem, SetError]]
+
+## EmailQueryThreadChain [jmap_client/internal/mail/mail_builders]
+  queryH*: ResponseHandle[QueryResponse[Email]]
+  threadIdFetchH*: ResponseHandle[GetResponse[PartialEmail]]
+  threadsH*: ResponseHandle[GetResponse[thread.Thread]]
+  displayH*: ResponseHandle[GetResponse[PartialEmail]]
+
+## EmailQueryThreadResults [jmap_client/internal/mail/mail_builders]
+  query*: QueryResponse[Email]
+  threadIdFetch*: GetResponse[PartialEmail]
+  threads*: GetResponse[thread.Thread]
+  display*: GetResponse[PartialEmail]
+
+## EmailSubmission [jmap_client/internal/mail/email_submission]
+  id*: Id
+  identityId*: Id
+  emailId*: Id
+  threadId*: Id
+  envelope*: Opt[Envelope]
+  sendAt*: UTCDate
+  deliveryStatus*: Opt[DeliveryStatusMap]
+  dsnBlobIds*: seq[BlobId]
+  mdnBlobIds*: seq[BlobId]
+
+## EmailSubmissionBlueprint [jmap_client/internal/mail/email_submission]
+
+## EmailSubmissionComparator [jmap_client/internal/mail/email_submission]
+  property*: EmailSubmissionSortProperty
+  rawProperty*: string
+  direction*: SortDirection
+  collation*: Opt[CollationAlgorithm]
+
+## EmailSubmissionCreatedItem [jmap_client/internal/mail/email_submission]
+  id*: Id
+  threadId*: Opt[Id]
+  sendAt*: Opt[UTCDate]
+  undoStatus*: Opt[UndoStatus]
+
+## EmailSubmissionFilterCondition [jmap_client/internal/mail/email_submission]
+  identityIds*: Opt[NonEmptyIdSeq]
+  emailIds*: Opt[NonEmptyIdSeq]
+  threadIds*: Opt[NonEmptyIdSeq]
+  undoStatus*: Opt[UndoStatus]
+  before*: Opt[UTCDate]
+  after*: Opt[UTCDate]
+
+## EmailSubmissionGetProperty [jmap_client/internal/mail/email_submission]
+  case rawKind: EmailSubmissionGetPropertyKind
+  of esgkOther:
+  of esgkId, esgkIdentityId, esgkEmailId, esgkThreadId, esgkEnvelope, esgkSendAt,
+
+## EmailSubmissionGetPropertyKind [jmap_client/internal/mail/email_submission]
+  esgkId = "id"
+  esgkIdentityId = "identityId"
+  esgkEmailId = "emailId"
+  esgkThreadId = "threadId"
+  esgkEnvelope = "envelope"
+  esgkSendAt = "sendAt"
+  esgkUndoStatus = "undoStatus"
+  esgkDeliveryStatus = "deliveryStatus"
+  esgkDsnBlobIds = "dsnBlobIds"
+  esgkMdnBlobIds = "mdnBlobIds"
+  esgkOther
+
+## EmailSubmissionHandles [jmap_client/internal/mail/email_submission]
+
+## EmailSubmissionResults [jmap_client/internal/mail/email_submission]
+
+## EmailSubmissionSetResponse [jmap_client/internal/mail/email_submission]
+
+## EmailSubmissionSortProperty [jmap_client/internal/mail/email_submission]
+  esspEmailId = "emailId"
+  esspThreadId = "threadId"
+  esspSentAt = "sentAt"
+  esspOther
+
+## EmailSubmissionUpdate [jmap_client/internal/mail/email_submission]
+  case kind*: EmailSubmissionUpdateVariantKind
+  of esuSetUndoStatusToCanceled:
+
+## EmailSubmissionUpdateVariantKind [jmap_client/internal/mail/email_submission]
+  esuSetUndoStatusToCanceled
+
+## EmailUpdate [jmap_client/internal/mail/email_update]
+  case kind*: EmailUpdateVariantKind
+  of euAddKeyword, euRemoveKeyword:
+    keyword*: Keyword
+  of euSetKeywords:
+    keywords*: KeywordSet
+  of euAddToMailbox, euRemoveFromMailbox:
+    mailboxId*: Id
+  of euSetMailboxIds:
+    mailboxes*: NonEmptyMailboxIdSet
+
+## EmailUpdateVariantKind [jmap_client/internal/mail/email_update]
+  euAddKeyword
+  euRemoveKeyword
+  euSetKeywords
+  euAddToMailbox
+  euRemoveFromMailbox
+  euSetMailboxIds
+
+## EnhancedStatusCode [jmap_client/internal/mail/submission_status]
+  klass*: StatusCodeClass
+  subject*: SubjectCode
+  detail*: DetailCode
+
+## FieldEcho [jmap_client/internal/types/field_echo]
+  case kind*: FieldEchoKind
+  of fekAbsent, fekNull:
+  of fekValue:
+    value*: T
+
+## FieldEchoKind [jmap_client/internal/types/field_echo]
+  fekAbsent
+  fekNull
+  fekValue
+
+## Filter [jmap_client/internal/types/framework]
+  case kind*: FilterKind
+  of fkCondition:
+    condition*: C
+  of fkOperator:
+    operator*: FilterOperator
+
+## FilterKind [jmap_client/internal/types/framework]
+  fkCondition
+  fkOperator
+
+## FilterOperator [jmap_client/internal/types/framework]
+  foAnd = "AND"
+  foOr = "OR"
+  foNot = "NOT"
+
+## GetError [jmap_client/internal/types/errors]
+  case kind*: GetErrorKind
+  of gekMethod:
+    methodErr*: MethodError
+  of gekHandleMismatch:
+    expected*: BuilderId
+    actual*: BuilderId
+    callId*: MethodCallId
+
+## GetErrorKind [jmap_client/internal/types/errors]
+  gekMethod
+  gekHandleMismatch
+
+## GetRequest [jmap_client/internal/protocol/methods]
+  accountId*: AccountId
+  ids*: Opt[Referencable[seq[Id]]]
+
+## GetResponse [jmap_client/internal/protocol/methods]
+  accountId*: AccountId
+  state*: JmapState
+  list*: seq[T]
+  notFound*: seq[Id]
+
+## HasAnyRoleFilter [jmap_client/internal/mail/mail_filters]
+  hrfNoConstraint
+  hrfRequireAny
+  hrfRequireNone
+
+## HasAttachmentFilter [jmap_client/internal/mail/mail_filters]
+  hafNoConstraint
+  hafYes
+  hafNo
+
+## HeaderForm [jmap_client/internal/mail/headers]
+  hfRaw = "asRaw"
+  hfText = "asText"
+  hfAddresses = "asAddresses"
+  hfGroupedAddresses = "asGroupedAddresses"
+  hfMessageIds = "asMessageIds"
+  hfDate = "asDate"
+  hfUrls = "asURLs"
+
+## HeaderPropertyKey [jmap_client/internal/mail/headers]
+
+## HeaderValue [jmap_client/internal/mail/headers]
+  case form*: HeaderForm
+  of hfRaw: rawValue*: string
+  of hfText: textValue*: string
+  of hfAddresses: addresses*: seq[EmailAddress]
+  of hfGroupedAddresses: groups*: seq[EmailAddressGroup]
+  of hfMessageIds: messageIds*: Opt[seq[string]]
+  of hfDate: date*: Opt[Date]
+  of hfUrls: urls*: Opt[seq[string]]
+
+## HoldForSeconds [jmap_client/internal/mail/submission_param]
+
+## HttpMethodKind [jmap_client/internal/transport]
+  hmGet
+  hmPost
+
+## HttpRequest [jmap_client/internal/transport]
+  url*: string
+  httpMethod*: HttpMethodKind
+  body*: string
+  authorization*: string
+
+## HttpResponse [jmap_client/internal/transport]
+  statusCode*: int
+  contentType*: string
+  body*: string
+
+## Id [jmap_client/internal/types/primitives]
+
+## IdOrCreationRef [jmap_client/internal/mail/email_submission]
+  case rawKind: IdOrCreationRefKind
+  of icrDirect:
+  of icrCreation:
+
+## IdOrCreationRefKind [jmap_client/internal/mail/email_submission]
+  icrDirect
+  icrCreation
+
+## Identity [jmap_client/internal/mail/identity]
+  id*: Id
+  name*: string
+  email*: string
+  replyTo*: Opt[seq[EmailAddress]]
+  bcc*: Opt[seq[EmailAddress]]
+  textSignature*: string
+  htmlSignature*: string
+  mayDelete*: DeleteAuthority
+
+## IdentityCreate [jmap_client/internal/mail/identity]
+  email*: string
+  name*: string
+  replyTo*: Opt[seq[EmailAddress]]
+  bcc*: Opt[seq[EmailAddress]]
+  textSignature*: string
+  htmlSignature*: string
+
+## IdentityCreatedItem [jmap_client/internal/mail/identity]
+  id*: Id
+  mayDelete*: DeleteAuthority
+
+## IdentityGetProperty [jmap_client/internal/mail/identity]
+  case rawKind: IdentityGetPropertyKind
+  of igkOther:
+  of igkId, igkName, igkEmail, igkReplyTo, igkBcc, igkTextSignature, igkHtmlSignature,
+
+## IdentityGetPropertyKind [jmap_client/internal/mail/identity]
+  igkId = "id"
+  igkName = "name"
+  igkEmail = "email"
+  igkReplyTo = "replyTo"
+  igkBcc = "bcc"
+  igkTextSignature = "textSignature"
+  igkHtmlSignature = "htmlSignature"
+  igkMayDelete = "mayDelete"
+  igkOther
+
+## IdentityUpdate [jmap_client/internal/mail/identity]
+  case kind*: IdentityUpdateVariantKind
+  of iuSetName:
+    name*: string
+  of iuSetReplyTo:
+    replyTo*: Opt[seq[EmailAddress]]
+  of iuSetBcc:
+    bcc*: Opt[seq[EmailAddress]]
+  of iuSetTextSignature:
+    textSignature*: string
+  of iuSetHtmlSignature:
+    htmlSignature*: string
+
+## IdentityUpdateSet [jmap_client/internal/mail/identity]
+
+## IdentityUpdateVariantKind [jmap_client/internal/mail/identity]
+  iuSetName
+  iuSetReplyTo
+  iuSetBcc
+  iuSetTextSignature
+  iuSetHtmlSignature
+
+## Idx [jmap_client/internal/types/validation]
+
+## JmapClient [jmap_client/internal/client]
+
+## JmapInt [jmap_client/internal/types/primitives]
+
+## JmapResult [jmap_client/internal/types]
+
+## JmapState [jmap_client/internal/types/identifiers]
+
+## Keyword [jmap_client/internal/mail/keyword]
+
+## KeywordSet [jmap_client/internal/mail/keyword]
+
+## KeywordSortProperty [jmap_client/internal/mail/email]
+  kspHasKeyword = "hasKeyword"
+  kspAllInThreadHaveKeyword = "allInThreadHaveKeyword"
+  kspSomeInThreadHaveKeyword = "someInThreadHaveKeyword"
+
+## MailAccountCapabilities [jmap_client/internal/types/account_capability_schemas]
+
+## Mailbox [jmap_client/internal/mail/mailbox]
+  id*: Id
+  name*: string
+  parentId*: Opt[Id]
+  role*: Opt[MailboxRole]
+  sortOrder*: UnsignedInt
+  totalEmails*: UnsignedInt
+  unreadEmails*: UnsignedInt
+  totalThreads*: UnsignedInt
+  unreadThreads*: UnsignedInt
+  myRights*: MailboxRights
+  isSubscribed*: bool
+
+## MailboxChangesGetHandles [jmap_client/convenience]
+  changes*: ResponseHandle[MailboxChangesResponse]
+  get*: ResponseHandle[GetResponse[Mailbox]]
+
+## MailboxChangesGetResults [jmap_client/convenience]
+  changes*: MailboxChangesResponse
+  get*: GetResponse[Mailbox]
+
+## MailboxChangesResponse [jmap_client/internal/mail/mailbox_changes_response]
+  base*: ChangesResponse[Mailbox]
+  updatedProperties*: Opt[seq[string]]
+
+## MailboxCreate [jmap_client/internal/mail/mailbox]
+  name*: string
+  parentId*: Opt[Id]
+  role*: Opt[MailboxRole]
+  sortOrder*: UnsignedInt
+  isSubscribed*: bool
+
+## MailboxCreatedItem [jmap_client/internal/mail/mailbox]
+  id*: Id
+  totalEmails*: Opt[UnsignedInt]
+  unreadEmails*: Opt[UnsignedInt]
+  totalThreads*: Opt[UnsignedInt]
+  unreadThreads*: Opt[UnsignedInt]
+  myRights*: Opt[MailboxRights]
+
+## MailboxFilterCondition [jmap_client/internal/mail/mail_filters]
+  parentId*: Opt[Opt[Id]]
+  name*: Opt[string]
+  role*: Opt[Opt[MailboxRole]]
+  hasAnyRole*: HasAnyRoleFilter
+  isSubscribed*: SubscriptionFilter
+
+## MailboxGetProperty [jmap_client/internal/mail/mailbox]
+  case rawKind: MailboxGetPropertyKind
+  of mgkOther:
+  of mgkId, mgkName, mgkParentId, mgkRole, mgkSortOrder, mgkTotalEmails,
+
+## MailboxGetPropertyKind [jmap_client/internal/mail/mailbox]
+  mgkId = "id"
+  mgkName = "name"
+  mgkParentId = "parentId"
+  mgkRole = "role"
+  mgkSortOrder = "sortOrder"
+  mgkTotalEmails = "totalEmails"
+  mgkUnreadEmails = "unreadEmails"
+  mgkTotalThreads = "totalThreads"
+  mgkUnreadThreads = "unreadThreads"
+  mgkMyRights = "myRights"
+  mgkIsSubscribed = "isSubscribed"
+  mgkOther
+
+## MailboxIdSet [jmap_client/internal/mail/mailbox]
+
+## MailboxRights [jmap_client/internal/mail/mailbox]
+  mayReadItems*: bool
+  mayAddItems*: bool
+  mayRemoveItems*: bool
+  maySetSeen*: bool
+  maySetKeywords*: bool
+  mayCreateChild*: bool
+  mayRename*: bool
+  mayDelete*: bool
+  maySubmit*: bool
+
+## MailboxRole [jmap_client/internal/mail/mailbox]
+  case rawKind: MailboxRoleKind
+  of mrOther:
+  of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
+
+## MailboxRoleKind [jmap_client/internal/mail/mailbox]
+  mrInbox = "inbox"
+  mrDrafts = "drafts"
+  mrSent = "sent"
+  mrTrash = "trash"
+  mrJunk = "junk"
+  mrArchive = "archive"
+  mrImportant = "important"
+  mrAll = "all"
+  mrFlagged = "flagged"
+  mrSubscriptions = "subscriptions"
+  mrOther
+
+## MailboxUpdate [jmap_client/internal/mail/mailbox]
+  case kind*: MailboxUpdateVariantKind
+  of muSetName:
+    name*: string
+  of muSetParentId:
+    parentId*: Opt[Id]
+  of muSetRole:
+    role*: Opt[MailboxRole]
+  of muSetSortOrder:
+    sortOrder*: UnsignedInt
+  of muSetIsSubscribed:
+    isSubscribed*: bool
+
+## MailboxUpdateSet [jmap_client/internal/mail/mailbox]
+
+## MailboxUpdateVariantKind [jmap_client/internal/mail/mailbox]
+  muSetName
+  muSetParentId
+  muSetRole
+  muSetSortOrder
+  muSetIsSubscribed
+
+## MaxChanges [jmap_client/internal/types/primitives]
+
+## MethodCallId [jmap_client/internal/types/identifiers]
+
+## MethodEntity [jmap_client/internal/types/methods_enum]
+  meCore
+  meThread
+  meIdentity
+  meMailbox
+  meEmail
+  meVacationResponse
+  meSearchSnippet
+  meEmailSubmission
+  meTest
+
+## MethodError [jmap_client/internal/types/errors]
+  rawType*: string
+  description*: Opt[string]
+  extras*: Opt[JsonNode]
+
+## MethodErrorKind [jmap_client/internal/types/errors]
+  metServerUnavailable = "serverUnavailable"
+  metServerFail = "serverFail"
+  metServerPartialFail = "serverPartialFail"
+  metUnknownMethod = "unknownMethod"
+  metInvalidArguments = "invalidArguments"
+  metInvalidResultReference = "invalidResultReference"
+  metForbidden = "forbidden"
+  metAccountNotFound = "accountNotFound"
+  metAccountNotSupportedByMethod = "accountNotSupportedByMethod"
+  metAccountReadOnly = "accountReadOnly"
+  metAnchorNotFound = "anchorNotFound"
+  metUnsupportedSort = "unsupportedSort"
+  metUnsupportedFilter = "unsupportedFilter"
+  metCannotCalculateChanges = "cannotCalculateChanges"
+  metTooManyChanges = "tooManyChanges"
+  metRequestTooLarge = "requestTooLarge"
+  metStateMismatch = "stateMismatch"
+  metFromAccountNotFound = "fromAccountNotFound"
+  metFromAccountNotSupportedByMethod = "fromAccountNotSupportedByMethod"
+  metUnknown
+
+## MethodName [jmap_client/internal/types/methods_enum]
+  mnUnknown
+  mnCoreEcho = "Core/echo"
+  mnThreadGet = "Thread/get"
+  mnThreadChanges = "Thread/changes"
+  mnIdentityGet = "Identity/get"
+  mnIdentityChanges = "Identity/changes"
+  mnIdentitySet = "Identity/set"
+  mnMailboxGet = "Mailbox/get"
+  mnMailboxChanges = "Mailbox/changes"
+  mnMailboxSet = "Mailbox/set"
+  mnMailboxQuery = "Mailbox/query"
+  mnMailboxQueryChanges = "Mailbox/queryChanges"
+  mnEmailGet = "Email/get"
+  mnEmailChanges = "Email/changes"
+  mnEmailSet = "Email/set"
+  mnEmailQuery = "Email/query"
+  mnEmailQueryChanges = "Email/queryChanges"
+  mnEmailCopy = "Email/copy"
+  mnEmailParse = "Email/parse"
+  mnEmailImport = "Email/import"
+  mnVacationResponseGet = "VacationResponse/get"
+  mnVacationResponseSet = "VacationResponse/set"
+  mnEmailSubmissionGet = "EmailSubmission/get"
+  mnEmailSubmissionChanges = "EmailSubmission/changes"
+  mnEmailSubmissionSet = "EmailSubmission/set"
+  mnEmailSubmissionQuery = "EmailSubmission/query"
+  mnEmailSubmissionQueryChanges = "EmailSubmission/queryChanges"
+  mnSearchSnippetGet = "SearchSnippet/get"
+
+## MethodNameLiteral [jmap_client/internal/types/methods_enum]
+
+## MtPriority [jmap_client/internal/mail/submission_param]
+
+## NameBoundHandle [jmap_client/internal/protocol/dispatch]
+
+## NoCreate [jmap_client/internal/types/field_echo]
+
+## NonEmptyEmailImportMap [jmap_client/internal/mail/email]
+
+## NonEmptyEmailSubmissionUpdates [jmap_client/internal/mail/email_submission]
+
+## NonEmptyIdSeq [jmap_client/internal/mail/email_submission]
+
+## NonEmptyIdentityUpdates [jmap_client/internal/mail/identity]
+
+## NonEmptyMailboxIdSet [jmap_client/internal/mail/mailbox]
+
+## NonEmptyMailboxUpdates [jmap_client/internal/mail/mailbox]
+
+## NonEmptyOnSuccessDestroyEmail [jmap_client/internal/mail/email_submission]
+
+## NonEmptyOnSuccessUpdateEmail [jmap_client/internal/mail/email_submission]
+
+## NonEmptySeq [jmap_client/internal/types/primitives]
+
+## NotifySet [jmap_client/internal/mail/submission_param]
+
+## OrcptAddrType [jmap_client/internal/types/submission_atoms]
+
+## ParsedDeliveredState [jmap_client/internal/mail/submission_status]
+  state*: DeliveredState
+  rawBacking*: string
+
+## ParsedDisplayedState [jmap_client/internal/mail/submission_status]
+  state*: DisplayedState
+  rawBacking*: string
+
+## ParsedEmail [jmap_client/internal/mail/email]
+  threadId*: Opt[Id]
+  messageId*: Opt[seq[string]]
+  inReplyTo*: Opt[seq[string]]
+  references*: Opt[seq[string]]
+  sender*: Opt[seq[EmailAddress]]
+  fromAddr*: Opt[seq[EmailAddress]]
+  to*: Opt[seq[EmailAddress]]
+  cc*: Opt[seq[EmailAddress]]
+  bcc*: Opt[seq[EmailAddress]]
+  replyTo*: Opt[seq[EmailAddress]]
+  subject*: Opt[string]
+  sentAt*: Opt[Date]
+  headers*: seq[EmailHeader]
+  requestedHeaders*: Table[HeaderPropertyKey, HeaderValue]
+  requestedHeadersAll*: Table[HeaderPropertyKey, seq[HeaderValue]]
+  bodyStructure*: Opt[EmailBodyPart]
+  bodyValues*: Table[PartId, EmailBodyValue]
+  textBody*: seq[EmailBodyPart]
+  htmlBody*: seq[EmailBodyPart]
+  attachments*: seq[EmailBodyPart]
+  hasAttachment*: bool
+  preview*: string
+
+## ParsedSmtpReply [jmap_client/internal/mail/submission_status]
+  replyCode*: ReplyCode
+  enhanced*: Opt[EnhancedStatusCode]
+  text*: string
+  raw*: string
+
+## PartId [jmap_client/internal/mail/body]
+
+## PartialEmail [jmap_client/internal/mail/email]
+  id*: Opt[Id]
+  blobId*: Opt[BlobId]
+  threadId*: Opt[Id]
+  mailboxIds*: Opt[MailboxIdSet]
+  keywords*: Opt[KeywordSet]
+  size*: Opt[UnsignedInt]
+  receivedAt*: Opt[UTCDate]
+  messageId*: FieldEcho[seq[string]]
+  inReplyTo*: FieldEcho[seq[string]]
+  references*: FieldEcho[seq[string]]
+  sender*: FieldEcho[seq[EmailAddress]]
+  fromAddr*: FieldEcho[seq[EmailAddress]]
+  to*: FieldEcho[seq[EmailAddress]]
+  cc*: FieldEcho[seq[EmailAddress]]
+  bcc*: FieldEcho[seq[EmailAddress]]
+  replyTo*: FieldEcho[seq[EmailAddress]]
+  subject*: FieldEcho[string]
+  sentAt*: FieldEcho[Date]
+  headers*: Opt[seq[EmailHeader]]
+  requestedHeaders*: Opt[Table[HeaderPropertyKey, HeaderValue]]
+  requestedHeadersAll*: Opt[Table[HeaderPropertyKey, seq[HeaderValue]]]
+  bodyStructure*: FieldEcho[EmailBodyPart]
+  bodyValues*: Opt[Table[PartId, EmailBodyValue]]
+  textBody*: Opt[seq[EmailBodyPart]]
+  htmlBody*: Opt[seq[EmailBodyPart]]
+  attachments*: Opt[seq[EmailBodyPart]]
+  hasAttachment*: Opt[bool]
+  preview*: Opt[string]
+
+## PartialEmailSubmission [jmap_client/internal/mail/email_submission]
+  id*: Opt[Id]
+  identityId*: Opt[Id]
+  emailId*: Opt[Id]
+  threadId*: Opt[Id]
+  envelope*: FieldEcho[Envelope]
+  sendAt*: Opt[UTCDate]
+  undoStatus*: Opt[UndoStatus]
+  deliveryStatus*: FieldEcho[DeliveryStatusMap]
+  dsnBlobIds*: Opt[seq[BlobId]]
+  mdnBlobIds*: Opt[seq[BlobId]]
+
+## PartialIdentity [jmap_client/internal/mail/identity]
+  id*: Opt[Id]
+  name*: Opt[string]
+  email*: Opt[string]
+  replyTo*: FieldEcho[seq[EmailAddress]]
+  bcc*: FieldEcho[seq[EmailAddress]]
+  textSignature*: Opt[string]
+  htmlSignature*: Opt[string]
+  mayDelete*: Opt[bool]
+
+## PartialMailbox [jmap_client/internal/mail/mailbox]
+  id*: Opt[Id]
+  name*: Opt[string]
+  parentId*: FieldEcho[Id]
+  role*: FieldEcho[MailboxRole]
+  sortOrder*: Opt[UnsignedInt]
+  totalEmails*: Opt[UnsignedInt]
+  unreadEmails*: Opt[UnsignedInt]
+  totalThreads*: Opt[UnsignedInt]
+  unreadThreads*: Opt[UnsignedInt]
+  myRights*: Opt[MailboxRights]
+  isSubscribed*: Opt[bool]
+
+## PartialThread [jmap_client/internal/mail/thread]
+
+## PartialVacationResponse [jmap_client/internal/mail/vacation]
+  isEnabled*: Opt[bool]
+  fromDate*: FieldEcho[UTCDate]
+  toDate*: FieldEcho[UTCDate]
+  subject*: FieldEcho[string]
+  textBody*: FieldEcho[string]
+  htmlBody*: FieldEcho[string]
+
+## PlainSortProperty [jmap_client/internal/mail/email]
+  pspReceivedAt = "receivedAt"
+  pspSize = "size"
+  pspFrom = "from"
+  pspTo = "to"
+  pspSubject = "subject"
+  pspSentAt = "sentAt"
+
+## PropertyName [jmap_client/internal/types/framework]
+
+## PushChannel [jmap_client/internal/push]
+
+## QueryChangesResponse [jmap_client/internal/protocol/methods]
+  accountId*: AccountId
+  oldQueryState*: JmapState
+  newQueryState*: JmapState
+  total*: Opt[UnsignedInt]
+  removed*: seq[Id]
+  added*: seq[AddedItem]
+
+## QueryGetHandles [jmap_client/convenience]
+  query*: ResponseHandle[QueryResponse[T]]
+  get*: ResponseHandle[GetResponse[T]]
+
+## QueryGetResults [jmap_client/convenience]
+  query*: QueryResponse[T]
+  get*: GetResponse[T]
+
+## QueryParams [jmap_client/internal/types/framework]
+  position*: JmapInt
+  anchor*: Opt[Id]
+  anchorOffset*: JmapInt
+  limit*: Opt[UnsignedInt]
+  calculateTotal*: bool
+
+## QueryResponse [jmap_client/internal/protocol/methods]
+  accountId*: AccountId
+  queryState*: JmapState
+  canCalculateChanges*: bool
+  position*: UnsignedInt
+  ids*: seq[Id]
+  total*: Opt[UnsignedInt]
+  limit*: Opt[UnsignedInt]
+
+## RFC5321Keyword [jmap_client/internal/types/submission_atoms]
+
+## RefPath [jmap_client/internal/types/methods_enum]
+  rpUnknown
+  rpIds = "/ids"
+  rpListIds = "/list/*/id"
+  rpAddedIds = "/added/*/id"
+  rpCreated = "/created"
+  rpUpdated = "/updated"
+  rpUpdatedProperties = "/updatedProperties"
+  rpListThreadId = "/list/*/threadId"
+  rpListEmailIds = "/list/*/emailIds"
+
+## ReplyCode [jmap_client/internal/mail/submission_status]
+
+## RequestBuilder [jmap_client/internal/protocol/builder]
+
+## RequestError [jmap_client/internal/types/errors]
+  rawType*: string
+  status*: Opt[int]
+  title*: Opt[string]
+  detail*: Opt[string]
+  limit*: Opt[string]
+  extras*: Opt[JsonNode]
+
+## RequestErrorKind [jmap_client/internal/types/errors]
+  retUnknownCapability = "urn:ietf:params:jmap:error:unknownCapability"
+  retNotJson = "urn:ietf:params:jmap:error:notJSON"
+  retNotRequest = "urn:ietf:params:jmap:error:notRequest"
+  retLimit = "urn:ietf:params:jmap:error:limit"
+  retUnknown
+
+## SearchSnippet [jmap_client/internal/mail/snippet]
+  emailId*: Id
+  subject*: Opt[string]
+  preview*: Opt[string]
+
+## SendProc [jmap_client/internal/transport]
+
+## ServerCapability [jmap_client/internal/types/capabilities]
+  case kind*: CapabilityKind
+  of ckCore:
+  of ckMail:
+  of ckSubmission:
+  of ckVacationResponse:
+  of ckWebsocket:
+  of ckMdn:
+  of ckSmimeVerify:
+  of ckBlob:
+  of ckQuota:
+  of ckContacts:
+  of ckCalendars:
+  of ckSieve:
+  of ckUnknown:
+
+## Session [jmap_client/internal/types/session]
+
+## SessionEndpoint [jmap_client/internal/types/session_endpoint]
+  case rawKind: SessionEndpointKind
+  of sekDirectUrl:
+  of sekDiscoveryDomain:
+
+## SessionEndpointKind [jmap_client/internal/types/session_endpoint]
+  sekDirectUrl
+  sekDiscoveryDomain
+
+## SetError [jmap_client/internal/types/errors]
+  rawType*: string
+  description*: Opt[string]
+  extras*: Opt[JsonNode]
+  case kind*: SetErrorKind
+  of setInvalidProperties:
+    properties*: seq[string]
+  of setAlreadyExists:
+    existingId*: Id
+  of setBlobNotFound:
+    notFound*: seq[BlobId]
+  of setInvalidEmail:
+    invalidEmailPropertyNames*: seq[string]
+  of setTooManyRecipients:
+    maxRecipientCount*: UnsignedInt
+  of setInvalidRecipients:
+    invalidRecipients*: seq[string]
+  of setTooLarge:
+    maxSizeOctets*: Opt[UnsignedInt]
+  else:
+
+## SetErrorKind [jmap_client/internal/types/errors]
+  setForbidden = "forbidden"
+  setOverQuota = "overQuota"
+  setTooLarge = "tooLarge"
+  setRateLimit = "rateLimit"
+  setNotFound = "notFound"
+  setInvalidPatch = "invalidPatch"
+  setWillDestroy = "willDestroy"
+  setInvalidProperties = "invalidProperties"
+  setAlreadyExists = "alreadyExists"
+  setSingleton = "singleton"
+  setMailboxHasChild = "mailboxHasChild"
+  setMailboxHasEmail = "mailboxHasEmail"
+  setBlobNotFound = "blobNotFound"
+  setTooManyKeywords = "tooManyKeywords"
+  setTooManyMailboxes = "tooManyMailboxes"
+  setInvalidEmail = "invalidEmail"
+  setTooManyRecipients = "tooManyRecipients"
+  setNoRecipients = "noRecipients"
+  setInvalidRecipients = "invalidRecipients"
+  setForbiddenMailFrom = "forbiddenMailFrom"
+  setForbiddenFrom = "forbiddenFrom"
+  setForbiddenToSend = "forbiddenToSend"
+  setCannotUnsend = "cannotUnsend"
+  setUnknown
+
+## SetRequest [jmap_client/internal/protocol/methods]
+  accountId*: AccountId
+  ifInState*: Opt[JmapState]
+  create*: Opt[Table[CreationId, C]]
+  update*: Opt[U]
+  destroy*: Opt[Referencable[seq[Id]]]
+
+## SetResponse [jmap_client/internal/protocol/methods]
+  accountId*: AccountId
+  oldState*: Opt[JmapState]
+  newState*: Opt[JmapState]
+  createResults*: Table[CreationId, Result[T, SetError]]
+  updateResults*: Table[Id, Result[Opt[U], SetError]]
+  destroyResults*: Table[Id, Result[void, SetError]]
+
+## SmtpReplyViolation [jmap_client/internal/mail/submission_status]
+  srEmpty
+  srControlChars
+  srLineTooShort
+  srBadReplyCodeDigit1
+  srBadReplyCodeDigit2
+  srBadReplyCodeDigit3
+  srBadSeparator
+  srMultilineCodeMismatch
+  srMultilineContinuation
+  srMultilineFinalHyphen
+  srEnhancedMalformedTriple
+  srEnhancedClassInvalid
+  srEnhancedSubjectOverflow
+  srEnhancedDetailOverflow
+  srEnhancedMultilineMismatch
+
+## SortDirection [jmap_client/internal/types/framework]
+  sdServerDefault
+  sdAscending
+  sdDescending
+
+## StatusCodeClass [jmap_client/internal/mail/submission_status]
+  sccSuccess = "2"
+  sccTransientFailure = "4"
+  sccPermanentFailure = "5"
+
+## SubjectCode [jmap_client/internal/mail/submission_status]
+
+## SubmissionAccountCapabilities [jmap_client/internal/types/account_capability_schemas]
+
+## SubmissionExtensionMap [jmap_client/internal/types/submission_atoms]
+
+## SubmissionParam [jmap_client/internal/mail/submission_param]
+  case rawKind: SubmissionParamKind
+  of spkBody:
+  of spkSmtpUtf8:
+  of spkSize:
+  of spkEnvid:
+  of spkRet:
+  of spkNotify:
+  of spkOrcpt:
+  of spkHoldFor:
+  of spkHoldUntil:
+  of spkBy:
+  of spkMtPriority:
+  of spkExtension:
+
+## SubmissionParamKey [jmap_client/internal/mail/submission_param]
+  case kind*: SubmissionParamKind
+  of spkExtension:
+    extName*: RFC5321Keyword
+  of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt, spkHoldFor,
+
+## SubmissionParamKind [jmap_client/internal/mail/submission_param]
+  spkBody = "BODY"
+  spkSmtpUtf8 = "SMTPUTF8"
+  spkSize = "SIZE"
+  spkEnvid = "ENVID"
+  spkRet = "RET"
+  spkNotify = "NOTIFY"
+  spkOrcpt = "ORCPT"
+  spkHoldFor = "HOLDFOR"
+  spkHoldUntil = "HOLDUNTIL"
+  spkBy = "BY"
+  spkMtPriority = "MT-PRIORITY"
+  spkExtension
+
+## SubmissionParams [jmap_client/internal/mail/submission_param]
+
+## SubscriptionFilter [jmap_client/internal/mail/mail_filters]
+  sfNoConstraint
+  sfSubscribed
+  sfNotSubscribed
+
+## Thread [jmap_client/internal/mail/thread]
+
+## ThreadGetProperty [jmap_client/internal/mail/thread]
+  case rawKind: ThreadGetPropertyKind
+  of tgkOther:
+  of tgkId, tgkEmailIds:
+
+## ThreadGetPropertyKind [jmap_client/internal/mail/thread]
+  tgkId = "id"
+  tgkEmailIds = "emailIds"
+  tgkOther
+
+## TokenViolation [jmap_client/internal/types/validation]
+  tvEmpty
+  tvLengthOutOfRange
+  tvControlChars
+  tvNonPrintableAscii
+  tvForbiddenChar
+  tvNotBase64Url
+  tvCreationIdPrefix
+
+## Transport [jmap_client/internal/transport]
+
+## TransportError [jmap_client/internal/types/errors]
+  detail*: string
+  case kind*: TransportErrorKind
+  of tekHttpStatus:
+    httpStatus*: int
+  of tekNetwork, tekTls, tekTimeout:
+
+## TransportErrorKind [jmap_client/internal/types/errors]
+  tekNetwork
+  tekTls
+  tekTimeout
+  tekHttpStatus
+
+## UTCDate [jmap_client/internal/types/primitives]
+
+## UndoStatus [jmap_client/internal/mail/submission_status]
+  usPending = "pending"
+  usFinal = "final"
+  usCanceled = "canceled"
+
+## UnsignedInt [jmap_client/internal/types/primitives]
+
+## UriPart [jmap_client/internal/types/session]
+  case kind*: UriPartKind
+  of upLiteral:
+    text*: string
+  of upVariable:
+    name*: string
+
+## UriPartKind [jmap_client/internal/types/session]
+  upLiteral
+  upVariable
+
+## UriTemplate [jmap_client/internal/types/session]
+
+## VacationResponse [jmap_client/internal/mail/vacation]
+  isEnabled*: bool
+  fromDate*: Opt[UTCDate]
+  toDate*: Opt[UTCDate]
+  subject*: Opt[string]
+  textBody*: Opt[string]
+  htmlBody*: Opt[string]
+
+## VacationResponseGetProperty [jmap_client/internal/mail/vacation]
+  case rawKind: VacationResponseGetPropertyKind
+  of vrgkOther:
+  of vrgkId, vrgkIsEnabled, vrgkFromDate, vrgkToDate, vrgkSubject, vrgkTextBody,
+
+## VacationResponseGetPropertyKind [jmap_client/internal/mail/vacation]
+  vrgkId = "id"
+  vrgkIsEnabled = "isEnabled"
+  vrgkFromDate = "fromDate"
+  vrgkToDate = "toDate"
+  vrgkSubject = "subject"
+  vrgkTextBody = "textBody"
+  vrgkHtmlBody = "htmlBody"
+  vrgkOther
+
+## VacationResponseUpdate [jmap_client/internal/mail/vacation]
+  case kind*: VacationResponseUpdateVariantKind
+  of vruSetIsEnabled:
+    isEnabled*: bool
+  of vruSetFromDate:
+    fromDate*: Opt[UTCDate]
+  of vruSetToDate:
+    toDate*: Opt[UTCDate]
+  of vruSetSubject:
+    subject*: Opt[string]
+  of vruSetTextBody:
+    textBody*: Opt[string]
+  of vruSetHtmlBody:
+    htmlBody*: Opt[string]
+
+## VacationResponseUpdateSet [jmap_client/internal/mail/vacation]
+
+## VacationResponseUpdateVariantKind [jmap_client/internal/mail/vacation]
+  vruSetIsEnabled
+  vruSetFromDate
+  vruSetToDate
+  vruSetSubject
+  vruSetTextBody
+  vruSetHtmlBody
+
+## ValidationError [jmap_client/internal/types/validation]
+  typeName*: string
+  reason*: string
+  value*: string
+
+## WebSocketChannel [jmap_client/internal/websocket]
+
+## WireDirection [jmap_client/internal/client]
+  wdSend
+  wdReceive

@@ -11,18 +11,18 @@
 ##  * ``pspSubject`` descending — compatible with C15's coverage
 ##    but here against this phase's seed.
 ##  * ``eckKeyword`` — sort by has-keyword via
-##    ``keywordComparator(kspHasKeyword, kwFlagged, isAscending =
-##    true)`` after marking one seed with ``$flagged``.
+##    ``keywordComparator(kspHasKeyword, kwFlagged, direction =
+##    sdAscending)`` after marking one seed with ``$flagged``.
 ##
-## **Stalwart 0.15.5 empirical pin.**  The ``isAscending`` semantics
+## **Stalwart 0.15.5 empirical pin.**  The ``isAscending`` wire semantics
 ## for boolean ``hasKeyword`` sorts on Stalwart treat *present*
-## keyword as "earlier" under ``isAscending = true`` (flagged
+## keyword as "earlier" under ``direction = sdAscending`` (flagged
 ## first), and *missing* keyword as "earlier" under
-## ``isAscending = false``.  RFC 8620 §5.5 does not pin the boolean
+## ``direction = sdDescending``.  RFC 8620 §5.5 does not pin the boolean
 ## true/false numeric mapping, so either direction is conformant.
 ## This test asserts the direction Stalwart actually produces;
 ## reversing the direction on a future server requires only
-## flipping ``isAscending``.
+## flipping ``direction``.
 ##
 ## Workflow:
 ##
@@ -54,13 +54,13 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 proc seedSizedEmail(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     inbox: Id,
     subject: string,
@@ -94,11 +94,12 @@ proc seedSizedEmail(
   let cid = parseCreationId(creationLabel).expect("parseCreationId sized")
   var createTbl = initTable[CreationId, EmailBlueprint]()
   createTbl[cid] = blueprint
-  let (b, setHandle) =
-    addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-  let resp = client.send(b).expect("send Email/set sized")
+  let (b, setHandle) = addEmailSet(
+    initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+  )
+  let resp = client.send(b.freeze()).expect("send Email/set sized")
   let setResp = resp.get(setHandle).expect("Email/set sized extract")
-  var seededId = Id("")
+  var seededId = parseIdFromServer("placeholder").get()
   var found = false
   setResp.createResults.withValue(cid, outcome):
     let item = outcome.expect("Email/set create sized")
@@ -120,7 +121,7 @@ proc positionsOf(qr: QueryResponse[Email], ids: openArray[Id]): seq[int] =
         result[j] = i
 
 proc assertSizeAscending(
-    client: var JmapClient,
+    client: JmapClient,
     target: LiveTestTarget,
     mailAccountId: AccountId,
     smallId, mediumId, largeId: Id,
@@ -136,14 +137,14 @@ proc assertSizeAscending(
       target, mailAccountId, filter, @[smallId, mediumId, largeId].toHashSet
     )
     .expect("pollEmailQueryIndexed size")
-  let comparator = @[plainComparator(pspSize, isAscending = Opt.some(true))]
+  let comparator = @[plainComparator(pspSize, direction = sdAscending)]
   let (b, h) = addEmailQuery(
-    initRequestBuilder(),
+    initRequestBuilder(makeBuilderId()),
     mailAccountId,
     filter = Opt.some(filter),
     sort = Opt.some(comparator),
   )
-  let resp = client.send(b).expect("send Email/query size asc")
+  let resp = client.send(b.freeze()).expect("send Email/query size asc")
   let qr = resp.get(h).expect("Email/query size asc extract")
   let positions = positionsOf(qr, @[smallId, mediumId, largeId])
   for i, pos in positions:
@@ -154,20 +155,20 @@ proc assertSizeAscending(
       ") < large (" & $positions[2] & ")"
 
 proc assertSubjectDescending(
-    client: var JmapClient, mailAccountId: AccountId, smallId, mediumId, largeId: Id
+    client: JmapClient, mailAccountId: AccountId, smallId, mediumId, largeId: Id
 ) =
   ## Sub-test B: sort by subject descending.  Seed subjects use
   ## suffixes "alpha"/"bravo"/"charlie" so descending yields
   ## charlie → bravo → alpha.
   let filter = filterCondition(EmailFilterCondition(subject: Opt.some("phase-i 56")))
-  let comparator = @[plainComparator(pspSubject, isAscending = Opt.some(false))]
+  let comparator = @[plainComparator(pspSubject, direction = sdDescending)]
   let (b, h) = addEmailQuery(
-    initRequestBuilder(),
+    initRequestBuilder(makeBuilderId()),
     mailAccountId,
     filter = Opt.some(filter),
     sort = Opt.some(comparator),
   )
-  let resp = client.send(b).expect("send Email/query subject desc")
+  let resp = client.send(b.freeze()).expect("send Email/query subject desc")
   let qr = resp.get(h).expect("Email/query subject desc extract")
   # smallId carries "alpha", mediumId carries "bravo", largeId carries "charlie"
   let positions = positionsOf(qr, @[smallId, mediumId, largeId])
@@ -178,25 +179,27 @@ proc assertSubjectDescending(
     "subject descending must yield charlie (large=" & $positions[2] &
       ") < bravo (medium=" & $positions[1] & ") < alpha (small=" & $positions[0] & ")"
 
-proc flagMediumEmail(client: var JmapClient, mailAccountId: AccountId, mediumId: Id) =
+proc flagMediumEmail(client: JmapClient, mailAccountId: AccountId, mediumId: Id) =
   ## Email/set update marking the medium seed with ``$flagged``.
   let updateSet = initEmailUpdateSet(@[markFlagged()]).expect("initEmailUpdateSet")
   let updates = parseNonEmptyEmailUpdates(@[(mediumId, updateSet)]).expect(
       "parseNonEmptyEmailUpdates"
     )
-  let (b, h) =
-    addEmailSet(initRequestBuilder(), mailAccountId, update = Opt.some(updates))
-  let resp = client.send(b).expect("send Email/set markFlagged")
+  let (b, h) = addEmailSet(
+    initRequestBuilder(makeBuilderId()), mailAccountId, update = Opt.some(updates)
+  )
+  let resp = client.send(b.freeze()).expect("send Email/set markFlagged")
   discard resp.get(h).expect("Email/set markFlagged extract")
 
 proc assertKeywordSortAscending(
     target: LiveTestTarget,
-    client: var JmapClient,
+    client: JmapClient,
+    recorder: RecordingTransportState,
     mailAccountId: AccountId,
     smallId, mediumId, largeId: Id,
 ) =
   ## Sub-test C: sort by hasKeyword:$flagged. Stalwart 0.15.5 emits the
-  ## flagged seed before unflagged ones under ``isAscending = true``
+  ## flagged seed before unflagged ones under ``direction = sdAscending``
   ## (empirical pin documented in the file docstring). James 3.9 does
   ## not advertise ``hasKeyword`` in ``emailQuerySortOptions`` and
   ## rejects the request with ``metUnsupportedSort`` per RFC 8620 §3.6.2.
@@ -205,17 +208,19 @@ proc assertKeywordSortAscending(
   let filter = filterCondition(EmailFilterCondition(subject: Opt.some("phase-i 56")))
   let flaggedKw = parseKeyword("$flagged").expect("parseKeyword $flagged")
   let comparator =
-    @[keywordComparator(kspHasKeyword, flaggedKw, isAscending = Opt.some(true))]
+    @[keywordComparator(kspHasKeyword, flaggedKw, direction = sdAscending)]
   let (b, h) = addEmailQuery(
-    initRequestBuilder(),
+    initRequestBuilder(makeBuilderId()),
     mailAccountId,
     filter = Opt.some(filter),
     sort = Opt.some(comparator),
   )
-  let resp = client.send(b).expect("send Email/query keyword asc[" & $target.kind & "]")
-  captureIfRequested(client, "email-query-advanced-sort-" & $target.kind).expect(
-    "captureIfRequested[" & $target.kind & "]"
+  let resp =
+    client.send(b.freeze()).expect("send Email/query keyword asc[" & $target.kind & "]")
+  captureIfRequested(
+    recorder.lastResponseBody, "email-query-advanced-sort-" & $target.kind
   )
+    .expect("captureIfRequested[" & $target.kind & "]")
   let qrExtract = resp.get(h)
   assertSuccessOrTypedError(
     target,
@@ -243,14 +248,9 @@ proc assertKeywordSortAscending(
         "flagged seed (medium=" & $mediumPos & ") must be at one end of the sort (small=" &
           $smallPos & ", large=" & $largePos & ") under hasKeyword:$flagged sort"
 
-block temailQueryAdvancedSortLive:
+testCase temailQueryAdvancedSortLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -272,7 +272,5 @@ block temailQueryAdvancedSortLive:
     assertSubjectDescending(client, mailAccountId, smallId, mediumId, largeId)
     flagMediumEmail(client, mailAccountId, mediumId)
     assertKeywordSortAscending(
-      target, client, mailAccountId, smallId, mediumId, largeId
+      target, client, recorder, mailAccountId, smallId, mediumId, largeId
     )
-
-    client.close()

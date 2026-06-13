@@ -12,9 +12,11 @@
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailSubmissionSetCanceled:
+testCase tcapturedEmailSubmissionSetCanceled:
   let j = loadCapturedFixture("email-submission-set-canceled-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -30,5 +32,5 @@ block tcapturedEmailSubmissionSetCanceled:
   for id, outcome in setResp.updateResults.pairs:
     doAssert outcome.isOk,
       "cancel update must be Ok (got rawType=" & outcome.error.rawType & ")"
-    doAssert string(id).len > 0, "updated submission id must be non-empty"
+    doAssert ($id).len > 0, "updated submission id must be non-empty"
   doAssert setResp.newState.isSome, "newState must be present in this fixture"

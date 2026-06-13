@@ -11,9 +11,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailQueryCollapseThreads:
+testCase tcapturedEmailQueryCollapseThreads:
   forEachCapturedServer("email-query-collapse-threads", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 1
@@ -28,4 +30,4 @@ block tcapturedEmailQueryCollapseThreads:
       "collapseThreads=true must surface at least one entry per thread (got " &
         $qr.ids.len & ")"
     for id in qr.ids:
-      doAssert string(id).len > 0, "every returned id must be non-empty"
+      doAssert ($id).len > 0, "every returned id must be non-empty"

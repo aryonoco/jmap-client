@@ -14,7 +14,7 @@
 ##     via ``seedSimpleEmail`` so the size knob is explicit.
 ##  2. ``Email/get`` with ``properties = ["id", "bodyValues",
 ##     "textBody"]`` and ``EmailBodyFetchOptions(fetchBodyValues =
-##     bvsText, maxBodyValueBytes = Opt.some(UnsignedInt(64)))``.
+##     bvsText, maxBodyValueBytes = Opt.some(parseUnsignedInt(64).get()))``.
 ##     Capture the wire response.
 ##  3. Assert exactly one bodyValues entry whose ``value.len <= 64``
 ##     AND ``isTruncated == true``.
@@ -32,22 +32,17 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 const SeedBodyLen = 2048
 const TruncationCap = 64
 
-block temailGetMaxBodyValueBytesLive:
+testCase temailGetMaxBodyValueBytesLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -82,10 +77,12 @@ block temailGetMaxBodyValueBytesLive:
       parseCreationId("phase-i-52-seed").expect("parseCreationId[" & $target.kind & "]")
     var createTbl = initTable[CreationId, EmailBlueprint]()
     createTbl[cid] = blueprint
-    let (bSeed, seedHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-    let seedResp =
-      client.send(bSeed).expect("send Email/set big body[" & $target.kind & "]")
+    let (bSeed, seedHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+    )
+    let seedResp = client.send(bSeed.freeze()).expect(
+        "send Email/set big body[" & $target.kind & "]"
+      )
     let seedSet = seedResp.get(seedHandle).expect(
         "Email/set big body extract[" & $target.kind & "]"
       )
@@ -99,42 +96,41 @@ block temailGetMaxBodyValueBytesLive:
       assertOn target, false, "Email/set returned no result"
     assertOn target, found
 
-    let (bGet, getHandle) = addEmailGet(
-      initRequestBuilder(),
+    let (bGet, getHandle) = addPartialEmailGet(
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "bodyValues", "textBody"]),
+      properties = parseNonEmptySeq(@[egpId, egpBodyValues, egpTextBody]).get(),
       bodyFetchOptions = EmailBodyFetchOptions(
         fetchBodyValues: bvsText,
-        maxBodyValueBytes: Opt.some(UnsignedInt(TruncationCap)),
+        maxBodyValueBytes: Opt.some(parseUnsignedInt(TruncationCap).get()),
       ),
     )
-    let resp =
-      client.send(bGet).expect("send Email/get truncation[" & $target.kind & "]")
+    let resp = client.send(bGet.freeze()).expect(
+        "send Email/get truncation[" & $target.kind & "]"
+      )
     captureIfRequested(
-      client, "email-get-max-body-value-bytes-truncated-" & $target.kind
+      recorder.lastResponseBody,
+      "email-get-max-body-value-bytes-truncated-" & $target.kind,
     )
       .expect("captureIfRequested[" & $target.kind & "]")
     let getResp =
       resp.get(getHandle).expect("Email/get truncation extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
-    let email =
-      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    let email = getResp.list[0]
+    let bodyValues = email.bodyValues.valueOr(initTable[PartId, EmailBodyValue]())
     assertOn target,
-      email.bodyValues.len >= 1,
+      bodyValues.len >= 1,
       "fetchBodyValues=bvsText must populate at least the text leaf"
     var anyTruncated = false
-    for partId, bv in email.bodyValues.pairs:
+    for partId, bv in bodyValues.pairs:
       assertOn target,
         bv.value.len <= TruncationCap,
         "bodyValue under maxBodyValueBytes=" & $TruncationCap & " must satisfy " &
-          "value.len <= cap (got " & $bv.value.len & " for partId=" & string(partId) &
-          ")"
+          "value.len <= cap (got " & $bv.value.len & " for partId=" & $partId & ")"
       if bv.isTruncated:
         anyTruncated = true
     assertOn target,
       anyTruncated,
       "at least one bodyValue must carry isTruncated=true under a 2 KB body and " &
         "a 64-byte cap"
-
-    client.close()

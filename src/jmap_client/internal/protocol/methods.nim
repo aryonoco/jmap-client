@@ -1,0 +1,914 @@
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2026 Aryan Ameri
+
+## Standard method request and response types for the six JMAP methods
+## (RFC 8620 sections 5.1-5.6): get, changes, set, copy, query, queryChanges.
+##
+## Request types receive ``toJson`` (Pattern L3-A); response types receive
+## ``fromJson`` (Pattern L3-B). Serialisation is unidirectional (Decision D3.7).
+## ``SetResponse`` and ``CopyResponse`` merging follows Pattern L3-C (section 8).
+##
+## ``GetResponse[T].list`` is typed via per-entry ``T.fromJson``
+## (mixin-resolved at instantiation; Decision D3.6 post-A3).
+## ``SetResponse[T, U].updateResults`` is typed via per-entry
+## ``U.fromJson`` (mixin-resolved at instantiation; Decision D3.6
+## post-A4). Sparse ``/get`` responses are typed via the
+## ``Partial*`` family registered as getter-only JMAP entities
+## (Decision D3.6 post-A3.6). Serialisation direction stays
+## governed by D3.7: response types are ``fromJson``-only with the
+## ``SetResponse.toJson`` and ``CopyResponse.toJson`` exceptions.
+
+{.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
+
+import std/json
+import std/sugar
+import std/tables
+
+import ../types
+import ../types/envelope
+import ../serialisation/serde
+import ../serialisation/serde_diagnostics
+import ../serialisation/serde_envelope
+import ../serialisation/serde_errors
+import ../serialisation/serde_helpers
+import ../serialisation/serde_primitives
+
+# =============================================================================
+# JsonNode pass-through fromJson — the Core/echo escape hatch
+# =============================================================================
+
+func fromJson*(
+    T: typedesc[JsonNode], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[JsonNode, SerdeViolation] =
+  ## Trivial identity resolver for ``Core/echo`` and similar
+  ## raw-argument extractors that hand back the wire object verbatim.
+  ## Lets ``initResponseHandle[JsonNode]`` resolve via the standard
+  ## mixin chain without a callback escape hatch.
+  discard $T # consumed for nimalyzer params rule
+  discard path
+  return ok(node)
+
+# =============================================================================
+# Lenient Option helpers (internal, not exported)
+# =============================================================================
+
+func optState(node: JsonNode, key: string): Opt[JmapState] =
+  ## Lenient optional JmapState extraction (section 5a.5 leniency).
+  ## Absent, null, wrong kind, or invalid content all produce none.
+  return parseJmapState((?optJsonField(node, key, JString)).getStr("")).optValue
+
+func optUnsignedInt(node: JsonNode, key: string): Opt[UnsignedInt] =
+  ## Lenient optional UnsignedInt extraction (section 5a.5 leniency).
+  ## Absent, null, wrong kind, or invalid content all produce none.
+  return parseUnsignedInt((?optJsonField(node, key, JInt)).getBiggestInt(0)).optValue
+
+# =============================================================================
+# Request type definitions (section 6)
+# =============================================================================
+
+type GetRequest*[T] = object
+  ## Request arguments for Foo/get (RFC 8620 section 5.1).
+  ## Fetches objects of type T by their identifiers. Property projection
+  ## is not a field here: a full-record fetch returns every property, and
+  ## a typed property subset flows through the ``addPartial<E>Get`` wrappers
+  ## (A3.6), which emit the ``properties`` wire key directly and return a
+  ## filter-tolerant ``PartialT``.
+  accountId*: AccountId ## The identifier of the account to use.
+  ids*: Opt[Referencable[seq[Id]]]
+    ## The identifiers of the Foo objects to return. If none, all records
+    ## of the data type are returned. Referencable: may be a direct seq or
+    ## a result reference to a previous call's output.
+
+type ChangesRequest*[T] = object
+  ## Request arguments for Foo/changes (RFC 8620 section 5.2).
+  ## Retrieves identifiers for records that have changed since a given state.
+  accountId*: AccountId ## The identifier of the account to use.
+  sinceState*: JmapState
+    ## The current state of the client, as returned in a previous Foo/get
+    ## response. The server returns changes since this state.
+  maxChanges*: Opt[MaxChanges]
+    ## The maximum number of identifiers to return. Must be > 0 per RFC
+    ## (enforced by the MaxChanges smart constructor).
+
+type SetRequest*[T, C, U] = object
+  ## Request arguments for Foo/set (RFC 8620 section 5.3).
+  ## Creates, updates, and/or destroys records of type T in a single method
+  ## call. Each operation is atomic; the method as a whole is NOT atomic.
+  ##
+  ## ``C`` is the typed create-entry value (e.g. ``MailboxCreate``,
+  ## ``EmailBlueprint``). ``U`` is the whole-container update algebra
+  ## (e.g. ``NonEmptyMailboxUpdates``, ``NonEmptyEmailUpdates``). Both
+  ## ``C.toJson`` and ``U.toJson`` resolve at instantiation via ``mixin``.
+  accountId*: AccountId ## The identifier of the account to use.
+  ifInState*: Opt[JmapState]
+    ## If supplied, must match the current state; otherwise the method is
+    ## aborted with a "stateMismatch" error.
+  create*: Opt[Table[CreationId, C]]
+    ## A map of creation identifiers to typed creation-model values.
+    ## ``C.toJson`` is resolved via ``mixin`` by the serialiser.
+  update*: Opt[U]
+    ## Typed whole-container update algebra. ``Opt.none`` omits the
+    ## ``update`` key from the wire; ``Opt.some(u)`` emits ``u.toJson()``
+    ## verbatim as the wire ``"update"`` value.
+  destroy*: Opt[Referencable[seq[Id]]]
+    ## A list of identifiers for records to permanently delete. Referencable:
+    ## may be a direct seq or a result reference.
+
+type CopyDestroyModeKind* = enum
+  ## Discriminator for ``CopyDestroyMode``. Names the two RFC 8620 §5.4
+  ## post-copy dispositions: ``cdmKeep`` leaves the originals in place;
+  ## ``cdmDestroyAfterSuccess`` triggers an implicit Foo/set destroy of
+  ## the originals in the from-account after a successful copy.
+  cdmKeep
+  cdmDestroyAfterSuccess
+
+type CopyDestroyMode* {.ruleOff: "objects".} = object
+  ## Typed post-copy disposition for ``CopyRequest`` (RFC 8620 §5.4).
+  ##
+  ## Closes the illegal-state hole left by the prior flat representation
+  ## (``onSuccessDestroyOriginal: bool`` + ``destroyFromIfInState:
+  ## Opt[JmapState]``), where a non-empty ``destroyFromIfInState`` alongside
+  ## ``onSuccessDestroyOriginal: false`` was structurally expressible but
+  ## semantically meaningless -- the server would silently ignore the
+  ## ``ifInState`` because no implicit destroy was issued. The case object
+  ## makes the two legitimate combinations the only representable ones.
+  ##
+  ## Construction via the smart constructors ``keepOriginals`` and
+  ## ``destroyAfterSuccess``; direct case-object construction is acceptable
+  ## because the discriminator is module-public (the illegal state is gone).
+  case kind*: CopyDestroyModeKind
+  of cdmKeep:
+    discard
+  of cdmDestroyAfterSuccess:
+    destroyIfInState*: Opt[JmapState]
+      ## Passed as ``ifInState`` to the implicit Foo/set call. ``Opt.none``
+      ## disables the state guard on the implicit destroy.
+
+func keepOriginals*(): CopyDestroyMode =
+  ## Constructs the ``cdmKeep`` variant — the server leaves originals in
+  ## place after a successful copy. ``CopyRequest.toJson`` omits
+  ## ``onSuccessDestroyOriginal`` entirely (spec default ``false`` per
+  ## RFC 8620 §5.4), matching the RFC default-omission convention.
+  return CopyDestroyMode(kind: cdmKeep)
+
+func destroyAfterSuccess*(
+    ifInState: Opt[JmapState] = Opt.none(JmapState)
+): CopyDestroyMode =
+  ## Constructs the ``cdmDestroyAfterSuccess`` variant -- the server issues
+  ## an implicit Foo/set destroy of the originals after a successful copy.
+  ## ``ifInState`` is the optional state guard passed through to that
+  ## implicit destroy call.
+  return CopyDestroyMode(kind: cdmDestroyAfterSuccess, destroyIfInState: ifInState)
+
+type CopyRequest*[T, CopyItem] = object
+  ## Request arguments for Foo/copy (RFC 8620 section 5.4).
+  ## Copies records from one account to another.
+  ##
+  ## ``CopyItem`` is the typed create-entry value (e.g. ``EmailCopyItem``
+  ## for Email/copy). ``CopyItem.toJson`` resolves at instantiation via
+  ## ``mixin``.
+  fromAccountId*: AccountId ## The identifier of the account to copy records from.
+  ifFromInState*: Opt[JmapState]
+    ## If supplied, must match the current state of the from-account.
+  accountId*: AccountId ## The identifier of the account to copy records to.
+  ifInState*: Opt[JmapState]
+    ## If supplied, must match the current state of the destination account.
+  create*: Table[CreationId, CopyItem]
+    ## A map of creation identifiers to typed copy-item values. Required
+    ## (not optional). Each copy item must carry an "id" property referencing
+    ## the record in the from-account.
+  destroyMode*: CopyDestroyMode
+    ## Post-copy disposition of the originals. Case object — the illegal
+    ## combination "state-guard supplied with no implicit destroy" is
+    ## structurally unrepresentable.
+
+# =============================================================================
+# Response type definitions (section 7)
+# =============================================================================
+
+type GetResponse*[T] = object
+  ## Response arguments for Foo/get (RFC 8620 section 5.1). Contains the
+  ## requested objects and any identifiers not found.
+  ##
+  ## ``T`` is the entity payload type. ``T.fromJson`` is resolved at
+  ## instantiation via ``mixin`` and runs once per wire ``list`` entry
+  ## inside ``GetResponse[T].fromJson``. Every ``T`` parameterising
+  ## ``GetResponse[T]`` MUST define ``fromJson(_: typedesc[T], JsonNode,
+  ## JsonPath): Result[T, SerdeViolation]`` visible at the caller's
+  ## instantiation scope.
+  ##
+  ## The typed ``list`` assumes every wire entry matches the ``T``
+  ## record shape. For full-record fetches use ``T = Email`` /
+  ## ``Mailbox`` / etc.; for sparse projections use ``T = PartialEmail``
+  ## / ``PartialMailbox`` / etc. (A3.6 D7 — every ``PartialT`` is
+  ## registered as a getter-only JMAP entity). The full record's
+  ## ``fromJson`` is strict on required fields; the partial parser is
+  ## lenient on missing fields and strict on wrong-kind present fields.
+  accountId*: AccountId ## Identifier of the account used for the call.
+  state*: JmapState
+    ## A string representing the state on the server for ALL data of this
+    ## type in the account. If the data changes, this string must change.
+  list*: seq[T]
+    ## The Foo objects requested, parsed per-entry via ``T.fromJson`` at
+    ## the dispatch site.
+  notFound*: seq[Id]
+    ## Identifiers passed for records that do not exist. Disjoint from
+    ## ``list`` by the inferred RFC 8620 §5.1 invariant (an id is either a
+    ## found object or a missing id, never both); ``GetResponse[T].fromJson``
+    ## drops any server-emitted overlap from this rail and keeps the
+    ## ``list`` entry.
+
+type ChangesResponse*[T] = object
+  ## Response arguments for Foo/changes (RFC 8620 section 5.2).
+  ## Lists identifiers for records that have been created, updated, or
+  ## destroyed since the given state.
+  accountId*: AccountId ## The identifier of the account used for the call.
+  oldState*: JmapState ## The "sinceState" argument echoed back.
+  newState*: JmapState ## The state the client will be in after applying the changes.
+  hasMoreChanges*: bool
+    ## If true, the client may call Foo/changes again with newState to get
+    ## further updates.
+  created*: seq[Id] ## Identifiers for records created since the old state.
+  updated*: seq[Id] ## Identifiers for records updated since the old state.
+  destroyed*: seq[Id] ## Identifiers for records destroyed since the old state.
+
+type SetResponse*[T, U] = object
+  ## Response arguments for Foo/set (RFC 8620 section 5.3).
+  ## Wire format uses parallel maps (created/notCreated, etc.); the
+  ## internal representation merges these into unified Result maps
+  ## (Decision 3.9B). Each identifier has exactly one outcome.
+  ##
+  ## ``T`` is the typed ``created[cid]`` payload; ``U`` is the typed
+  ## ``updated[id]`` payload (per-entity ``PartialT``). Both resolve at
+  ## instantiation via ``mixin`` — every ``T``/``U`` ending up here MUST
+  ## define ``fromJson`` and ``toJson`` overloads visible at the
+  ## caller's instantiation site.
+  ##
+  ## ``updateResults[id]`` discriminates between server-confirmed-
+  ## without-echo (``ok(Opt.none(U))`` — wire ``updated[id] = null``)
+  ## and server-echoed-partial-state (``ok(Opt.some(partial))`` — wire
+  ## ``updated[id] = {...}``); both are legitimate ``/set`` outcomes per
+  ## RFC 8620 §5.3.
+  accountId*: AccountId ## The identifier of the account used for the call.
+  oldState*: Opt[JmapState]
+    ## The state before making the requested changes, or none if the server
+    ## does not know the previous state.
+  newState*: Opt[JmapState]
+    ## Server state after the call. ``Opt.none`` when the server omits the
+    ## field — Stalwart 0.15.5 empirically omits ``newState`` for /set
+    ## responses with only failure rails populated. RFC 8620 §5.3 mandates
+    ## the field; the library is lenient on receive per Postel's law.
+    ## Consumers needing the post-call state fall back to ``oldState`` or
+    ## to a fresh ``Foo/get``.
+  createResults*: Table[CreationId, Result[T, SetError]]
+    ## Merged create outcomes. Wire ``created`` entries become
+    ## ``Result.ok(entity)`` via ``T.fromJson``; wire ``notCreated`` entries
+    ## become ``Result.err(setError)``. Last-writer-wins on duplicate keys.
+  updateResults*: Table[Id, Result[Opt[U], SetError]]
+    ## Merged update outcomes (RFC 8620 §5.3). Wire ``updated[id] = null``
+    ## becomes ``ok(Opt.none(U))``; wire ``updated[id] = {...}`` becomes
+    ## ``ok(Opt.some(?U.fromJson(v, path)))``. Wire ``notUpdated[id]``
+    ## becomes ``Result.err(setError)``. ``U`` is the per-entity
+    ## ``PartialT`` (typed three-state echo via ``FieldEcho`` per
+    ## wire-nullable field).
+  destroyResults*: Table[Id, Result[void, SetError]]
+    ## Merged destroy outcomes. Wire ``destroyed`` entries become
+    ## ``Result.ok()``; wire ``notDestroyed`` entries become
+    ## ``Result.err(setError)``.
+
+type CopyResponse*[T] = object
+  ## Response arguments for Foo/copy (RFC 8620 section 5.4).
+  ## Structurally similar to SetResponse but only has create results
+  ## (RFC 8620 §5.4 has no update branch for /copy). Uses unified
+  ## Result maps (Decision 3.9B). Shares the typed-``T`` semantics of
+  ## ``SetResponse[T, U]``'s create rail — ``T.fromJson`` resolves at
+  ## instantiation via ``mixin``.
+  fromAccountId*: AccountId ## The identifier of the account records were copied from.
+  accountId*: AccountId ## The identifier of the account records were copied to.
+  oldState*: Opt[JmapState] ## The state of the destination account before the copy.
+  newState*: Opt[JmapState]
+    ## Server state after the call. ``Opt.none`` when the server omits the
+    ## field — Stalwart 0.15.5 empirically omits ``newState`` for /copy
+    ## responses with only failure rails populated. RFC 8620 §5.4 mandates
+    ## the field; the library is lenient on receive per Postel's law.
+  createResults*: Table[CreationId, Result[T, SetError]]
+    ## Merged copy outcomes. Same merging semantics as SetResponse
+    ## create branch (Decision 3.9B).
+
+type QueryResponse*[T] = object
+  ## Response arguments for Foo/query (RFC 8620 section 5.5).
+  ## Returns a windowed list of identifiers matching the query criteria.
+  accountId*: AccountId ## The identifier of the account used for the call.
+  queryState*: JmapState
+    ## A string encoding the current state of the query on the server.
+  canCalculateChanges*: bool
+    ## True if the server supports calling Foo/queryChanges with these
+    ## filter/sort parameters.
+  position*: UnsignedInt
+    ## The zero-based index of the first result in the ids array within the
+    ## complete list of query results.
+  ids*: seq[Id] ## The list of identifiers for each Foo in the query results.
+  total*: Opt[UnsignedInt]
+    ## The total number of Foos matching the filter. Only present if
+    ## calculateTotal was true in the request.
+  limit*: Opt[UnsignedInt]
+    ## The limit enforced by the server. Only returned if the server set a
+    ## limit or used a different limit than requested.
+
+type QueryChangesResponse*[T] = object
+  ## Response arguments for Foo/queryChanges (RFC 8620 section 5.6).
+  ## Allows a client to update a cached query to match the new server state
+  ## via a splice algorithm.
+  accountId*: AccountId ## The identifier of the account used for the call.
+  oldQueryState*: JmapState ## The "sinceQueryState" argument echoed back.
+  newQueryState*: JmapState ## The state the query will be in after applying the changes.
+  total*: Opt[UnsignedInt]
+    ## The total number of Foos matching the filter. Only present if
+    ## calculateTotal was true in the request.
+  removed*: seq[Id]
+    ## Identifiers for every Foo that was in the query results in the old
+    ## state but is not in the new state.
+  added*: seq[AddedItem]
+    ## The identifier and index in the new query results for every Foo that
+    ## has been added since the old state AND every Foo in the current results
+    ## that was included in removed (due to mutable property changes).
+
+# =============================================================================
+# Pre-serialised wrappers (serialise-then-assemble pattern)
+# =============================================================================
+
+type SerializedSort* {.ruleOff: "objects".} = object
+  ## Pre-serialised sort array. Sealed Pattern-A object — ``rawValue``
+  ## is module-private. Distinct from ``SerializedFilter`` — newtype
+  ## prevents accidental swap.
+  rawValue: JsonNode
+
+type SerializedFilter* {.ruleOff: "objects".} = object
+  ## Pre-serialised filter tree. Sealed Pattern-A object — ``rawValue``
+  ## is module-private.
+  rawValue: JsonNode
+
+func toJsonNode*(s: SerializedSort): JsonNode =
+  ## Unwrap a pre-serialised sort array to its underlying JsonNode.
+  s.rawValue
+
+func toJsonNode*(f: SerializedFilter): JsonNode =
+  ## Unwrap a pre-serialised filter tree to its underlying JsonNode.
+  f.rawValue
+
+# =============================================================================
+# Serialisers
+# =============================================================================
+
+func serializeOptSort*[S](sort: Opt[seq[S]]): Opt[SerializedSort] =
+  ## Pre-serialise an optional sort array. Generic over sort element type.
+  ## Resolves ``toJson`` via ``mixin`` at instantiation site — works for
+  ## both ``Comparator`` and ``EmailComparator``.
+  mixin toJson
+  for sortSeq in sort:
+    var arr = newJArray()
+    for c in sortSeq:
+      arr.add(c.toJson())
+    return Opt.some(SerializedSort(rawValue: arr))
+  Opt.none(SerializedSort)
+
+func serializeOptFilter*[C](filter: Opt[Filter[C]]): Opt[SerializedFilter] =
+  ## Pre-serialise an optional filter tree. ``Filter[C].toJson`` resolves
+  ## the leaf condition's ``toJson`` via ``mixin`` at the builder's
+  ## instantiation scope — the entity's filter condition type must have
+  ## a visible ``toJson`` at that scope.
+  mixin toJson
+  for f in filter:
+    return Opt.some(SerializedFilter(rawValue: f.toJson()))
+  Opt.none(SerializedFilter)
+
+func serializeFilter*[C](filter: Filter[C]): SerializedFilter =
+  ## Pre-serialise a required filter tree. Non-Opt variant for builders
+  ## where the filter is mandatory (e.g. SearchSnippet/get).
+  ## ``Filter[C].toJson`` resolves the leaf condition's ``toJson`` via
+  ## ``mixin`` at the caller's instantiation scope.
+  mixin toJson
+  SerializedFilter(rawValue: filter.toJson())
+
+# =============================================================================
+# Assembly functions
+# =============================================================================
+
+func assembleQueryArgs*(
+    accountId: AccountId,
+    filter: Opt[SerializedFilter],
+    sort: Opt[SerializedSort],
+    queryParams: QueryParams,
+): JsonNode =
+  ## Build standard Foo/query request arguments from pre-serialised parts.
+  ## Single source of truth for the query protocol frame.
+  var node = newJObject()
+  node["accountId"] = accountId.toJson()
+  for f in filter:
+    node["filter"] = f.toJsonNode()
+  for s in sort:
+    node["sort"] = s.toJsonNode()
+  node["position"] = queryParams.position.toJson()
+  for a in queryParams.anchor:
+    node["anchor"] = a.toJson()
+    # ``anchorOffset`` is meaningful only when ``anchor`` is set (RFC 8620
+    # §5.5: the offset is from the anchor's position). Emitting it
+    # alongside an absent anchor is wasteful on lenient servers (Stalwart)
+    # and a hard reject on strict ones (Apache James 3.9 returns
+    # ``invalidArguments`` "anchorOffset is syntactically valid, but is
+    # not supported by the server"). Tying emission to anchor presence
+    # keeps the wire request RFC-conformant against both.
+    node["anchorOffset"] = queryParams.anchorOffset.toJson()
+  for lim in queryParams.limit:
+    node["limit"] = lim.toJson()
+  node["calculateTotal"] = %queryParams.calculateTotal
+  return node
+
+func assembleQueryChangesArgs*(
+    accountId: AccountId,
+    sinceQueryState: JmapState,
+    filter: Opt[SerializedFilter],
+    sort: Opt[SerializedSort],
+    maxChanges: Opt[MaxChanges],
+    upToId: Opt[Id],
+    calculateTotal: bool,
+): JsonNode =
+  ## Build standard Foo/queryChanges request arguments from pre-serialised parts.
+  var node = newJObject()
+  node["accountId"] = accountId.toJson()
+  for f in filter:
+    node["filter"] = f.toJsonNode()
+  for s in sort:
+    node["sort"] = s.toJsonNode()
+  node["sinceQueryState"] = sinceQueryState.toJson()
+  for mc in maxChanges:
+    node["maxChanges"] = mc.toJson()
+  for uid in upToId:
+    node["upToId"] = uid.toJson()
+  node["calculateTotal"] = %calculateTotal
+  return node
+
+# =============================================================================
+# Request toJson (Pattern L3-A)
+# =============================================================================
+
+func toJson*[T](req: GetRequest[T]): JsonNode =
+  ## Serialise GetRequest to JSON arguments object (RFC 8620 section 5.1).
+  ## Omits ``ids`` when none. The ``properties`` wire key, when present, is
+  ## emitted by the typed ``addPartial<E>Get`` wrappers (A3.6), not here.
+  ## Dispatches Referencable ids via referencableKey.
+  var node = newJObject()
+  node["accountId"] = req.accountId.toJson()
+  for idsVal in req.ids:
+    let idsKey = referencableKey("ids", idsVal)
+    for ids in idsVal.asDirect:
+      var arr = newJArray()
+      for id in ids:
+        arr.add(id.toJson())
+      node[idsKey] = arr
+    for rr in idsVal.asReference:
+      node[idsKey] = rr.toJson()
+  return node
+
+func toJson*[T](req: ChangesRequest[T]): JsonNode =
+  ## Serialise ChangesRequest to JSON arguments object (RFC 8620 section 5.2).
+  ## Omits ``maxChanges`` when none.
+  var node = newJObject()
+  node["accountId"] = req.accountId.toJson()
+  node["sinceState"] = req.sinceState.toJson()
+  for mc in req.maxChanges:
+    node["maxChanges"] = mc.toJson()
+  return node
+
+func toJson*[T, C, U](req: SetRequest[T, C, U]): JsonNode =
+  ## Serialise SetRequest to JSON arguments object (RFC 8620 section 5.3).
+  ## Wire key order: ``accountId, ifInState, create, destroy, update``.
+  ## ``C.toJson`` serialises each create entry; ``U.toJson`` serialises
+  ## the whole update container. Both resolve at instantiation via
+  ## ``mixin``. Entity-specific extension keys (e.g. ``onDestroyRemoveEmails``)
+  ## are appended by the builder after this function returns.
+  mixin toJson
+  var node = newJObject()
+  node["accountId"] = req.accountId.toJson()
+  for s in req.ifInState:
+    node["ifInState"] = s.toJson()
+  for createMap in req.create:
+    var createObj = newJObject()
+    for k, v in createMap:
+      createObj[$k] = v.toJson()
+    node["create"] = createObj
+  for destroyVal in req.destroy:
+    let destroyKey = referencableKey("destroy", destroyVal)
+    for ids in destroyVal.asDirect:
+      var arr = newJArray()
+      for id in ids:
+        arr.add(id.toJson())
+      node[destroyKey] = arr
+    for rr in destroyVal.asReference:
+      node[destroyKey] = rr.toJson()
+  for updateContainer in req.update:
+    node["update"] = updateContainer.toJson()
+  return node
+
+func toJson*[T, CopyItem](req: CopyRequest[T, CopyItem]): JsonNode =
+  ## Serialise CopyRequest to JSON arguments object (RFC 8620 section 5.4).
+  ## ``create`` is required (always emitted). ``onSuccessDestroyOriginal``
+  ## is emitted only when non-default (``true``); ``cdmKeep`` omits the key
+  ## per RFC 8620 §5.4's default-omission convention. ``CopyItem.toJson``
+  ## resolves at instantiation via ``mixin``.
+  mixin toJson
+  var node = newJObject()
+  node["fromAccountId"] = req.fromAccountId.toJson()
+  for s in req.ifFromInState:
+    node["ifFromInState"] = s.toJson()
+  node["accountId"] = req.accountId.toJson()
+  for s in req.ifInState:
+    node["ifInState"] = s.toJson()
+  var createObj = newJObject()
+  for k, v in req.create:
+    createObj[$k] = v.toJson()
+  node["create"] = createObj
+  case req.destroyMode.kind
+  of cdmKeep:
+    discard
+  of cdmDestroyAfterSuccess:
+    node["onSuccessDestroyOriginal"] = %true
+    for s in req.destroyMode.destroyIfInState:
+      node["destroyFromIfInState"] = s.toJson()
+  return node
+
+# =============================================================================
+# Response toJson — split merged Result tables back to the wire shape
+# =============================================================================
+# Round-trip helpers used primarily by tests and fixtures: ``fromJson``
+# merges parallel wire maps into typed Result tables; these helpers
+# reverse the projection. Production code consumes responses, never
+# emits them — but the round-trip is load-bearing for serde tests.
+
+func emitSplitCreateResults[T](
+    createResults: Table[CreationId, Result[T, SetError]], node: JsonNode
+) =
+  ## Splits a merged ``createResults`` table into the wire ``created`` and
+  ## ``notCreated`` maps; either key is omitted when its bucket is empty.
+  ## ``T.toJson`` resolves at instantiation via ``mixin``.
+  mixin toJson
+  var created = newJObject()
+  var notCreated = newJObject()
+  for cid, r in createResults:
+    if r.isOk:
+      created[$cid] = r.get().toJson()
+    else:
+      notCreated[$cid] = r.error().toJson()
+  if created.len > 0:
+    node["created"] = created
+  if notCreated.len > 0:
+    node["notCreated"] = notCreated
+
+func emitSplitUpdateResults[U](
+    updateResults: Table[Id, Result[Opt[U], SetError]], node: JsonNode
+) =
+  ## Splits a merged ``updateResults`` table into ``updated`` and
+  ## ``notUpdated`` wire maps. ``Opt.none(U)`` → JSON null;
+  ## ``Opt.some(u)`` → ``u.toJson()`` (RFC 8620 §5.3). ``U.toJson``
+  ## resolves at instantiation via ``mixin``.
+  mixin toJson
+  var updated = newJObject()
+  var notUpdated = newJObject()
+  for id, r in updateResults:
+    if r.isOk:
+      let inner = r.get()
+      updated[$id] =
+        if inner.isSome:
+          inner.get().toJson()
+        else:
+          newJNull()
+    else:
+      notUpdated[$id] = r.error().toJson()
+  if updated.len > 0:
+    node["updated"] = updated
+  if notUpdated.len > 0:
+    node["notUpdated"] = notUpdated
+
+func emitSplitDestroyResults(
+    destroyResults: Table[Id, Result[void, SetError]], node: JsonNode
+) =
+  ## Splits a merged ``destroyResults`` table into the wire ``destroyed``
+  ## array and ``notDestroyed`` map. Empty buckets omit their key.
+  var destroyed = newJArray()
+  var notDestroyed = newJObject()
+  for id, r in destroyResults:
+    if r.isOk:
+      destroyed.add(id.toJson())
+    else:
+      notDestroyed[$id] = r.error().toJson()
+  if destroyed.len > 0:
+    node["destroyed"] = destroyed
+  if notDestroyed.len > 0:
+    node["notDestroyed"] = notDestroyed
+
+func toJson*[T, U](resp: SetResponse[T, U]): JsonNode =
+  ## Serialise SetResponse[T, U] back to the RFC 8620 §5.3 wire shape:
+  ## merged Result tables split into parallel created/notCreated,
+  ## updated/notUpdated, destroyed/notDestroyed maps. ``T.toJson`` and
+  ## ``U.toJson`` resolve at instantiation via ``mixin``.
+  mixin toJson
+  var node = newJObject()
+  node["accountId"] = resp.accountId.toJson()
+  for s in resp.oldState:
+    node["oldState"] = s.toJson()
+  for s in resp.newState:
+    node["newState"] = s.toJson()
+  emitSplitCreateResults(resp.createResults, node)
+  emitSplitUpdateResults[U](resp.updateResults, node)
+  emitSplitDestroyResults(resp.destroyResults, node)
+  return node
+
+func toJson*[T](resp: CopyResponse[T]): JsonNode =
+  ## Serialise CopyResponse[T] back to the RFC 8620 §5.4 wire shape.
+  ## Only ``createResults`` to split; copy has no update/destroy branches.
+  mixin toJson
+  var node = newJObject()
+  node["fromAccountId"] = resp.fromAccountId.toJson()
+  node["accountId"] = resp.accountId.toJson()
+  for s in resp.oldState:
+    node["oldState"] = s.toJson()
+  for s in resp.newState:
+    node["newState"] = s.toJson()
+  emitSplitCreateResults(resp.createResults, node)
+  return node
+
+# =============================================================================
+# SetResponse merging helpers (section 8)
+# =============================================================================
+
+func mergeCreateResults[T](
+    node: JsonNode, path: JsonPath
+): Result[Table[CreationId, Result[T, SetError]], SerdeViolation] =
+  ## Merge wire ``created``/``notCreated`` maps into a unified Result table
+  ## (RFC 8620 section 5.3, Decision 3.9B). Used by both SetResponse and
+  ## CopyResponse. Last-writer-wins for duplicate keys (section 8.5).
+  ##
+  ## ``T.fromJson`` resolves at instantiation via ``mixin`` — every
+  ## ``T`` that ends up in ``SetResponse[T, U]`` / ``CopyResponse[T]``
+  ## MUST define ``fromJson(_: typedesc[T], JsonNode, JsonPath): Result[
+  ## T, SerdeViolation]``.
+  mixin fromJson
+  var tbl = initTable[CreationId, Result[T, SetError]]()
+  let createdNode = node{"created"}
+  if not createdNode.isNil and createdNode.kind == JObject:
+    for k, v in createdNode.pairs:
+      let cid = ?wrapInner(parseCreationId(k), path / "created" / k)
+      let entity = ?T.fromJson(v, path / "created" / k)
+      tbl[cid] = Result[T, SetError].ok(entity)
+  let notCreatedNode = node{"notCreated"}
+  if not notCreatedNode.isNil and notCreatedNode.kind == JObject:
+    for k, v in notCreatedNode.pairs:
+      let cid = ?wrapInner(parseCreationId(k), path / "notCreated" / k)
+      let se = ?SetError.fromJson(v, path / "notCreated" / k)
+      tbl[cid] = Result[T, SetError].err(se)
+  return ok(tbl)
+
+func mergeUpdateResults[U](
+    node: JsonNode, path: JsonPath
+): Result[Table[Id, Result[Opt[U], SetError]], SerdeViolation] =
+  ## Merge wire ``updated``/``notUpdated`` maps into a unified Result
+  ## table (RFC 8620 section 5.3, Decision 3.9B). Wire ``updated[id] =
+  ## null`` → ``ok(Opt.none(U))``; non-null → ``ok(Opt.some(?U.fromJson(
+  ## v, path)))``; ``notUpdated[id]`` → ``err(?SetError.fromJson(v,
+  ## path))``. Last-writer-wins on duplicate keys (section 8.5).
+  ##
+  ## ``U.fromJson`` resolves at instantiation via ``mixin``.
+  mixin fromJson
+  var tbl = initTable[Id, Result[Opt[U], SetError]]()
+  let updatedNode = node{"updated"}
+  if not updatedNode.isNil and updatedNode.kind == JObject:
+    for k, v in updatedNode.pairs:
+      let id = ?wrapInner(parseIdFromServer(k), path / "updated" / k)
+      if v.isNil or v.kind == JNull:
+        tbl[id] = Result[Opt[U], SetError].ok(Opt.none(U))
+      else:
+        let parsed = ?U.fromJson(v, path / "updated" / k)
+        tbl[id] = Result[Opt[U], SetError].ok(Opt.some(parsed))
+  let notUpdatedNode = node{"notUpdated"}
+  if not notUpdatedNode.isNil and notUpdatedNode.kind == JObject:
+    for k, v in notUpdatedNode.pairs:
+      let id = ?wrapInner(parseIdFromServer(k), path / "notUpdated" / k)
+      let se = ?SetError.fromJson(v, path / "notUpdated" / k)
+      tbl[id] = Result[Opt[U], SetError].err(se)
+  return ok(tbl)
+
+func mergeDestroyResults(
+    node: JsonNode, path: JsonPath
+): Result[Table[Id, Result[void, SetError]], SerdeViolation] =
+  ## Merge wire ``destroyed``/``notDestroyed`` into a unified Result table
+  ## (RFC 8620 section 5.3, Decision 3.9B). ``destroyed`` is a flat array
+  ## on the wire; each ID becomes ``Result.ok()``. ``notDestroyed`` entries
+  ## become ``Result.err(setError)``. Last-writer-wins on duplicate keys.
+  var tbl = initTable[Id, Result[void, SetError]]()
+  let destroyedNode = node{"destroyed"}
+  if not destroyedNode.isNil and destroyedNode.kind == JArray:
+    for i, elem in destroyedNode.getElems(@[]):
+      let id = ?wrapInner(parseIdFromServer(elem.getStr("")), path / "destroyed" / i)
+      tbl[id] = Result[void, SetError].ok()
+  let notDestroyedNode = node{"notDestroyed"}
+  if not notDestroyedNode.isNil and notDestroyedNode.kind == JObject:
+    for k, v in notDestroyedNode.pairs:
+      let id = ?wrapInner(parseIdFromServer(k), path / "notDestroyed" / k)
+      let se = ?SetError.fromJson(v, path / "notDestroyed" / k)
+      tbl[id] = Result[void, SetError].err(se)
+  return ok(tbl)
+
+# =============================================================================
+# Response fromJson (Pattern L3-B)
+# =============================================================================
+
+func fromJson*[T](
+    R: typedesc[GetResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[GetResponse[T], SerdeViolation] =
+  ## Deserialise JSON arguments to GetResponse (RFC 8620 section 5.1).
+  ## Each wire ``list`` entry is parsed via ``T.fromJson`` resolved at
+  ## instantiation via ``mixin``. Uses lenient constructors for
+  ## server-assigned identifiers. Reconciles the inferred
+  ## ``list ∩ notFound = ∅`` invariant (RFC 8620 §5.1) by dropping from
+  ## ``notFound`` any id also present in ``list`` via ``reconcileNotFound``.
+  mixin fromJson
+  discard $R # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId =
+    ?wrapInner(parseAccountId(accountIdNode.getStr("")), path / "accountId")
+  let stateNode = ?fieldJString(node, "state", path)
+  let state = ?wrapInner(parseJmapState(stateNode.getStr("")), path / "state")
+  let listNode = ?fieldJArray(node, "list", path)
+  let list = collect(newSeq):
+    for i, elem in listNode.getElems(@[]):
+      ?T.fromJson(elem, path / "list" / i)
+  let rawNotFound = ?parseOptIdArray(node{"notFound"}, path / "notFound")
+  let notFound = reconcileNotFound(listNode, rawNotFound)
+  return ok(
+    GetResponse[T](accountId: accountId, state: state, list: list, notFound: notFound)
+  )
+
+func fromJson*[T](
+    R: typedesc[ChangesResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[ChangesResponse[T], SerdeViolation] =
+  ## Deserialise JSON arguments to ChangesResponse (RFC 8620 section 5.2).
+  discard $R # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId =
+    ?wrapInner(parseAccountId(accountIdNode.getStr("")), path / "accountId")
+  let oldStateNode = ?fieldJString(node, "oldState", path)
+  let oldState = ?wrapInner(parseJmapState(oldStateNode.getStr("")), path / "oldState")
+  let newStateNode = ?fieldJString(node, "newState", path)
+  let newState = ?wrapInner(parseJmapState(newStateNode.getStr("")), path / "newState")
+  let hmcNode = ?fieldJBool(node, "hasMoreChanges", path)
+  let hasMoreChanges = hmcNode.getBool(false)
+  # created/updated/destroyed may legitimately overlap — RFC 8620 §5.2
+  # (lines 1748-1759) permits an id in more than one set, so this is not an
+  # A29-style disjointness invariant and must not be reconciled.
+  let created = ?parseIdArrayField(node, "created", path)
+  let updated = ?parseIdArrayField(node, "updated", path)
+  let destroyed = ?parseIdArrayField(node, "destroyed", path)
+  return ok(
+    ChangesResponse[T](
+      accountId: accountId,
+      oldState: oldState,
+      newState: newState,
+      hasMoreChanges: hasMoreChanges,
+      created: created,
+      updated: updated,
+      destroyed: destroyed,
+    )
+  )
+
+func fromJson*[T, U](
+    R: typedesc[SetResponse[T, U]], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[SetResponse[T, U], SerdeViolation] =
+  ## Deserialise JSON arguments to SetResponse[T, U] (RFC 8620 §5.3).
+  ## Merges parallel wire maps into separate success/failure tables
+  ## (section 8). ``T.fromJson`` and ``U.fromJson`` resolve at
+  ## instantiation via ``mixin``.
+  mixin fromJson
+  discard $R # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId =
+    ?wrapInner(parseAccountId(accountIdNode.getStr("")), path / "accountId")
+  let newState = optState(node, "newState")
+  let oldState = optState(node, "oldState")
+  let createResults = ?mergeCreateResults[T](node, path)
+  let updateResults = ?mergeUpdateResults[U](node, path)
+  let destroyResults = ?mergeDestroyResults(node, path)
+  return ok(
+    SetResponse[T, U](
+      accountId: accountId,
+      newState: newState,
+      oldState: oldState,
+      createResults: createResults,
+      updateResults: updateResults,
+      destroyResults: destroyResults,
+    )
+  )
+
+func fromJson*[T](
+    R: typedesc[CopyResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[CopyResponse[T], SerdeViolation] =
+  ## Deserialise JSON arguments to CopyResponse (RFC 8620 section 5.4).
+  ## Merges created/notCreated wire maps into separate success/failure
+  ## tables (section 8). ``T.fromJson`` resolves at instantiation via
+  ## ``mixin``.
+  mixin fromJson
+  discard $R # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let fromAccountIdNode = ?fieldJString(node, "fromAccountId", path)
+  let fromAccountId =
+    ?wrapInner(parseAccountId(fromAccountIdNode.getStr("")), path / "fromAccountId")
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId =
+    ?wrapInner(parseAccountId(accountIdNode.getStr("")), path / "accountId")
+  let newState = optState(node, "newState")
+  let oldState = optState(node, "oldState")
+  let createResults = ?mergeCreateResults[T](node, path)
+  return ok(
+    CopyResponse[T](
+      fromAccountId: fromAccountId,
+      accountId: accountId,
+      newState: newState,
+      oldState: oldState,
+      createResults: createResults,
+    )
+  )
+
+func fromJson*[T](
+    R: typedesc[QueryResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[QueryResponse[T], SerdeViolation] =
+  ## Deserialise JSON arguments to QueryResponse (RFC 8620 section 5.5).
+  ## ``total`` and ``limit`` use lenient Option handling (absent -> none).
+  discard $R # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId =
+    ?wrapInner(parseAccountId(accountIdNode.getStr("")), path / "accountId")
+  let queryStateNode = ?fieldJString(node, "queryState", path)
+  let queryState =
+    ?wrapInner(parseJmapState(queryStateNode.getStr("")), path / "queryState")
+  let cccNode = ?fieldJBool(node, "canCalculateChanges", path)
+  let canCalculateChanges = cccNode.getBool(false)
+  let posNode = ?fieldJInt(node, "position", path)
+  let position =
+    ?wrapInner(parseUnsignedInt(posNode.getBiggestInt(0)), path / "position")
+  let ids = ?parseIdArrayField(node, "ids", path)
+  let total = optUnsignedInt(node, "total")
+  let limit = optUnsignedInt(node, "limit")
+  return ok(
+    QueryResponse[T](
+      accountId: accountId,
+      queryState: queryState,
+      canCalculateChanges: canCalculateChanges,
+      position: position,
+      ids: ids,
+      total: total,
+      limit: limit,
+    )
+  )
+
+func fromJson*[T](
+    R: typedesc[QueryChangesResponse[T]],
+    node: JsonNode,
+    path: JsonPath = emptyJsonPath(),
+): Result[QueryChangesResponse[T], SerdeViolation] =
+  ## Deserialise JSON arguments to QueryChangesResponse (RFC 8620 section 5.6).
+  ## ``total`` uses lenient Option handling (absent -> none). ``added`` elements
+  ## parsed via AddedItem.fromJson (Layer 2).
+  discard $R # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId =
+    ?wrapInner(parseAccountId(accountIdNode.getStr("")), path / "accountId")
+  let oldQueryStateNode = ?fieldJString(node, "oldQueryState", path)
+  let oldQueryState =
+    ?wrapInner(parseJmapState(oldQueryStateNode.getStr("")), path / "oldQueryState")
+  let newQueryStateNode = ?fieldJString(node, "newQueryState", path)
+  let newQueryState =
+    ?wrapInner(parseJmapState(newQueryStateNode.getStr("")), path / "newQueryState")
+  let total = optUnsignedInt(node, "total")
+  # removed ∩ added is RFC-required, not illegal — RFC 8620 §5.6
+  # (lines 2751-2757) re-adds a record at a new index after a mutable-
+  # property change, so this overlap must not be reconciled (cf. A29).
+  let removed = ?parseIdArrayField(node, "removed", path)
+  let addedNode = ?fieldJArray(node, "added", path)
+  let added = collect(newSeq):
+    for i, elem in addedNode.getElems(@[]):
+      ?AddedItem.fromJson(elem, path / "added" / i)
+  return ok(
+    QueryChangesResponse[T](
+      accountId: accountId,
+      oldQueryState: oldQueryState,
+      newQueryState: newQueryState,
+      total: total,
+      removed: removed,
+      added: added,
+    )
+  )

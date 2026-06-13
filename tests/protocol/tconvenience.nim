@@ -1,82 +1,45 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
+## Tests for the per-entity pipeline combinators in
+## ``jmap_client/convenience`` — the query-then-get / changes-to-get
+## wrappers and the ``getBoth`` paired extraction. Each test drives a
+## real entity (Email, Mailbox) through ``initRequestBuilder``, then
+## asserts the emitted two-invocation wire shape and back-reference, or
+## extracts both responses from a synthetic ``Response``.
+
 {.push raises: [].}
-
-## Pipeline combinator tests for the convenience module.
-
-{.push ruleOff: "hasDoc".}
-{.push ruleOff: "objects".}
-{.push ruleOff: "params".}
 
 import std/json
 import std/tables
 
-import jmap_client/types
-import jmap_client/serialisation
-import jmap_client/methods
-import jmap_client/dispatch
-import jmap_client/builder
-import jmap_client/entity
+import jmap_client
 import jmap_client/convenience
+import jmap_client/internal/protocol/builder
+import jmap_client/internal/types/envelope
 
 import ../massertions
 import ../mfixtures
-
-# ---------------------------------------------------------------------------
-# Mock entity (same pattern as tbuilder.nim)
-# ---------------------------------------------------------------------------
-
-type MockFilter = object
-
-type MockQueryable = object
-
-proc methodEntity*(T: typedesc[MockQueryable]): MethodEntity =
-  meTest
-
-proc capabilityUri*(T: typedesc[MockQueryable]): string =
-  "urn:test:mockqueryable"
-
-proc getMethodName*(T: typedesc[MockQueryable]): MethodName =
-  mnMailboxGet
-
-proc changesMethodName*(T: typedesc[MockQueryable]): MethodName =
-  mnMailboxChanges
-
-proc queryMethodName*(T: typedesc[MockQueryable]): MethodName =
-  mnEmailQuery
-
-template filterType*(T: typedesc[MockQueryable]): typedesc =
-  MockFilter
-
-proc toJson(c: MockFilter): JsonNode {.noSideEffect, raises: [].} =
-  %*{"mock": true}
-
-registerJmapEntity(MockQueryable)
-registerQueryableEntity(MockQueryable)
-
-{.pop.} # params
-{.pop.} # objects
-{.pop.} # hasDoc
+import ../mtestblock
 
 # ===========================================================================
-# A. addQueryThenGet
+# A. addEmailQueryThenGet
 # ===========================================================================
 
-block addQueryThenGetProducesTwoInvocations:
-  ## addQueryThenGet adds both query and get with result reference wiring.
-  let b0 = initRequestBuilder()
-  let (b1, _) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
-  let req = b1.build()
+testCase addEmailQueryThenGetEmitsQueryAndGet:
+  ## addEmailQueryThenGet adds Email/query followed by Email/get.
+  let b0 = initRequestBuilder(makeBuilderId())
+  let (b1, _) = addEmailQueryThenGet(b0, makeAccountId("a1"))
+  let req = b1.freeze().request
   assertLen req.methodCalls, 2
   assertEq req.methodCalls[0].name, mnEmailQuery
-  assertEq req.methodCalls[1].name, mnMailboxGet
+  assertEq req.methodCalls[1].name, mnEmailGet
 
-block addQueryThenGetWiresResultReference:
-  ## The get invocation references the query's /ids path.
-  let b0 = initRequestBuilder()
-  let (b1, _) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
-  let req = b1.build()
+testCase addEmailQueryThenGetWiresIdsReference:
+  ## The Email/get invocation back-references the query's /ids path.
+  let b0 = initRequestBuilder(makeBuilderId())
+  let (b1, _) = addEmailQueryThenGet(b0, makeAccountId("a1"))
+  let req = b1.freeze().request
   let getArgs = req.methodCalls[1].arguments
   doAssert getArgs{"ids"}.isNil # direct ids NOT present
   let refNode = getArgs{"#ids"}
@@ -85,87 +48,136 @@ block addQueryThenGetWiresResultReference:
   assertEq refNode{"name"}.getStr(""), "Email/query"
   assertEq refNode{"path"}.getStr(""), "/ids"
 
-block addQueryThenGetHandlesArePhantomTyped:
-  ## The returned handles have correct phantom types.
-  let b0 = initRequestBuilder()
-  let (_, handles) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
-  # query handle is ResponseHandle[QueryResponse[MockQueryable]]
-  doAssert $handles.query == "c0"
-  # get handle is ResponseHandle[GetResponse[MockQueryable]]
-  doAssert $handles.get == "c1"
-
-block addQueryThenGetAutoCollectsCapability:
-  ## Capability URI is registered once (not duplicated). The pre-declared
-  ## ``urn:ietf:params:jmap:core`` from ``initRequestBuilder`` is also
-  ## present (RFC 8620 §3.2).
-  let b0 = initRequestBuilder()
-  let (b1, _) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
-  let req = b1.build()
-  assertLen req.`using`, 2
-  doAssert "urn:ietf:params:jmap:core" in req.`using`
-  doAssert "urn:test:mockqueryable" in req.`using`
-
 # ===========================================================================
-# B. addChangesToGet
+# B. addEmailChangesToGet
 # ===========================================================================
 
-block addChangesToGetProducesTwoInvocations:
-  ## addChangesToGet adds changes + get with /created reference.
-  let b0 = initRequestBuilder()
-  let (b1, _) = addChangesToGet[MockQueryable](b0, makeAccountId("a1"), makeState("s0"))
-  let req = b1.build()
+testCase addEmailChangesToGetEmitsChangesAndGet:
+  ## addEmailChangesToGet adds Email/changes followed by Email/get.
+  let b0 = initRequestBuilder(makeBuilderId())
+  let (b1, _) = addEmailChangesToGet(b0, makeAccountId("a1"), makeState("s0"))
+  let req = b1.freeze().request
+  assertLen req.methodCalls, 2
+  assertEq req.methodCalls[0].name, mnEmailChanges
+  assertEq req.methodCalls[1].name, mnEmailGet
+
+testCase addEmailChangesToGetWiresCreatedReference:
+  ## The Email/get invocation back-references the changes' /created path.
+  let b0 = initRequestBuilder(makeBuilderId())
+  let (b1, _) = addEmailChangesToGet(b0, makeAccountId("a1"), makeState("s0"))
+  let req = b1.freeze().request
+  let refNode = req.methodCalls[1].arguments{"#ids"}
+  doAssert not refNode.isNil
+  assertEq refNode{"name"}.getStr(""), "Email/changes"
+  assertEq refNode{"path"}.getStr(""), "/created"
+
+# ===========================================================================
+# C. addMailboxChangesToGet
+# ===========================================================================
+
+testCase addMailboxChangesToGetEmitsChangesAndGet:
+  ## addMailboxChangesToGet adds Mailbox/changes + Mailbox/get and returns
+  ## the bespoke MailboxChangesGetHandles pair.
+  let b0 = initRequestBuilder(makeBuilderId())
+  let (b1, handles) = addMailboxChangesToGet(b0, makeAccountId("a1"), makeState("s0"))
+  let req = b1.freeze().request
   assertLen req.methodCalls, 2
   assertEq req.methodCalls[0].name, mnMailboxChanges
   assertEq req.methodCalls[1].name, mnMailboxGet
+  doAssert $handles.changes == "c0"
+  doAssert $handles.get == "c1"
 
-block addChangesToGetWiresCreatedRef:
-  ## The get invocation references the changes' /created path.
-  let b0 = initRequestBuilder()
-  let (b1, _) = addChangesToGet[MockQueryable](b0, makeAccountId("a1"), makeState("s0"))
-  let req = b1.build()
-  let getArgs = req.methodCalls[1].arguments
-  let refNode = getArgs{"#ids"}
+testCase addMailboxChangesToGetWiresCreatedReference:
+  ## The Mailbox/get invocation back-references the changes' /created path.
+  let b0 = initRequestBuilder(makeBuilderId())
+  let (b1, _) = addMailboxChangesToGet(b0, makeAccountId("a1"), makeState("s0"))
+  let req = b1.freeze().request
+  let refNode = req.methodCalls[1].arguments{"#ids"}
   doAssert not refNode.isNil
-  assertEq refNode{"path"}.getStr(""), "/created"
   assertEq refNode{"name"}.getStr(""), "Mailbox/changes"
+  assertEq refNode{"path"}.getStr(""), "/created"
 
 # ===========================================================================
-# C. getBoth for QueryGetHandles
+# D. getBoth — paired extraction
 # ===========================================================================
 
-block getBothQueryGetSuccess:
-  ## getBoth extracts both query and get results from a synthetic response.
-  let b0 = initRequestBuilder()
-  let (_, handles) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
-  let queryJson = makeQueryResponseJson(accountId = "a1", queryState = "qs1")
-  let getJson = makeGetResponseJson(accountId = "a1", state = "s1")
-  let resp = Response(
-    methodResponses: @[
-      initInvocation(mnEmailQuery, queryJson, makeMcid("c0")),
-      initInvocation(mnMailboxGet, getJson, makeMcid("c1")),
+testCase getBothQueryGetSuccess:
+  ## getBoth over QueryGetHandles[Email] extracts both responses.
+  let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
+  let (_, handles) = addEmailQueryThenGet(b0, makeAccountId("a1"))
+  let resp = initResponse(
+    @[
+      initInvocation(
+        mnEmailQuery, makeQueryResponseJson(accountId = "a1"), makeMcid("c0")
+      ),
+      initInvocation(mnEmailGet, makeGetResponseJson(accountId = "a1"), makeMcid("c1")),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
-  let results = resp.getBoth(handles)
+  let dr = makeDispatchedResponse(resp, bid)
+  let results = dr.getBoth(handles)
   assertOk results
   let r = results.get()
   doAssert r.query.accountId == makeAccountId("a1")
   doAssert r.get.accountId == makeAccountId("a1")
 
-block getBothQueryGetMethodError:
-  ## getBoth fails on the first MethodError (query error = get not attempted).
-  let b0 = initRequestBuilder()
-  let (_, handles) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
-  let errorJson = %*{"type": "serverFail"}
-  let getJson = makeGetResponseJson(accountId = "a1", state = "s1")
-  let resp = Response(
-    methodResponses: @[
-      parseInvocation("error", errorJson, makeMcid("c0")).get(),
-      initInvocation(mnMailboxGet, getJson, makeMcid("c1")),
+testCase getBothChangesGetSuccess:
+  ## getBoth over ChangesGetHandles[Email] extracts both responses.
+  let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
+  let (_, handles) = addEmailChangesToGet(b0, makeAccountId("a1"), makeState("s0"))
+  let resp = initResponse(
+    @[
+      initInvocation(
+        mnEmailChanges, makeChangesResponseJson(accountId = "a1"), makeMcid("c0")
+      ),
+      initInvocation(mnEmailGet, makeGetResponseJson(accountId = "a1"), makeMcid("c1")),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
-  let results = resp.getBoth(handles)
-  doAssert results.isErr
+  let dr = makeDispatchedResponse(resp, bid)
+  let results = dr.getBoth(handles)
+  assertOk results
+  doAssert results.get().changes.accountId == makeAccountId("a1")
+
+testCase getBothMailboxChangesGetSuccess:
+  ## getBoth over MailboxChangesGetHandles extracts both responses.
+  let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
+  let (_, handles) = addMailboxChangesToGet(b0, makeAccountId("a1"), makeState("s0"))
+  let resp = initResponse(
+    @[
+      initInvocation(
+        mnMailboxChanges, makeChangesResponseJson(accountId = "a1"), makeMcid("c0")
+      ),
+      initInvocation(
+        mnMailboxGet, makeGetResponseJson(accountId = "a1"), makeMcid("c1")
+      ),
+    ],
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
+  )
+  let dr = makeDispatchedResponse(resp, bid)
+  let results = dr.getBoth(handles)
+  assertOk results
+  doAssert results.get().get.accountId == makeAccountId("a1")
+
+testCase getBothShortCircuitsOnFirstError:
+  ## getBoth fails on the first error — a query MethodError means the get
+  ## response is never extracted.
+  let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
+  let (_, handles) = addEmailQueryThenGet(b0, makeAccountId("a1"))
+  let resp = initResponse(
+    @[
+      parseInvocation("error", %*{"type": "serverFail"}, makeMcid("c0")).get(),
+      initInvocation(mnEmailGet, makeGetResponseJson(accountId = "a1"), makeMcid("c1")),
+    ],
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
+  )
+  let dr = makeDispatchedResponse(resp, bid)
+  doAssert dr.getBoth(handles).isErr

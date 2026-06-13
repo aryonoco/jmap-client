@@ -12,9 +12,11 @@
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailHeaderForms:
+testCase tcapturedEmailHeaderForms:
   forEachCapturedServer("email-header-forms", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 1
@@ -24,7 +26,7 @@ block tcapturedEmailHeaderForms:
     let getResp =
       GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
     doAssert getResp.list.len == 1
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    let email = getResp.list[0]
 
     let listPostKey =
       parseHeaderPropertyName("header:List-Post:asURLs").expect("listPostKey")

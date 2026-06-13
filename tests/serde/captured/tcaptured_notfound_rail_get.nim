@@ -15,9 +15,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedNotfoundRailGet:
+testCase tcapturedNotfoundRailGet:
   forEachCapturedServer("notfound-rail-get", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 1
@@ -30,10 +32,10 @@ block tcapturedNotfoundRailGet:
       "fixture carries one real Email; got " & $getResp.list.len
     doAssert getResp.notFound.len == 1,
       "fixture carries one synthetic id in notFound; got " & $getResp.notFound.len
-    doAssert getResp.notFound[0] == Id("zzzzzz"),
+    doAssert getResp.notFound[0] == parseIdFromServer("zzzzzz").get(),
       "notFound id must round-trip byte-for-byte; got " & $getResp.notFound
 
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    let email = getResp.list[0]
     doAssert email.subject.isSome,
       "the real Email's subject must round-trip through Email.fromJson"
     doAssert email.subject.unsafeGet == "phase-j 66 notFound",

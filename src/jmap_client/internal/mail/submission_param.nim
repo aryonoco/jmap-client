@@ -1,0 +1,609 @@
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2026 Aryan Ameri
+
+## Typed SMTP-parameter algebra carried on each ``Envelope.Address`` entry —
+## payload leaves (``BodyEncoding``, ``DsnRetType``, ``DsnNotifyFlag``,
+## ``DeliveryByMode``, ``HoldForSeconds``, ``MtPriority``), the
+## ``SubmissionParam`` case-object variant with its twelve smart
+## constructors, the identity-key projection ``SubmissionParamKey``, and the
+## duplicate-free bag ``SubmissionParams``.
+##
+## Lifts each parameter's subordinate-RFC structural invariants into the
+## type so detection and serialisation share a single source of truth
+## (RFC 1652 / RFC 6152, RFC 1870, RFC 2852, RFC 3461, RFC 4865, RFC 6531,
+## RFC 6710, RFC 8621 §7).
+##
+## Design authority: ``docs/design/12-mail-G1-design.md`` §2.3–2.4.
+
+{.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
+
+import std/hashes
+import std/sets
+import std/tables
+
+import ../types/primitives
+import ../types/validation
+
+import ../types/submission_atoms
+
+# ===========================================================================
+# SMTP parameter payload leaves — design §2.3
+# ===========================================================================
+
+type BodyEncoding* = enum
+  ## RFC 1652 / RFC 6152 ``BODY=`` parameter values. Selects whether the
+  ## submission MTA treats the message as 7-bit, 8-bit-clean MIME, or
+  ## binary MIME. Backing strings are the IANA-registered tokens.
+  beSevenBit = "7BIT"
+  beEightBitMime = "8BITMIME"
+  beBinaryMime = "BINARYMIME"
+
+type DsnRetType* = enum
+  ## RFC 3461 §4.3 ``RET=`` parameter value. ``FULL`` requests return of
+  ## the whole message on failure; ``HDRS`` requests return of headers
+  ## only.
+  retFull = "FULL"
+  retHdrs = "HDRS"
+
+type DsnNotifyFlag* = enum
+  ## RFC 3461 §4.1 ``NOTIFY=`` parameter flag. A non-empty ``set`` of
+  ## these flags forms the wire value; ``dnfNever`` is mutually exclusive
+  ## with the other three — enforced by ``notifyParam``.
+  dnfNever = "NEVER"
+  dnfSuccess = "SUCCESS"
+  dnfFailure = "FAILURE"
+  dnfDelay = "DELAY"
+
+type DeliveryByMode* = enum
+  ## RFC 2852 §3 ``BY=`` parameter mode suffix. ``R`` / ``N`` request
+  ## return-on-deadline / notify-on-deadline; the ``T`` variants also
+  ## request trace-header insertion on deadline expiry.
+  dbmReturn = "R"
+  dbmNotify = "N"
+  dbmReturnTrace = "RT"
+  dbmNotifyTrace = "NT"
+
+# ===========================================================================
+# HoldForSeconds — RFC 4865 FUTURERELEASE delay form
+# ===========================================================================
+
+type HoldForSeconds* {.ruleOff: "objects".} = object
+  ## Delay-in-seconds payload for the RFC 4865 ``HOLDFOR=`` extension.
+  ## Narrows ``UnsignedInt`` at the type level so mixing an arbitrary
+  ## ``UnsignedInt`` with a HOLDFOR value at the call site is a compile
+  ## error. Sealed Pattern-A object — ``rawValue`` is module-private.
+  rawValue: UnsignedInt
+
+defineSealedIntOps(HoldForSeconds)
+
+func toInt64*(h: HoldForSeconds): int64 {.inline.} =
+  ## Projection to raw ``int64`` via the inner ``UnsignedInt``.
+  h.rawValue.toInt64
+
+func parseHoldForSeconds*(raw: UnsignedInt): Result[HoldForSeconds, ValidationError] =
+  ## Infallible typed wrap — ``UnsignedInt`` already enforces the JSON-
+  ## safe bound ``0 .. 2^53 - 1`` at its own smart constructor, so there
+  ## is nothing left to reject here. The ``Result``-returning signature
+  ## mirrors the other ``parse*`` functions so callers compose uniformly
+  ## with ``?`` / ``valueOr:``.
+  return ok(HoldForSeconds(rawValue: raw))
+
+# ===========================================================================
+# MtPriority — RFC 6710 MT-PRIORITY
+# ===========================================================================
+
+type MtPriority* {.ruleOff: "objects".} = object
+  ## RFC 6710 §2 ``MT-PRIORITY=`` parameter value, constrained to the
+  ## inclusive range ``-9 .. 9``. A raw ``int`` field would let an out-
+  ## of-range value slip past construction; ``range[int]`` was rejected
+  ## because ``RangeDefect`` is fatal under ``--panics:on``
+  ## (``.claude/rules/nim-type-safety.md``). Sealed Pattern-A object —
+  ## ``rawValue`` is module-private.
+  rawValue: int
+
+defineSealedIntOps(MtPriority)
+
+func toInt*(m: MtPriority): int {.inline.} =
+  ## Projection to raw ``int``. Total, zero-cost.
+  m.rawValue
+
+func parseMtPriority*(raw: int): Result[MtPriority, ValidationError] =
+  ## Strict: enforces the inclusive ``-9 .. 9`` bound of RFC 6710 §2.
+  if raw < -9 or raw > 9:
+    return err(validationError("MtPriority", "must be in range -9..9", $raw))
+  return ok(MtPriority(rawValue: raw))
+
+# ===========================================================================
+# NotifySet — RFC 3461 §4.1 NOTIFY flag set
+# ===========================================================================
+
+type NotifySet* {.ruleOff: "objects".} = object
+  ## Non-empty set of RFC 3461 §4.1 ``NOTIFY=`` flags with ``dnfNever``
+  ## mutually exclusive from ``SUCCESS``/``FAILURE``/``DELAY``. Sealed
+  ## Pattern-A object — ``rawFlags`` is module-private and the sole
+  ## constructor is ``parseNotifySet``, so an empty or contradictory flag
+  ## set is structurally unrepresentable (P16). Lifting this invariant into
+  ## its own type is what lets ``SubmissionParam`` carry an already-proven
+  ## ``spkNotify`` payload.
+  rawFlags: set[DsnNotifyFlag]
+
+func flags*(n: NotifySet): set[DsnNotifyFlag] =
+  ## The validated, non-empty flag set.
+  n.rawFlags
+
+iterator items*(n: NotifySet): DsnNotifyFlag =
+  ## Yields each flag in the validated set.
+  for f in n.rawFlags:
+    yield f
+
+func `==`*(a, b: NotifySet): bool =
+  ## Structural equality over the underlying flag set.
+  a.rawFlags == b.rawFlags
+
+func parseNotifySet*(flags: set[DsnNotifyFlag]): Result[NotifySet, ValidationError] =
+  ## Sole constructor — RFC 3461 §4.1. Rejects the empty set and the
+  ## mutually-exclusive combination ``NEVER`` with any of
+  ## ``SUCCESS``/``FAILURE``/``DELAY``.
+  if flags == {}:
+    return err(validationError("NotifySet", "NOTIFY flags must not be empty", ""))
+  if dnfNever in flags and flags != {dnfNever}:
+    return err(
+      validationError(
+        "NotifySet", "NOTIFY=NEVER is mutually exclusive with SUCCESS/FAILURE/DELAY", ""
+      )
+    )
+  return ok(NotifySet(rawFlags: flags))
+
+# ===========================================================================
+# SubmissionParam — typed SMTP parameter algebra (design §2.3)
+# ===========================================================================
+
+type SubmissionParamKind* = enum
+  ## Discriminator for ``SubmissionParam``. Eleven well-known variants
+  ## cover IANA-registered RFC 5321 / RFC 3461 / RFC 1652 / RFC 6152 /
+  ## RFC 1870 / RFC 2852 / RFC 6710 / RFC 4865 / RFC 6531 extensions;
+  ## ``spkExtension`` is the open-world escape hatch for unregistered or
+  ## vendor tokens (RFC 8621 §7 ¶5). Backing strings match the wire key
+  ## preserved upper-case per SMTP convention.
+  spkBody = "BODY"
+  spkSmtpUtf8 = "SMTPUTF8"
+  spkSize = "SIZE"
+  spkEnvid = "ENVID"
+  spkRet = "RET"
+  spkNotify = "NOTIFY"
+  spkOrcpt = "ORCPT"
+  spkHoldFor = "HOLDFOR"
+  spkHoldUntil = "HOLDUNTIL"
+  spkBy = "BY"
+  spkMtPriority = "MT-PRIORITY"
+  spkExtension
+
+type SubmissionParam* {.ruleOff: "objects".} = object
+  ## Validated SMTP parameter value as carried on an
+  ## ``EmailSubmission.Envelope.Address`` entry. Twelve variants — eleven
+  ## well-known plus one open-world ``spkExtension`` — lift each
+  ## parameter's subordinate-RFC structural invariants into the type so
+  ## detection and serialisation share a single source of truth.
+  ##
+  ## Sealed: the discriminator and every arm field are module-private
+  ## (``raw*``) so construction flows only through the smart constructors
+  ## below. In particular the ``spkNotify`` payload is a ``NotifySet``,
+  ## whose own constructor proves the RFC 3461 non-empty + ``NEVER``-
+  ## exclusivity invariant — so an empty ``NOTIFY=`` is structurally
+  ## unrepresentable (P15/P16). Consumers read via ``kind`` plus the
+  ## ``asX`` Opt-accessors, never a raw arm.
+  case rawKind: SubmissionParamKind
+  of spkBody:
+    rawBodyEncoding: BodyEncoding
+  of spkSmtpUtf8:
+    discard
+  of spkSize:
+    rawSizeOctets: UnsignedInt
+  of spkEnvid:
+    rawEnvid: string
+  of spkRet:
+    rawRetType: DsnRetType
+  of spkNotify:
+    rawNotify: NotifySet
+  of spkOrcpt:
+    rawOrcptAddrType: OrcptAddrType
+    rawOrcptOrigRecipient: string
+  of spkHoldFor:
+    rawHoldFor: HoldForSeconds
+  of spkHoldUntil:
+    rawHoldUntil: UTCDate
+  of spkBy:
+    rawByDeadline: JmapInt
+    rawByMode: DeliveryByMode
+  of spkMtPriority:
+    rawMtPriority: MtPriority
+  of spkExtension:
+    rawExtName: RFC5321Keyword
+    rawExtValue: Opt[string]
+
+# ---------------------------------------------------------------------------
+# Read accessors — ``kind`` plus one ``asX`` per payload-bearing arm. The
+# discriminator is a ``func`` (not a public field), so external ``case
+# p.kind`` is impossible: callers consume the Opt-accessors instead.
+# ---------------------------------------------------------------------------
+
+func kind*(p: SubmissionParam): SubmissionParamKind =
+  ## The parameter's discriminator.
+  p.rawKind
+
+func asBody*(p: SubmissionParam): Opt[BodyEncoding] =
+  ## The ``BODY=`` encoding when ``spkBody``; ``Opt.none`` otherwise.
+  case p.rawKind
+  of spkBody:
+    Opt.some(p.rawBodyEncoding)
+  else:
+    Opt.none(BodyEncoding)
+
+func asSize*(p: SubmissionParam): Opt[UnsignedInt] =
+  ## The ``SIZE=`` octet count when ``spkSize``; ``Opt.none`` otherwise.
+  case p.rawKind
+  of spkSize:
+    Opt.some(p.rawSizeOctets)
+  else:
+    Opt.none(UnsignedInt)
+
+func asEnvid*(p: SubmissionParam): Opt[string] =
+  ## The ``ENVID=`` identifier when ``spkEnvid``; ``Opt.none`` otherwise.
+  case p.rawKind
+  of spkEnvid:
+    Opt.some(p.rawEnvid)
+  else:
+    Opt.none(string)
+
+func asRet*(p: SubmissionParam): Opt[DsnRetType] =
+  ## The ``RET=`` value when ``spkRet``; ``Opt.none`` otherwise.
+  case p.rawKind
+  of spkRet:
+    Opt.some(p.rawRetType)
+  else:
+    Opt.none(DsnRetType)
+
+func asNotify*(p: SubmissionParam): Opt[NotifySet] =
+  ## The validated ``NOTIFY=`` flag set when ``spkNotify``; ``Opt.none`` otherwise.
+  case p.rawKind
+  of spkNotify:
+    Opt.some(p.rawNotify)
+  else:
+    Opt.none(NotifySet)
+
+func asOrcpt*(p: SubmissionParam): Opt[(OrcptAddrType, string)] =
+  ## The ``ORCPT=`` (addr-type, orig-recipient) pair when ``spkOrcpt``;
+  ## ``Opt.none`` otherwise.
+  case p.rawKind
+  of spkOrcpt:
+    Opt.some((p.rawOrcptAddrType, p.rawOrcptOrigRecipient))
+  else:
+    Opt.none((OrcptAddrType, string))
+
+func asHoldFor*(p: SubmissionParam): Opt[HoldForSeconds] =
+  ## The ``HOLDFOR=`` delay when ``spkHoldFor``; ``Opt.none`` otherwise.
+  case p.rawKind
+  of spkHoldFor:
+    Opt.some(p.rawHoldFor)
+  else:
+    Opt.none(HoldForSeconds)
+
+func asHoldUntil*(p: SubmissionParam): Opt[UTCDate] =
+  ## The ``HOLDUNTIL=`` absolute time when ``spkHoldUntil``; ``Opt.none`` otherwise.
+  case p.rawKind
+  of spkHoldUntil:
+    Opt.some(p.rawHoldUntil)
+  else:
+    Opt.none(UTCDate)
+
+func asBy*(p: SubmissionParam): Opt[(JmapInt, DeliveryByMode)] =
+  ## The ``BY=`` (deadline, mode) pair when ``spkBy``; ``Opt.none`` otherwise.
+  case p.rawKind
+  of spkBy:
+    Opt.some((p.rawByDeadline, p.rawByMode))
+  else:
+    Opt.none((JmapInt, DeliveryByMode))
+
+func asMtPriority*(p: SubmissionParam): Opt[MtPriority] =
+  ## The ``MT-PRIORITY=`` value when ``spkMtPriority``; ``Opt.none`` otherwise.
+  case p.rawKind
+  of spkMtPriority:
+    Opt.some(p.rawMtPriority)
+  else:
+    Opt.none(MtPriority)
+
+func asExtension*(p: SubmissionParam): Opt[(RFC5321Keyword, Opt[string])] =
+  ## The ``spkExtension`` (keyword, optional value) pair; ``Opt.none`` otherwise.
+  case p.rawKind
+  of spkExtension:
+    Opt.some((p.rawExtName, p.rawExtValue))
+  else:
+    Opt.none((RFC5321Keyword, Opt[string]))
+
+# ---------------------------------------------------------------------------
+# Smart constructors (alphabetical by SubmissionParamKind for reviewability)
+# ---------------------------------------------------------------------------
+
+func bodyParam*(e: BodyEncoding): SubmissionParam =
+  ## ``BODY=7BIT|8BITMIME|BINARYMIME`` — RFC 1652 / RFC 6152.
+  SubmissionParam(rawKind: spkBody, rawBodyEncoding: e)
+
+func byParam*(deadline: JmapInt, mode: DeliveryByMode): SubmissionParam =
+  ## ``BY=<deadline>;<mode>`` — RFC 2852 §3 deliver-by parameter.
+  SubmissionParam(rawKind: spkBy, rawByDeadline: deadline, rawByMode: mode)
+
+func envidParam*(envid: string): SubmissionParam =
+  ## ``ENVID=`` — RFC 3461 §4.4 envelope identifier. The xtext wire
+  ## encoding belongs to the serde layer (design §7.2); L1 carries the
+  ## decoded bytes.
+  SubmissionParam(rawKind: spkEnvid, rawEnvid: envid)
+
+func extensionParam*(name: RFC5321Keyword, value: Opt[string]): SubmissionParam =
+  ## Open-world escape hatch for unregistered / vendor SMTP parameters
+  ## (RFC 8621 §7 ¶5). ``name`` already carries esmtp-keyword invariants;
+  ## ``value`` is ``Opt.none`` for valueless tokens.
+  SubmissionParam(rawKind: spkExtension, rawExtName: name, rawExtValue: value)
+
+func holdForParam*(seconds: HoldForSeconds): SubmissionParam =
+  ## ``HOLDFOR=<seconds>`` — RFC 4865 FUTURERELEASE delay form.
+  SubmissionParam(rawKind: spkHoldFor, rawHoldFor: seconds)
+
+func holdUntilParam*(d: UTCDate): SubmissionParam =
+  ## ``HOLDUNTIL=<RFC 3339 Zulu>`` — RFC 4865 FUTURERELEASE absolute-time
+  ## form.
+  SubmissionParam(rawKind: spkHoldUntil, rawHoldUntil: d)
+
+func mtPriorityParam*(p: MtPriority): SubmissionParam =
+  ## ``MT-PRIORITY=<-9..9>`` — RFC 6710 §2.
+  SubmissionParam(rawKind: spkMtPriority, rawMtPriority: p)
+
+func notifyParam*(flags: set[DsnNotifyFlag]): Result[SubmissionParam, ValidationError] =
+  ## ``NOTIFY=<flag[,flag...]>`` — RFC 3461 §4.1. The non-empty +
+  ## ``NEVER``-exclusivity invariant now lives once, in ``parseNotifySet``;
+  ## this constructor simply lifts a proven ``NotifySet`` into the
+  ## ``spkNotify`` arm.
+  let n = ?parseNotifySet(flags)
+  ok(SubmissionParam(rawKind: spkNotify, rawNotify: n))
+
+func orcptParam*(at: OrcptAddrType, origRecipient: string): SubmissionParam =
+  ## ``ORCPT=<addr-type>;<orig-recipient>`` — RFC 3461 §4.2. The
+  ## original-recipient xtext encoding belongs to the serde layer; L1
+  ## carries the decoded bytes.
+  SubmissionParam(
+    rawKind: spkOrcpt, rawOrcptAddrType: at, rawOrcptOrigRecipient: origRecipient
+  )
+
+func retParam*(t: DsnRetType): SubmissionParam =
+  ## ``RET=FULL|HDRS`` — RFC 3461 §4.3.
+  SubmissionParam(rawKind: spkRet, rawRetType: t)
+
+func sizeParam*(octets: UnsignedInt): SubmissionParam =
+  ## ``SIZE=<octets>`` — RFC 1870 advisory octet count.
+  SubmissionParam(rawKind: spkSize, rawSizeOctets: octets)
+
+func smtpUtf8Param*(): SubmissionParam =
+  ## ``SMTPUTF8`` — RFC 6531 §3.4 valueless parameter.
+  SubmissionParam(rawKind: spkSmtpUtf8)
+
+func `==`*(a, b: SubmissionParam): bool =
+  ## Structural equality across the twelve variants. Nim's auto-derived
+  ## tuple/object ``==`` uses a parallel ``fields`` iterator that rejects
+  ## case objects, so this dispatches on the shared discriminator and
+  ## compares only the fields valid for the matched arm.
+  ##
+  ## Nested case on both operands — strict doesn't propagate ``a.kind ==
+  ## b.kind`` from an outer if-guard into each ``of`` branch, so b's
+  ## discriminator must be proved independently before reading b's
+  ## variant fields.
+  case a.rawKind
+  of spkBody:
+    case b.rawKind
+    of spkBody:
+      a.rawBodyEncoding == b.rawBodyEncoding
+    else:
+      false
+  of spkSmtpUtf8:
+    case b.rawKind
+    of spkSmtpUtf8: true
+    else: false
+  of spkSize:
+    case b.rawKind
+    of spkSize:
+      a.rawSizeOctets == b.rawSizeOctets
+    else:
+      false
+  of spkEnvid:
+    case b.rawKind
+    of spkEnvid:
+      a.rawEnvid == b.rawEnvid
+    else:
+      false
+  of spkRet:
+    case b.rawKind
+    of spkRet:
+      a.rawRetType == b.rawRetType
+    else:
+      false
+  of spkNotify:
+    case b.rawKind
+    of spkNotify:
+      a.rawNotify == b.rawNotify
+    else:
+      false
+  of spkOrcpt:
+    case b.rawKind
+    of spkOrcpt:
+      a.rawOrcptAddrType == b.rawOrcptAddrType and
+        a.rawOrcptOrigRecipient == b.rawOrcptOrigRecipient
+    else:
+      false
+  of spkHoldFor:
+    case b.rawKind
+    of spkHoldFor:
+      a.rawHoldFor == b.rawHoldFor
+    else:
+      false
+  of spkHoldUntil:
+    case b.rawKind
+    of spkHoldUntil:
+      a.rawHoldUntil == b.rawHoldUntil
+    else:
+      false
+  of spkBy:
+    case b.rawKind
+    of spkBy:
+      a.rawByDeadline == b.rawByDeadline and a.rawByMode == b.rawByMode
+    else:
+      false
+  of spkMtPriority:
+    case b.rawKind
+    of spkMtPriority:
+      a.rawMtPriority == b.rawMtPriority
+    else:
+      false
+  of spkExtension:
+    case b.rawKind
+    of spkExtension:
+      a.rawExtName == b.rawExtName and a.rawExtValue == b.rawExtValue
+    else:
+      false
+
+# ---------------------------------------------------------------------------
+# SubmissionParamKey — identity key for structural uniqueness
+# ---------------------------------------------------------------------------
+
+type SubmissionParamKey* {.ruleOff: "objects".} = object
+  ## Structural identity of a ``SubmissionParam`` — the wire-key axis on
+  ## which uniqueness is enforced by ``SubmissionParams``. Eleven well-
+  ## known arms are nullary; ``spkExtension`` carries the validated
+  ## ``RFC5321Keyword`` name so two extensions with distinct names remain
+  ## distinct keys.
+  case kind*: SubmissionParamKind
+  of spkExtension:
+    extName*: RFC5321Keyword
+  of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt, spkHoldFor,
+      spkHoldUntil, spkBy, spkMtPriority:
+    discard
+
+func `==`*(a, b: SubmissionParamKey): bool =
+  ## Equal iff the discriminators agree and, for ``spkExtension``, the
+  ## keyword names are case-insensitively equal (delegated to
+  ## ``RFC5321Keyword.==``).
+  ##
+  ## Nested case for strictCaseObjects: b.kind must be proved
+  ## independently before reading b.extName.
+  case a.kind
+  of spkExtension:
+    case b.kind
+    of spkExtension:
+      a.extName == b.extName
+    of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt, spkHoldFor,
+        spkHoldUntil, spkBy, spkMtPriority:
+      false
+  of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt, spkHoldFor,
+      spkHoldUntil, spkBy, spkMtPriority:
+    case b.kind
+    of spkExtension:
+      false
+    of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt, spkHoldFor,
+        spkHoldUntil, spkBy, spkMtPriority:
+      a.kind == b.kind
+
+func hash*(k: SubmissionParamKey): Hash =
+  ## Delegates the ``spkExtension`` payload to ``hash(RFC5321Keyword)``,
+  ## which case-folds before hashing — otherwise two keys that compare
+  ## equal case-insensitively would land in different buckets and silently
+  ## break ``Table.contains`` / ``[]=`` lookups (Table contract:
+  ## ``a == b`` ⇒ ``hash(a) == hash(b)``).
+  case k.kind
+  of spkExtension:
+    var h: Hash = 0
+    h = h !& hash(spkExtension.ord)
+    h = h !& hash(k.extName)
+    !$h
+  of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt, spkHoldFor,
+      spkHoldUntil, spkBy, spkMtPriority:
+    hash(k.kind.ord)
+
+func paramKey*(p: SubmissionParam): SubmissionParamKey =
+  ## Derives the identity key for a ``SubmissionParam``. Nullary arms
+  ## collapse to a kind-only key; ``spkExtension`` carries its validated
+  ## keyword name. Functional-core Pattern 6 "derived-not-stored" —
+  ## one source of truth per fact.
+  case p.rawKind
+  of spkExtension:
+    SubmissionParamKey(kind: spkExtension, extName: p.rawExtName)
+  of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt, spkHoldFor,
+      spkHoldUntil, spkBy, spkMtPriority:
+    SubmissionParamKey(kind: p.rawKind)
+
+# ---------------------------------------------------------------------------
+# SubmissionParams — structural uniqueness with wire-order fidelity
+# ---------------------------------------------------------------------------
+
+type SubmissionParams* {.ruleOff: "objects".} = object
+  ## Validated, duplicate-free collection of ``SubmissionParam`` values
+  ## carrying a single ``Envelope.Address`` parameter bag. Sealed
+  ## Pattern-A object — ``rawValue`` is module-private. Construction is
+  ## gated by ``parseSubmissionParams``. Serde (Step 10) and per-address
+  ## lookups (Step 3) reach the underlying ``OrderedTable`` via the
+  ## ``toOrderedTable`` accessor.
+  rawValue: OrderedTable[SubmissionParamKey, SubmissionParam]
+
+func toOrderedTable*(
+    s: SubmissionParams
+): OrderedTable[SubmissionParamKey, SubmissionParam] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying table.
+  s.rawValue
+
+func `==`*(a, b: SubmissionParams): bool =
+  ## Structural equality delegated to the underlying ``OrderedTable``.
+  a.rawValue == b.rawValue
+
+func `$`*(a: SubmissionParams): string =
+  ## Textual form delegated to the underlying ``OrderedTable`` —
+  ## diagnostic only; serde (Step 10) owns the wire form.
+  $a.rawValue
+
+func detectDuplicateParamKeys(items: openArray[SubmissionParam]): seq[ValidationError] =
+  ## One ``ValidationError`` per repeated ``SubmissionParamKey``, each
+  ## key reported at most once. Empty input is accepted —
+  ## ``parseSubmissionParams`` does not reject an empty
+  ## ``SubmissionParams``. Functional-core Pattern 7 "imperative kernel
+  ## inside a functional shell": two local ``HashSet``s are invisible
+  ## outside the call.
+  var seen = initHashSet[SubmissionParamKey]()
+  var reported = initHashSet[SubmissionParamKey]()
+  result = @[]
+  for item in items:
+    let k = paramKey(item)
+    if seen.containsOrIncl(k):
+      if not reported.containsOrIncl(k):
+        let label =
+          case k.kind
+          of spkExtension:
+            "extension " & $k.extName
+          of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt,
+              spkHoldFor, spkHoldUntil, spkBy, spkMtPriority:
+            $k.kind
+        result.add(
+          validationError("SubmissionParams", "duplicate parameter key", label)
+        )
+
+func parseSubmissionParams*(
+    items: openArray[SubmissionParam]
+): Result[SubmissionParams, seq[ValidationError]] =
+  ## Strict client-side constructor (design §2.4 G8a): rejects duplicate
+  ## keys accumulatingly — every repeated key produces exactly one
+  ## ``ValidationError``. Empty input is accepted — an empty
+  ## ``SubmissionParams`` represents the wire JSON object ``{}`` and is
+  ## distinct from ``Opt.none(SubmissionParams)`` representing ``null``
+  ## (design §2.4 G34).
+  let errs = detectDuplicateParamKeys(items)
+  if errs.len > 0:
+    return err(errs)
+  var t = initOrderedTable[SubmissionParamKey, SubmissionParam]()
+  for item in items:
+    t[paramKey(item)] = item
+  return ok(SubmissionParams(rawValue: t))

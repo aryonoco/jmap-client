@@ -3,8 +3,8 @@
 
 ## LIBRARY CONTRACT: ``MethodError.fromJson`` projects every wire
 ## ``type`` URI Stalwart returns for per-method failures into the
-## closed ``MethodErrorType`` enum AND preserves ``rawType``
-## losslessly. ``parseMethodErrorType`` is total: unknown URIs
+## closed ``MethodErrorKind`` enum AND preserves ``rawType``
+## losslessly. ``parseMethodErrorKind`` is total: unknown URIs
 ## project to ``metUnknown``. ``resp.get(handle)`` for a method-
 ## level error invocation routes through ``MethodError.fromJson``
 ## and returns the typed error on the inner railway.
@@ -31,33 +31,33 @@ import std/json
 
 import results
 import jmap_client
-import jmap_client/client
+import jmap_client/internal/types/envelope
+import ../../m_l2_serde
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tmethodErrorTypedProjectionLive:
+testCase tmethodErrorTypedProjectionLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, _) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # Sub-test 1: unknown method name.
     block unknownMethodCase:
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Mailbox/snorgleflarp",
-          arguments = %*{"accountId": $mailAccountId},
-        )
-        .expect("sendRawInvocation unknownMethod[" & $target.kind & "]")
-      captureIfRequested(client, "method-error-unknown-method-" & $target.kind).expect(
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceCredential,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Mailbox/snorgleflarp",
+        arguments = %*{"accountId": $mailAccountId},
+      )
+      let resp =
+        respResult.expect("sendRawInvocation unknownMethod[" & $target.kind & "]")
+      captureIfRequested(respBody, "method-error-unknown-method-" & $target.kind).expect(
         "captureIfRequested unknownMethod"
       )
       assertOn target, resp.methodResponses.len == 1
@@ -70,12 +70,11 @@ block tmethodErrorTypedProjectionLive:
         )
       assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
       assertOn target,
-        me.errorType in {
+        me.kind in {
           metUnknownMethod, metInvalidArguments, metServerFail, metServerUnavailable,
           metUnknown,
         },
-        "errorType must project into the closed MethodErrorType enum, got " &
-          $me.errorType
+        "errorType must project into the closed MethodErrorKind enum, got " & $me.kind
 
     # Sub-test 2: broken result-reference path.
     block invalidResultReferenceCase:
@@ -86,15 +85,19 @@ block tmethodErrorTypedProjectionLive:
         refPath = "/methodResponses/0/notAField/that/exists",
         refName = "Email/query",
       )
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Email/get",
-          arguments = getArgsRef,
-        )
-        .expect("sendRawInvocation invalidResultReference[" & $target.kind & "]")
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceCredential,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Email/get",
+        arguments = getArgsRef,
+      )
+      let resp = respResult.expect(
+        "sendRawInvocation invalidResultReference[" & $target.kind & "]"
+      )
       captureIfRequested(
-        client, "method-error-invalid-result-reference-" & $target.kind
+        respBody, "method-error-invalid-result-reference-" & $target.kind
       )
         .expect("captureIfRequested invalidResultReference[" & $target.kind & "]")
       assertOn target, resp.methodResponses.len >= 1
@@ -108,26 +111,26 @@ block tmethodErrorTypedProjectionLive:
         )
       assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
       assertOn target,
-        me.errorType in
+        me.kind in
           {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown},
-        "errorType must project into the closed MethodErrorType enum, got " &
-          $me.errorType
+        "errorType must project into the closed MethodErrorKind enum, got " & $me.kind
 
     # Sub-test 3: unsupported sort property.
     block unsupportedSortCase:
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Email/query",
-          arguments = %*{
-            "accountId": $mailAccountId,
-            "sort": [{"property": "phaseJSyntheticProperty"}],
-          },
-        )
-        .expect("sendRawInvocation unsupportedSort[" & $target.kind & "]")
-      captureIfRequested(client, "method-error-unsupported-sort-" & $target.kind).expect(
-        "captureIfRequested unsupportedSort"
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceCredential,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Email/query",
+        arguments = %*{
+          "accountId": $mailAccountId, "sort": [{"property": "phaseJSyntheticProperty"}]
+        },
       )
+      let resp =
+        respResult.expect("sendRawInvocation unsupportedSort[" & $target.kind & "]")
+      captureIfRequested(respBody, "method-error-unsupported-sort-" & $target.kind)
+        .expect("captureIfRequested unsupportedSort")
       assertOn target, resp.methodResponses.len == 1
       let inv = resp.methodResponses[0]
       assertOn target,
@@ -138,24 +141,26 @@ block tmethodErrorTypedProjectionLive:
         )
       assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
       assertOn target,
-        me.errorType in {
+        me.kind in {
           metUnsupportedSort, metInvalidArguments, metUnknownMethod, metServerFail,
           metUnknown,
         },
-        "errorType must project into the closed MethodErrorType enum, got " &
-          $me.errorType
+        "errorType must project into the closed MethodErrorKind enum, got " & $me.kind
 
     # Sub-test 4: unsupported filter property.
     block unsupportedFilterCase:
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Email/query",
-          arguments =
-            %*{"accountId": $mailAccountId, "filter": {"phaseJSyntheticProperty": true}},
-        )
-        .expect("sendRawInvocation unsupportedFilter[" & $target.kind & "]")
-      captureIfRequested(client, "method-error-unsupported-filter-" & $target.kind)
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceCredential,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Email/query",
+        arguments =
+          %*{"accountId": $mailAccountId, "filter": {"phaseJSyntheticProperty": true}},
+      )
+      let resp =
+        respResult.expect("sendRawInvocation unsupportedFilter[" & $target.kind & "]")
+      captureIfRequested(respBody, "method-error-unsupported-filter-" & $target.kind)
         .expect("captureIfRequested unsupportedFilter")
       assertOn target, resp.methodResponses.len == 1
       let inv = resp.methodResponses[0]
@@ -167,11 +172,8 @@ block tmethodErrorTypedProjectionLive:
         )
       assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
       assertOn target,
-        me.errorType in {
+        me.kind in {
           metUnsupportedFilter, metInvalidArguments, metUnknownMethod, metServerFail,
           metUnknown,
         },
-        "errorType must project into the closed MethodErrorType enum, got " &
-          $me.errorType
-
-    client.close()
+        "errorType must project into the closed MethodErrorKind enum, got " & $me.kind

@@ -2,10 +2,10 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Live integration test for Email/query → SearchSnippet/get chained
-## via the H1 ``ChainedHandles[A, B]`` generic (RFC 8620 §3.7
+## via the bespoke ``EmailQuerySnippetChain`` record (RFC 8620 §3.7
 ## back-reference + RFC 8621 §4.10/§5.1). First Phase C step
-## exercising ``addEmailQueryWithSnippets`` (mail_methods.nim) and
-## ``getBoth`` (dispatch.nim). Splits cleanly from Step 16 — that
+## exercising ``addEmailQueryWithSnippets`` (mail_methods.nim) and its
+## co-located ``getBoth`` (B9). Splits cleanly from Step 16 — that
 ## test proved the standalone snippet-builder/parser; this test
 ## isolates the chain plumbing.
 ##
@@ -18,11 +18,11 @@
 ##     filterCondition(EmailFilterCondition(subject:
 ##     Opt.some("stepseventeen"))))``.
 ##  4. Send. Extract via ``resp.getBoth(chainHandles)`` —
-##     ``ChainedHandles[QueryResponse[Email], SearchSnippetGetResponse]``.
-##  5. Assert ``pair.first`` (Email/query) ids include both seeded
-##     ids; assert ``pair.second`` (SearchSnippet/get) list contains
+##     ``EmailQuerySnippetResults`` (``query`` / ``snippets``).
+##  5. Assert ``pair.query`` (Email/query) ids include both seeded
+##     ids; assert ``pair.snippets`` (SearchSnippet/get) list contains
 ##     a snippet for each seeded id, and every snippet's
-##     ``emailId`` appears in ``pair.first.ids``.
+##     ``emailId`` appears in ``pair.query.ids``.
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is
@@ -33,19 +33,14 @@ import std/sets
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailQueryWithSnippetsLive:
+testCase temailQueryWithSnippetsLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -79,34 +74,36 @@ block temailQueryWithSnippetsLive:
         "pollEmailQueryIndexed[" & $target.kind & "]"
       )
 
-    # --- Email/query → SearchSnippet/get chained via ChainedHandles -----
+    # --- Email/query → SearchSnippet/get via EmailQuerySnippetChain -----
     let filter =
       filterCondition(EmailFilterCondition(subject: Opt.some("stepseventeen")))
-    let (b, chainHandles) =
-      addEmailQueryWithSnippets(initRequestBuilder(), mailAccountId, filter = filter)
-    let resp =
-      client.send(b).expect("send Email/query+SearchSnippet/get[" & $target.kind & "]")
-    captureIfRequested(client, "email-query-with-snippets-" & $target.kind).expect(
-      "captureIfRequested"
+    let (b, chainHandles) = addEmailQueryWithSnippets(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = filter
     )
+    let resp = client.send(b.freeze()).expect(
+        "send Email/query+SearchSnippet/get[" & $target.kind & "]"
+      )
+    captureIfRequested(
+      recorder.lastResponseBody, "email-query-with-snippets-" & $target.kind
+    )
+      .expect("captureIfRequested")
     let pair = resp.getBoth(chainHandles).expect("getBoth[" & $target.kind & "]")
 
-    let queryHits = pair.first.ids.toHashSet
+    let queryHits = pair.query.ids.toHashSet
     assertOn target, id1 in queryHits, "Email/query result must include first seeded id"
     assertOn target,
       id2 in queryHits, "Email/query result must include second seeded id"
 
     let queryHitSet = queryHits
     var snippetIds = initHashSet[Id]()
-    for snippet in pair.second.list:
+    for snippet in pair.snippets.list:
       assertOn target,
         snippet.emailId in queryHitSet,
         "every snippet's emailId must appear in the chained Email/query result; got " &
-          string(snippet.emailId)
+          $snippet.emailId
       if snippet.emailId in corpus:
         snippetIds.incl(snippet.emailId)
     assertOn target,
       id1 in snippetIds, "snippet list must include the first seeded emailId"
     assertOn target,
       id2 in snippetIds, "snippet list must include the second seeded emailId"
-    client.close()

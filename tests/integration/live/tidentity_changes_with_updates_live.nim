@@ -39,13 +39,13 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
-import jmap_client/mail/identity as jidentity
+import jmap_client/internal/mail/identity as jidentity
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tidentityChangesWithUpdatesLive:
+testCase tidentityChangesWithUpdatesLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): Stalwart 0.15.5 implements Identity/{set,
     # changes} fully. James 3.9 binds Identity/changes but ships it
@@ -53,12 +53,7 @@ block tidentityChangesWithUpdatesLive:
     # entirely (returns ``metUnknownMethod``). Each Cat-B site uses
     # ``assertSuccessOrTypedError`` to assert the typed-error
     # projection contract uniformly across configured targets.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let submissionAccountId = resolveSubmissionAccountId(session).expect(
         "resolveSubmissionAccountId[" & $target.kind & "]"
@@ -94,13 +89,17 @@ block tidentityChangesWithUpdatesLive:
         "parseNonEmptyIdentityUpdates"
       )
     let (bU, updateHandle) = addIdentitySet(
-      initRequestBuilder(), submissionAccountId, update = Opt.some(updates)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      update = Opt.some(updates),
     )
-    let respU =
-      client.send(bU).expect("send Identity/set five-arm update[" & $target.kind & "]")
-    captureIfRequested(client, "identity-changes-with-updates-" & $target.kind).expect(
-      "captureIfRequested"
+    let respU = client.send(bU.freeze()).expect(
+        "send Identity/set five-arm update[" & $target.kind & "]"
+      )
+    captureIfRequested(
+      recorder.lastResponseBody, "identity-changes-with-updates-" & $target.kind
     )
+      .expect("captureIfRequested")
     let setRespExtract = respU.get(updateHandle)
     var updateOk = false
     assertSuccessOrTypedError(target, setRespExtract, {metUnknownMethod}):
@@ -115,9 +114,12 @@ block tidentityChangesWithUpdatesLive:
 
     # Identity/changes from the baseline state.
     let (bC, changesHandle) = addIdentityChanges(
-      initRequestBuilder(), submissionAccountId, sinceState = baselineState
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      sinceState = baselineState,
     )
-    let respC = client.send(bC).expect("send Identity/changes[" & $target.kind & "]")
+    let respC =
+      client.send(bC.freeze()).expect("send Identity/changes[" & $target.kind & "]")
     let crExtract = respC.get(changesHandle)
     assertSuccessOrTypedError(target, crExtract, {metUnknownMethod}):
       let cr = success
@@ -139,18 +141,19 @@ block tidentityChangesWithUpdatesLive:
     # configured target.
     if updateOk:
       let (bG, getHandle) = addIdentityGet(
-        initRequestBuilder(), submissionAccountId, ids = directIds(@[identityId])
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        ids = directIds(@[identityId]),
       )
-      let respG =
-        client.send(bG).expect("send Identity/get round-trip[" & $target.kind & "]")
+      let respG = client.send(bG.freeze()).expect(
+          "send Identity/get round-trip[" & $target.kind & "]"
+        )
       let getResp = respG.get(getHandle).expect(
           "Identity/get round-trip extract[" & $target.kind & "]"
         )
       assertOn target,
         getResp.list.len == 1, "Identity/get must return exactly one record"
-      let updated = Identity.fromJson(getResp.list[0]).expect(
-          "parse Identity[" & $target.kind & "]"
-        )
+      let updated = getResp.list[0]
       assertOn target,
         updated.name == renamedName,
         "name must reflect setName update (got " & updated.name & ")"
@@ -183,7 +186,10 @@ block tidentityChangesWithUpdatesLive:
       let cleanupUpdates = parseNonEmptyIdentityUpdates(@[(identityId, cleanupSet)])
         .expect("parseNonEmptyIdentityUpdates cleanup[" & $target.kind & "]")
       let (bX, _) = addIdentitySet(
-        initRequestBuilder(), submissionAccountId, update = Opt.some(cleanupUpdates)
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        update = Opt.some(cleanupUpdates),
       )
-      discard client.send(bX).expect("send Identity/set cleanup[" & $target.kind & "]")
-    client.close()
+      discard client.send(bX.freeze()).expect(
+          "send Identity/set cleanup[" & $target.kind & "]"
+        )

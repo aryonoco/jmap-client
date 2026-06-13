@@ -5,22 +5,23 @@
 
 import std/json
 
-import jmap_client/mail/addresses
-import jmap_client/mail/identity
-import jmap_client/mail/serde_addresses
-import jmap_client/mail/serde_identity
-import jmap_client/serde
-import jmap_client/validation
-import jmap_client/primitives
+import jmap_client/internal/mail/addresses
+import jmap_client/internal/mail/identity
+import jmap_client/internal/mail/serde_addresses
+import jmap_client/internal/mail/serde_identity
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
 
 import ../../massertions
+import ../../mtestblock
 
 let ea1 = parseEmailAddress("alice@example.com", Opt.some("Alice")).get()
 let ea2 = parseEmailAddress("bob@example.com").get()
 
 # ============= A. Identity fromJson — full and defaults =============
 
-block fromJsonAllFields: # scenario 24
+testCase fromJsonAllFields: # scenario 24
   let node = %*{
     "id": "id1",
     "name": "Joe Bloggs",
@@ -46,9 +47,9 @@ block fromJsonAllFields: # scenario 24
   assertEq ident.bcc.get()[0].email, "bob@example.com"
   assertEq ident.textSignature, "-- Joe"
   assertEq ident.htmlSignature, "<p>Joe</p>"
-  assertEq ident.mayDelete, true
+  assertEq ident.mayDelete, daYes
 
-block fromJsonDefaults: # scenario 25
+testCase fromJsonDefaults: # scenario 25
   let node = %*{"id": "id1", "email": "joe@example.com", "mayDelete": false}
   let res = Identity.fromJson(node)
   assertOk res
@@ -59,31 +60,31 @@ block fromJsonDefaults: # scenario 25
   assertEq ident.textSignature, ""
   assertEq ident.htmlSignature, ""
 
-block fromJsonNameAbsent: # scenario 26
+testCase fromJsonNameAbsent: # scenario 26
   let node = %*{"id": "id1", "email": "j@e.c", "mayDelete": false, "textSignature": "x"}
   let res = Identity.fromJson(node)
   assertOk res
   assertEq res.get().name, ""
 
-block fromJsonTextSignatureAbsent: # scenario 27
+testCase fromJsonTextSignatureAbsent: # scenario 27
   let node = %*{"id": "id1", "email": "j@e.c", "mayDelete": false, "name": "J"}
   let res = Identity.fromJson(node)
   assertOk res
   assertEq res.get().textSignature, ""
 
-block fromJsonHtmlSignatureAbsent: # scenario 28
+testCase fromJsonHtmlSignatureAbsent: # scenario 28
   let node = %*{"id": "id1", "email": "j@e.c", "mayDelete": false}
   let res = Identity.fromJson(node)
   assertOk res
   assertEq res.get().htmlSignature, ""
 
-block fromJsonReplyToNull: # scenario 29
+testCase fromJsonReplyToNull: # scenario 29
   let node = %*{"id": "id1", "email": "j@e.c", "mayDelete": false, "replyTo": nil}
   let res = Identity.fromJson(node)
   assertOk res
   assertNone res.get().replyTo
 
-block fromJsonReplyToWithAddresses: # scenario 30
+testCase fromJsonReplyToWithAddresses: # scenario 30
   let node = %*{
     "id": "id1",
     "email": "j@e.c",
@@ -98,16 +99,16 @@ block fromJsonReplyToWithAddresses: # scenario 30
 
 # ============= B. Identity round-trip =============
 
-block roundTripFull: # scenario 31
+testCase roundTripFull: # scenario 31
   let ident = Identity(
-    id: parseId("id1").get(),
+    id: parseIdFromServer("id1").get(),
     name: "Joe",
     email: "joe@example.com",
     replyTo: Opt.some(@[ea1]),
     bcc: Opt.some(@[ea2]),
     textSignature: "-- Joe",
     htmlSignature: "<p>Joe</p>",
-    mayDelete: true,
+    mayDelete: daYes,
   )
   let roundTripped = Identity.fromJson(ident.toJson()).get()
   assertEq $roundTripped.id, $ident.id
@@ -119,16 +120,16 @@ block roundTripFull: # scenario 31
   assertSome roundTripped.replyTo
   assertSome roundTripped.bcc
 
-block roundTripMinimal:
+testCase roundTripMinimal:
   let ident = Identity(
-    id: parseId("id2").get(),
+    id: parseIdFromServer("id2").get(),
     name: "",
     email: "min@e.c",
     replyTo: Opt.none(seq[EmailAddress]),
     bcc: Opt.none(seq[EmailAddress]),
     textSignature: "",
     htmlSignature: "",
-    mayDelete: false,
+    mayDelete: daNo,
   )
   let roundTripped = Identity.fromJson(ident.toJson()).get()
   assertEq roundTripped.name, ""
@@ -140,7 +141,7 @@ block roundTripMinimal:
 
 # ============= C. Identity fromJson — validation =============
 
-block fromJsonEmptyEmail: # scenario 32
+testCase fromJsonEmptyEmail: # scenario 32
   ## RFC 8621 §6.1 ``Identity.email`` is a ``String`` — no MUST-non-empty
   ## constraint. Cyrus 3.12.2 emits an empty ``email`` for server-default
   ## identities (config-derived); the Postel-receive parser accepts it.
@@ -151,52 +152,57 @@ block fromJsonEmptyEmail: # scenario 32
   assertOk res
   assertEq res.get().email, ""
 
-block fromJsonNullEmail:
+testCase fromJsonNullEmail:
   let node = %*{"id": "id1", "email": nil, "mayDelete": false}
   assertErr Identity.fromJson(node)
 
-block fromJsonMissingId:
+testCase fromJsonMissingId:
   let node = %*{"email": "j@e.c", "mayDelete": false}
   assertErr Identity.fromJson(node)
 
-block fromJsonMissingEmail:
+testCase fromJsonMissingEmail:
   let node = %*{"id": "id1", "mayDelete": false}
   assertErr Identity.fromJson(node)
 
-block fromJsonMissingMayDelete:
+testCase fromJsonMissingMayDelete:
+  ## Stalwart 0.15.5 omits ``mayDelete``; the parser is lenient (B8) — an
+  ## absent field yields ``daUnreported`` rather than failing, so the omission
+  ## is no longer misreported as "may not delete".
   let node = %*{"id": "id1", "email": "j@e.c"}
-  assertErr Identity.fromJson(node)
+  let res = Identity.fromJson(node)
+  assertOk res
+  assertEq res.get().mayDelete, daUnreported
 
-block fromJsonNotObject:
+testCase fromJsonNotObject:
   assertErr Identity.fromJson(%"string")
   assertErr Identity.fromJson(newJArray())
 
-block fromJsonReplyToWrongType:
+testCase fromJsonReplyToWrongType:
   let node = %*{"id": "id1", "email": "j@e.c", "mayDelete": false, "replyTo": "string"}
   assertErr Identity.fromJson(node)
 
-block fromJsonNameWrongType:
+testCase fromJsonNameWrongType:
   let node = %*{"id": "id1", "email": "j@e.c", "mayDelete": false, "name": 123}
   assertErr Identity.fromJson(node)
 
-block fromJsonMayDeleteWrongType:
+testCase fromJsonMayDeleteWrongType:
   let node = %*{"id": "id1", "email": "j@e.c", "mayDelete": "true"}
   assertErr Identity.fromJson(node)
 
 # ============= D. Identity fromJson — nested EmailAddress validation =============
 
-block fromJsonReplyToWithInvalidEmail:
+testCase fromJsonReplyToWithInvalidEmail:
   let node =
     %*{"id": "id1", "email": "j@e.c", "mayDelete": false, "replyTo": [{"email": ""}]}
   assertErr Identity.fromJson(node)
 
-block fromJsonBccNull:
+testCase fromJsonBccNull:
   let node = %*{"id": "id1", "email": "j@e.c", "mayDelete": false, "bcc": nil}
   let res = Identity.fromJson(node)
   assertOk res
   assertNone res.get().bcc
 
-block fromJsonBccWithAddresses:
+testCase fromJsonBccWithAddresses:
   let node =
     %*{"id": "id1", "email": "j@e.c", "mayDelete": false, "bcc": [{"email": "a@b.c"}]}
   let res = Identity.fromJson(node)
@@ -205,7 +211,7 @@ block fromJsonBccWithAddresses:
   assertLen res.get().bcc.get(), 1
   assertEq res.get().bcc.get()[0].email, "a@b.c"
 
-block fromJsonReplyToAbsent:
+testCase fromJsonReplyToAbsent:
   let node = %*{"id": "id1", "email": "j@e.c", "mayDelete": false}
   let res = Identity.fromJson(node)
   assertOk res
@@ -213,24 +219,24 @@ block fromJsonReplyToAbsent:
 
 # ============= E. Identity toJson =============
 
-block toJsonReplyToNull:
+testCase toJsonReplyToNull:
   let ident = Identity(
-    id: parseId("id1").get(),
+    id: parseIdFromServer("id1").get(),
     email: "j@e.c",
     replyTo: Opt.none(seq[EmailAddress]),
     bcc: Opt.none(seq[EmailAddress]),
-    mayDelete: false,
+    mayDelete: daNo,
   )
   let node = ident.toJson()
   assertJsonFieldEq node, "replyTo", newJNull()
 
-block toJsonReplyToWithAddresses:
+testCase toJsonReplyToWithAddresses:
   let ident = Identity(
-    id: parseId("id1").get(),
+    id: parseIdFromServer("id1").get(),
     email: "j@e.c",
     replyTo: Opt.some(@[ea1]),
     bcc: Opt.none(seq[EmailAddress]),
-    mayDelete: false,
+    mayDelete: daNo,
   )
   let node = ident.toJson()
   let arr = node{"replyTo"}
@@ -239,26 +245,26 @@ block toJsonReplyToWithAddresses:
   assertLen arr.getElems(@[]), 1
   assertJsonFieldEq arr.getElems(@[])[0], "email", %"alice@example.com"
 
-block toJsonBccNull:
+testCase toJsonBccNull:
   let ident = Identity(
-    id: parseId("id1").get(),
+    id: parseIdFromServer("id1").get(),
     email: "j@e.c",
     replyTo: Opt.none(seq[EmailAddress]),
     bcc: Opt.none(seq[EmailAddress]),
-    mayDelete: false,
+    mayDelete: daNo,
   )
   assertJsonFieldEq ident.toJson(), "bcc", newJNull()
 
-block toJsonEmptyStringFields:
+testCase toJsonEmptyStringFields:
   let ident = Identity(
-    id: parseId("id1").get(),
+    id: parseIdFromServer("id1").get(),
     name: "",
     email: "j@e.c",
     replyTo: Opt.none(seq[EmailAddress]),
     bcc: Opt.none(seq[EmailAddress]),
     textSignature: "",
     htmlSignature: "",
-    mayDelete: false,
+    mayDelete: daNo,
   )
   let node = ident.toJson()
   assertJsonFieldEq node, "name", %""
@@ -267,7 +273,7 @@ block toJsonEmptyStringFields:
 
 # ============= F. IdentityCreate toJson =============
 
-block toJsonAllFields: # scenario 36
+testCase toJsonAllFields: # scenario 36
   let ic = parseIdentityCreate(
       email = "joe@example.com",
       name = "Joe",
@@ -287,24 +293,24 @@ block toJsonAllFields: # scenario 36
   assertJsonFieldEq node, "textSignature", %"-- Joe"
   assertJsonFieldEq node, "htmlSignature", %"<p>Joe</p>"
 
-block toJsonNoIdNoMayDelete: # scenario 37
+testCase toJsonNoIdNoMayDelete: # scenario 37
   let ic = parseIdentityCreate("j@e.c").get()
   let node = ic.toJson()
   doAssert node{"id"} == nil, "IdentityCreate.toJson must not emit id"
   doAssert node{"mayDelete"} == nil, "IdentityCreate.toJson must not emit mayDelete"
 
-block toJsonCreateReplyToNull:
+testCase toJsonCreateReplyToNull:
   let ic = parseIdentityCreate("j@e.c").get()
   assertJsonFieldEq ic.toJson(), "replyTo", newJNull()
 
-block toJsonCreateBccWithAddresses:
+testCase toJsonCreateBccWithAddresses:
   let ic = parseIdentityCreate("j@e.c", bcc = Opt.some(@[ea2])).get()
   let node = ic.toJson()
   let arr = node{"bcc"}
   doAssert arr != nil and arr.kind == JArray
   assertLen arr.getElems(@[]), 1
 
-block toJsonCreateDefaultsEmitted:
+testCase toJsonCreateDefaultsEmitted:
   let ic = parseIdentityCreate("j@e.c").get()
   let node = ic.toJson()
   assertJsonFieldEq node, "email", %"j@e.c"

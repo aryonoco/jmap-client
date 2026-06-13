@@ -20,19 +20,14 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tEmailSubmissionOnSuccessDestroyLive:
+testCase tEmailSubmissionOnSuccessDestroyLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -80,16 +75,22 @@ block tEmailSubmissionOnSuccessDestroyLive:
       .expect("parseEmailSubmissionBlueprint[" & $target.kind & "]")
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
-    let (b3, handles) = addEmailSubmissionAndEmailSet(
-      initRequestBuilder(),
+    # The Ok value is a tuple carrying the uncopyable ``RequestBuilder`` (A7d),
+    # so it is moved out of the Result rather than copied via ``.expect``.
+    var subRes = addEmailSubmissionAndEmailSet(
+      initRequestBuilder(makeBuilderId()),
       submissionAccountId,
       create = Opt.some(subTbl),
       onSuccessDestroyEmail = Opt.some(onDestroy),
     )
-    let resp3 = client.send(b3).expect(
+    doAssert subRes.isOk, "addEmailSubmissionAndEmailSet destroy[" & $target.kind & "]"
+    let (b3, handles) = move(subRes.value)
+    let resp3 = client.send(b3.freeze()).expect(
         "send EmailSubmission/set+Email/set destroy[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-submission-on-success-destroy-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-on-success-destroy-" & $target.kind
+    )
       .expect("captureIfRequested")
     let pairExtract = resp3.getBoth(handles)
     # Cat-B: Cyrus 3.12.2 rejects ``onSuccessDestroyEmail`` with
@@ -114,16 +115,18 @@ block tEmailSubmissionOnSuccessDestroyLive:
         assertOn target,
           false, "implicit Email/set must report a destroy outcome for draftId"
     else:
-      let methodErr = pairExtract.unsafeError
+      let getErr = pairExtract.unsafeError
       assertOn target,
-        methodErr.errorType in {metInvalidArguments, metUnknownMethod},
+        getErr.kind == gekMethod,
+        "compound destroy must surface as gekMethod, not gekHandleMismatch"
+      let methodErr = getErr.methodErr
+      assertOn target,
+        methodErr.kind in {metInvalidArguments, metUnknownMethod},
         "compound EmailSubmission/set + onSuccessDestroyEmail must surface " &
           "metInvalidArguments or metUnknownMethod when unimplemented (got " &
           methodErr.rawType & ")"
-      client.close()
       continue
     if not compoundOk:
-      client.close()
       continue
 
     # --- Verification leg: divergent observation surface --------------
@@ -151,7 +154,7 @@ block tEmailSubmissionOnSuccessDestroyLive:
       let bobInbox = resolveInboxId(bobClient, bobMailAccountId).expect(
           "resolveInboxId bob[" & $target.kind & "]"
         )
-      let budget = (if target.kind == ltkCyrus: 30000 else: 5000) * liveBudgetMul
+      let budget = (if target.kind == ltkCyrus: 60000 else: 5000) * liveBudgetMul
       discard pollEmailDeliveryToInbox(
           bobClient,
           bobMailAccountId,
@@ -160,13 +163,14 @@ block tEmailSubmissionOnSuccessDestroyLive:
           budgetMs = budget,
         )
         .expect("pollEmailDeliveryToInbox bob[" & $target.kind & "]")
-      bobClient.close()
 
     # --- Read-back: Email/get must surface the draft as notFound ---------
-    let (b4, emailGetHandle) =
-      addEmailGet(initRequestBuilder(), mailAccountId, ids = directIds(@[draftId]))
-    let resp4 =
-      client.send(b4).expect("send Email/get post-destroy[" & $target.kind & "]")
+    let (b4, emailGetHandle) = addEmailGet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, ids = directIds(@[draftId])
+    )
+    let resp4 = client.send(b4.freeze()).expect(
+        "send Email/get post-destroy[" & $target.kind & "]"
+      )
     let getResp = resp4.get(emailGetHandle).expect(
         "Email/get post-destroy extract[" & $target.kind & "]"
       )
@@ -177,4 +181,3 @@ block tEmailSubmissionOnSuccessDestroyLive:
     assertOn target,
       draftId in getResp.notFound,
       "after onSuccessDestroyEmail, Email/get must surface draftId in notFound"
-    client.close()

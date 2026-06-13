@@ -30,18 +30,15 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailGetUnicodeNameLive:
+testCase temailGetUnicodeNameLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    var client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -78,10 +75,11 @@ block temailGetUnicodeNameLive:
       parseCreationId("seedUnicode").expect("parseCreationId[" & $target.kind & "]")
     var createTbl = initTable[CreationId, EmailBlueprint]()
     createTbl[cid] = blueprint.unsafeValue
-    let (bSeed, seedHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
+    let (bSeed, seedHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+    )
     let seedResp =
-      client.send(bSeed).expect("send Email/set seed[" & $target.kind & "]")
+      client.send(bSeed.freeze()).expect("send Email/set seed[" & $target.kind & "]")
     let seedSet =
       seedResp.get(seedHandle).expect("Email/set seed extract[" & $target.kind & "]")
     var seededId: Id
@@ -97,32 +95,34 @@ block temailGetUnicodeNameLive:
       assertOn target, false, "Email/set returned no result for creationId"
     assertOn target, found
 
-    let (b, getHandle) = addEmailGet(
-      initRequestBuilder(),
+    let (b, getHandle) = addPartialEmailGet(
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "from"]),
+      properties = parseNonEmptySeq(@[egpId, egpFrom]).get(),
     )
-    let resp =
-      client.send(b).expect("send Email/get unicode name[" & $target.kind & "]")
+    let resp = client.send(b.freeze()).expect(
+        "send Email/get unicode name[" & $target.kind & "]"
+      )
     let getResp =
       resp.get(getHandle).expect("Email/get unicode name extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let email =
-      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
-    assertOn target,
-      email.fromAddr.isSome and email.fromAddr.unsafeGet.len == 1,
-      "from must be a one-element list"
-    let fromAddr = email.fromAddr.unsafeGet[0]
-    assertOn target,
-      fromAddr.email == "alice@example.com",
-      "from[0].email must be alice@example.com (got " & fromAddr.email & ")"
-    assertOn target,
-      fromAddr.name.isSome,
-      "from[0].name must be present — Stalwart preserves display names"
-    assertOn target,
-      fromAddr.name.unsafeGet == unicodeName,
-      "from[0].name must round-trip the UTF-8 octets verbatim (got " &
-        fromAddr.name.unsafeGet & ")"
-    client.close()
+    let email = getResp.list[0]
+    case email.fromAddr.kind
+    of fekValue:
+      let fromSeq = email.fromAddr.value
+      assertOn target, fromSeq.len == 1, "from must be a one-element list"
+      let fromAddr = fromSeq[0]
+      assertOn target,
+        fromAddr.email == "alice@example.com",
+        "from[0].email must be alice@example.com (got " & fromAddr.email & ")"
+      assertOn target,
+        fromAddr.name.isSome,
+        "from[0].name must be present — Stalwart preserves display names"
+      assertOn target,
+        fromAddr.name.unsafeGet == unicodeName,
+        "from[0].name must round-trip the UTF-8 octets verbatim (got " &
+          fromAddr.name.unsafeGet & ")"
+    of fekAbsent, fekNull:
+      assertOn target, false, "from must be a one-element list"

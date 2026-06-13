@@ -11,9 +11,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailSubmissionQueryFilterSort:
+testCase tcapturedEmailSubmissionQueryFilterSort:
   let j = loadCapturedFixture("email-submission-query-filter-sort-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -27,4 +29,4 @@ block tcapturedEmailSubmissionQueryFilterSort:
   doAssert qr.ids.len >= 2,
     "phase-i 60 capstone seeded at least two submissions (got " & $qr.ids.len & ")"
   for id in qr.ids:
-    doAssert string(id).len > 0, "every returned submission id must be non-empty"
+    doAssert ($id).len > 0, "every returned submission id must be non-empty"

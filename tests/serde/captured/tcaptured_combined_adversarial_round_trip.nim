@@ -22,9 +22,11 @@
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedCombinedAdversarialRoundTrip:
+testCase tcapturedCombinedAdversarialRoundTrip:
   forEachCapturedServer("combined-adversarial-round-trip", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 5,
@@ -50,18 +52,17 @@ block tcapturedCombinedAdversarialRoundTrip:
         "MethodError.fromJson c2"
       )
     doAssert me.rawType.len > 0
-    doAssert me.errorType in
+    doAssert me.kind in
       {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown}
 
     # c3 — Stalwart returns notCreated with newDraft → invalidProperties.
-    let setResp = SetResponse[EmailCreatedItem]
+    let setResp = SetResponse[EmailCreatedItem, PartialEmail]
       .fromJson(resp.methodResponses[3].arguments)
-      .expect("SetResponse[EmailCreatedItem].fromJson c3")
+      .expect("SetResponse[EmailCreatedItem, PartialEmail].fromJson c3")
     let cidLabel = parseCreationId("newDraft").expect("parseCreationId")
     setResp.createResults.withValue(cidLabel, outcome):
       doAssert outcome.isErr
-      doAssert outcome.error.errorType in
-        {setInvalidProperties, setForbidden, setUnknown}
+      doAssert outcome.error.kind in {setInvalidProperties, setForbidden, setUnknown}
     do:
       doAssert false, "createResults must report newDraft outcome"
 

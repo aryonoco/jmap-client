@@ -1,41 +1,44 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Tests for ValidationError construction and distinct type borrow templates.
+## Tests for ValidationError construction and sealed-object ops templates.
 
 import std/hashes
 
-import jmap_client/validation
+import jmap_client/internal/types/validation
+import ../mtestblock
 
-# Test distinct types — must be at top level for export markers in borrow templates
-type TestStr = distinct string
+# Test sealed objects — top-level so export markers in op templates apply.
+type TestStr {.ruleOff: "objects".} = object
+  rawValue: string
 
-defineStringDistinctOps(TestStr)
+defineSealedStringOps(TestStr)
 
-type TestInt = distinct int64
+type TestInt {.ruleOff: "objects".} = object
+  rawValue: int64
 
-defineIntDistinctOps(TestInt)
+defineSealedIntOps(TestInt)
 
 # --- validationError constructor ---
 
-block validationErrorConstructor:
+testCase validationErrorConstructor:
   let ve = validationError("Id", "length must be 1-255", "")
   doAssert ve.typeName == "Id"
-  doAssert ve.message == "length must be 1-255"
+  doAssert ve.reason == "length must be 1-255"
   doAssert ve.value == ""
 
-block validationErrorAllFields:
+testCase validationErrorAllFields:
   let ve = validationError("UnsignedInt", "must be non-negative", "-1")
   doAssert ve.typeName == "UnsignedInt"
-  doAssert ve.message == "must be non-negative"
+  doAssert ve.reason == "must be non-negative"
   doAssert ve.value == "-1"
 
-# --- defineStringDistinctOps ---
+# --- defineSealedStringOps ---
 
-block stringDistinctOps:
-  let a = TestStr("hello")
-  let b = TestStr("hello")
-  let c = TestStr("world")
+testCase stringDistinctOps:
+  const a = TestStr(rawValue: "hello")
+  const b = TestStr(rawValue: "hello")
+  const c = TestStr(rawValue: "world")
 
   # Equality
   doAssert a == b
@@ -49,14 +52,14 @@ block stringDistinctOps:
 
   # Length
   doAssert a.len == 5
-  doAssert TestStr("").len == 0
+  doAssert TestStr(rawValue: "").len == 0
 
-# --- defineIntDistinctOps ---
+# --- defineSealedIntOps ---
 
-block intDistinctOps:
-  let x = TestInt(10)
-  let y = TestInt(10)
-  let z = TestInt(20)
+testCase intDistinctOps:
+  const x = TestInt(rawValue: 10)
+  const y = TestInt(rawValue: 10)
+  const z = TestInt(rawValue: 20)
 
   # Equality
   doAssert x == y
@@ -73,14 +76,14 @@ block intDistinctOps:
 
   # String conversion
   doAssert $x == "10"
-  doAssert $TestInt(-100) == "-100"
+  doAssert $TestInt(rawValue: -100) == "-100"
 
   # Hash — equal values must produce equal hashes
   doAssert hash(x) == hash(y)
 
 # --- Base64UrlChars ---
 
-block base64UrlChars:
+testCase base64UrlChars:
   # Uppercase letters
   doAssert 'A' in Base64UrlChars
   doAssert 'Z' in Base64UrlChars

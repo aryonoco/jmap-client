@@ -15,8 +15,9 @@ import std/tables
 
 import jmap_client
 import ./mloader
+import ../../mtestblock
 
-block tcapturedBobSession:
+testCase tcapturedBobSession:
   forEachCapturedServer("bob-session", j):
     let sessRes = Session.fromJson(j)
     doAssert sessRes.isOk, "Session.fromJson must succeed on bob's Stalwart capture"
@@ -27,7 +28,7 @@ block tcapturedBobSession:
     doAssert s.primaryAccounts.len >= 1, "primaryAccounts must include at least one URI"
     doAssert s.username.len > 0, "username must be non-empty"
 
-    var bobMailAccountId: AccountId
+    var bobMailAccountId = default(AccountId)
     s.primaryAccounts.withValue("urn:ietf:params:jmap:mail", v):
       bobMailAccountId = v
     do:

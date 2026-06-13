@@ -35,12 +35,12 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tidentityChangesLive:
+testCase tidentityChangesLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): Stalwart 0.15.5 implements Identity/{set,
     # changes} fully. James 3.9 binds Identity/changes but
@@ -50,12 +50,7 @@ block tidentityChangesLive:
     # implemented") and returns ``metUnknownMethod``. Each
     # ``assertSuccessOrTypedError`` site exercises the typed-error
     # projection contract uniformly.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let submissionAccountId = resolveSubmissionAccountId(session).expect(
         "resolveSubmissionAccountId[" & $target.kind & "]"
@@ -81,10 +76,13 @@ block tidentityChangesLive:
     var createTbl = initTable[CreationId, IdentityCreate]()
     createTbl[createCid] = createIdent
     let (bCreate, createHandle) = addIdentitySet(
-      initRequestBuilder(), submissionAccountId, create = Opt.some(createTbl)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(createTbl),
     )
-    let respCreate =
-      client.send(bCreate).expect("send Identity/set create[" & $target.kind & "]")
+    let respCreate = client.send(bCreate.freeze()).expect(
+        "send Identity/set create[" & $target.kind & "]"
+      )
     let createExtract = respCreate.get(createHandle)
     var identityId: Id
     var createOk = false
@@ -101,16 +99,18 @@ block tidentityChangesLive:
     # --- Happy path: Identity/changes since baseline --------------------
     if createOk:
       let (bHappy, happyHandle) = addIdentityChanges(
-        initRequestBuilder(), submissionAccountId, sinceState = baselineState
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        sinceState = baselineState,
       )
-      let respHappy =
-        client.send(bHappy).expect("send Identity/changes happy[" & $target.kind & "]")
+      let respHappy = client.send(bHappy.freeze()).expect(
+          "send Identity/changes happy[" & $target.kind & "]"
+        )
       let happyExtract = respHappy.get(happyHandle)
       assertSuccessOrTypedError(target, happyExtract, {metUnknownMethod}):
         let cr = success
         assertOn target,
-          string(cr.oldState) == string(baselineState),
-          "oldState must echo the supplied baseline"
+          $cr.oldState == $baselineState, "oldState must echo the supplied baseline"
         # James 3.9 binds Identity/changes but reports it "Not
         # implemented" — the response shape is well-formed but the
         # delta is empty. Stalwart correctly surfaces the newly-
@@ -124,21 +124,25 @@ block tidentityChangesLive:
         assertOn target, cr.hasMoreChanges == false, "no further changes pending"
 
     # --- Sad path: bogus sinceState -------------------------------------
-    let bogusState = JmapState("phase-h-46-bogus-state")
+    let bogusState = parseJmapState("phase-h-46-bogus-state").get()
     let (bSad, sadHandle) = addIdentityChanges(
-      initRequestBuilder(), submissionAccountId, sinceState = bogusState
+      initRequestBuilder(makeBuilderId()), submissionAccountId, sinceState = bogusState
     )
-    let respSad =
-      client.send(bSad).expect("send Identity/changes bogus[" & $target.kind & "]")
-    captureIfRequested(client, "identity-changes-bogus-state-" & $target.kind).expect(
-      "captureIfRequested"
+    let respSad = client.send(bSad.freeze()).expect(
+        "send Identity/changes bogus[" & $target.kind & "]"
+      )
+    captureIfRequested(
+      recorder.lastResponseBody, "identity-changes-bogus-state-" & $target.kind
     )
+      .expect("captureIfRequested")
     let sadExtract = respSad.get(sadHandle)
     assertOn target,
       sadExtract.isErr, "bogus sinceState must surface as a method-level error"
-    let methodErr = sadExtract.error
+    let getErr = sadExtract.error
+    doAssert getErr.kind == gekMethod, "expected gekMethod"
+    let methodErr = getErr.methodErr
     assertOn target,
-      methodErr.errorType in
+      methodErr.kind in
         {metCannotCalculateChanges, metInvalidArguments, metUnknownMethod},
       "method error must project as cannotCalculateChanges, invalidArguments, or " &
         "unknownMethod (got rawType=" & methodErr.rawType & ")"
@@ -146,8 +150,9 @@ block tidentityChangesLive:
     # --- Cleanup: destroy the test-created Identity ---------------------
     if createOk:
       let (bCleanup, cleanupHandle) = addIdentitySet(
-        initRequestBuilder(), submissionAccountId, destroy = directIds(@[identityId])
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        destroy = directIds(@[identityId]),
       )
-      discard client.send(bCleanup)
+      discard client.send(bCleanup.freeze())
       discard cleanupHandle
-    client.close()

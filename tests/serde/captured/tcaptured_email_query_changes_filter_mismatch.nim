@@ -14,9 +14,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailQueryChangesFilterMismatch:
+testCase tcapturedEmailQueryChangesFilterMismatch:
   let j = loadCapturedFixture("email-query-changes-filter-mismatch-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -30,4 +32,4 @@ block tcapturedEmailQueryChangesFilterMismatch:
   doAssert ($qcr.newQueryState).len > 0, "newQueryState must be non-empty"
   doAssert qcr.total.isNone, "calculateTotal was not requested — total must be absent"
   for item in qcr.added:
-    doAssert string(item.id).len > 0, "every added.id must be non-empty"
+    doAssert ($item.id).len > 0, "every added.id must be non-empty"

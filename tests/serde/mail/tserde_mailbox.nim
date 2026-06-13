@@ -7,29 +7,30 @@
 
 import std/json
 
-import jmap_client/mail/mailbox
-import jmap_client/mail/serde_mailbox
-import jmap_client/serde
-import jmap_client/validation
-import jmap_client/primitives
+import jmap_client/internal/mail/mailbox
+import jmap_client/internal/mail/serde_mailbox
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # ============= A. MailboxRole serde =============
 
-block toJsonMailboxRole: # scenario 28
+testCase toJsonMailboxRole: # scenario 28
   let node = roleInbox.toJson()
   assertEq node, newJString("inbox")
 
-block fromJsonMailboxRole: # scenario 29
+testCase fromJsonMailboxRole: # scenario 29
   assertOkEq MailboxRole.fromJson(newJString("inbox")), roleInbox
 
 # ============= B. MailboxIdSet serde =============
 
-block toJsonMailboxIdSet: # scenario 32
-  let id1 = parseId("mbx1").get()
-  let id2 = parseId("mbx2").get()
+testCase toJsonMailboxIdSet: # scenario 32
+  let id1 = parseIdFromServer("mbx1").get()
+  let id2 = parseIdFromServer("mbx2").get()
   let ms = initMailboxIdSet(@[id1, id2])
   let node = ms.toJson()
   doAssert node.kind == JObject
@@ -37,15 +38,15 @@ block toJsonMailboxIdSet: # scenario 32
   assertJsonFieldEq node, "mbx2", newJBool(true)
   assertLen node, 2
 
-block fromJsonMailboxIdSet: # scenario 33
+testCase fromJsonMailboxIdSet: # scenario 33
   let res = MailboxIdSet.fromJson(%*{"mbx1": true, "mbx2": true})
   assertOk res
   let ms = res.get()
   assertLen ms, 2
-  doAssert parseId("mbx1").get() in ms
-  doAssert parseId("mbx2").get() in ms
+  doAssert parseIdFromServer("mbx1").get() in ms
+  doAssert parseIdFromServer("mbx2").get() in ms
 
-block fromJsonMailboxIdSetFalse: # scenario 34
+testCase fromJsonMailboxIdSetFalse: # scenario 34
   ## Explicit ``false`` for any mailbox id value is rejected structurally
   ## via ``svkEnumNotRecognised``.
   let res = MailboxIdSet.fromJson(%*{"mbx1": false})
@@ -54,9 +55,9 @@ block fromJsonMailboxIdSetFalse: # scenario 34
   doAssert res.error.rawValue == "false"
   doAssert $res.error.path == "/mbx1"
 
-block roundTripMailboxIdSet: # scenario 35
-  let id1 = parseId("mbx1").get()
-  let id2 = parseId("mbx2").get()
+testCase roundTripMailboxIdSet: # scenario 35
+  let id1 = parseIdFromServer("mbx1").get()
+  let id2 = parseIdFromServer("mbx2").get()
   let original = initMailboxIdSet(@[id1, id2])
   let roundTripped = MailboxIdSet.fromJson(original.toJson()).get()
   assertLen roundTripped, 2
@@ -65,7 +66,7 @@ block roundTripMailboxIdSet: # scenario 35
 
 # ============= C. MailboxRights serde =============
 
-block fromJsonMailboxRights: # scenario 36
+testCase fromJsonMailboxRights: # scenario 36
   let node = %*{
     "mayReadItems": true,
     "mayAddItems": false,
@@ -90,7 +91,7 @@ block fromJsonMailboxRights: # scenario 36
   assertEq mr.mayDelete, true
   assertEq mr.maySubmit, false
 
-block fromJsonMailboxRightsMissing: # scenario 37
+testCase fromJsonMailboxRightsMissing: # scenario 37
   let node = %*{
     "mayReadItems": true,
     "mayAddItems": false,
@@ -103,7 +104,7 @@ block fromJsonMailboxRightsMissing: # scenario 37
   }
   assertErr MailboxRights.fromJson(node)
 
-block fromJsonMailboxRightsNonBool: # scenario 38
+testCase fromJsonMailboxRightsNonBool: # scenario 38
   let node = %*{
     "mayReadItems": "true",
     "mayAddItems": false,
@@ -117,7 +118,7 @@ block fromJsonMailboxRightsNonBool: # scenario 38
   }
   assertErr MailboxRights.fromJson(node)
 
-block roundTripMailboxRights: # scenario 39
+testCase roundTripMailboxRights: # scenario 39
   let original = MailboxRights(
     mayReadItems: true,
     mayAddItems: false,
@@ -142,7 +143,7 @@ block roundTripMailboxRights: # scenario 39
 
 # ============= D. Mailbox serde =============
 
-block fromJsonMailbox: # scenario 40
+testCase fromJsonMailbox: # scenario 40
   let node = %*{
     "id": "mbx1",
     "name": "Inbox",
@@ -171,17 +172,17 @@ block fromJsonMailbox: # scenario 40
   let mbx = res.get()
   assertEq $mbx.id, "mbx1"
   assertEq mbx.name, "Inbox"
-  assertSomeEq mbx.parentId, parseId("parent1").get()
+  assertSomeEq mbx.parentId, parseIdFromServer("parent1").get()
   assertSomeEq mbx.role, roleInbox
-  assertEq mbx.sortOrder, UnsignedInt(0)
-  assertEq mbx.totalEmails, UnsignedInt(100)
-  assertEq mbx.unreadEmails, UnsignedInt(5)
-  assertEq mbx.totalThreads, UnsignedInt(80)
-  assertEq mbx.unreadThreads, UnsignedInt(3)
+  assertEq mbx.sortOrder, parseUnsignedInt(0).get()
+  assertEq mbx.totalEmails, parseUnsignedInt(100).get()
+  assertEq mbx.unreadEmails, parseUnsignedInt(5).get()
+  assertEq mbx.totalThreads, parseUnsignedInt(80).get()
+  assertEq mbx.unreadThreads, parseUnsignedInt(3).get()
   assertEq mbx.myRights.mayReadItems, true
   assertEq mbx.isSubscribed, true
 
-block fromJsonMailboxNameAbsent: # scenario 41
+testCase fromJsonMailboxNameAbsent: # scenario 41
   let node = %*{
     "id": "mbx1",
     "parentId": nil,
@@ -206,7 +207,7 @@ block fromJsonMailboxNameAbsent: # scenario 41
   }
   assertErr Mailbox.fromJson(node)
 
-block fromJsonMailboxNameEmpty: # scenario 42
+testCase fromJsonMailboxNameEmpty: # scenario 42
   let node = %*{
     "id": "mbx1",
     "name": "",
@@ -232,7 +233,7 @@ block fromJsonMailboxNameEmpty: # scenario 42
   }
   assertErr Mailbox.fromJson(node)
 
-block fromJsonMailboxParentIdNull: # scenario 43
+testCase fromJsonMailboxParentIdNull: # scenario 43
   let node = %*{
     "id": "mbx1",
     "name": "Inbox",
@@ -259,7 +260,7 @@ block fromJsonMailboxParentIdNull: # scenario 43
   let mbx = Mailbox.fromJson(node).get()
   assertNone mbx.parentId
 
-block fromJsonMailboxParentIdPresent: # scenario 44
+testCase fromJsonMailboxParentIdPresent: # scenario 44
   let node = %*{
     "id": "mbx1",
     "name": "Inbox",
@@ -286,7 +287,7 @@ block fromJsonMailboxParentIdPresent: # scenario 44
   let mbx = Mailbox.fromJson(node).get()
   assertSome mbx.parentId
 
-block fromJsonMailboxRoleNull: # scenario 45
+testCase fromJsonMailboxRoleNull: # scenario 45
   let node = %*{
     "id": "mbx1",
     "name": "Inbox",
@@ -313,7 +314,7 @@ block fromJsonMailboxRoleNull: # scenario 45
   let mbx = Mailbox.fromJson(node).get()
   assertNone mbx.role
 
-block fromJsonMailboxRolePresent: # scenario 46
+testCase fromJsonMailboxRolePresent: # scenario 46
   let node = %*{
     "id": "mbx1",
     "name": "Inbox",
@@ -340,7 +341,7 @@ block fromJsonMailboxRolePresent: # scenario 46
   let mbx = Mailbox.fromJson(node).get()
   assertSomeEq mbx.role, roleInbox
 
-block fromJsonMailboxRoleUppercase: # scenario 47
+testCase fromJsonMailboxRoleUppercase: # scenario 47
   let node = %*{
     "id": "mbx1",
     "name": "Inbox",
@@ -367,7 +368,7 @@ block fromJsonMailboxRoleUppercase: # scenario 47
   let mbx = Mailbox.fromJson(node).get()
   assertSomeEq mbx.role, roleInbox
 
-block roundTripMailbox: # scenario 48
+testCase roundTripMailbox: # scenario 48
   let rights = MailboxRights(
     mayReadItems: true,
     mayAddItems: false,
@@ -380,15 +381,15 @@ block roundTripMailbox: # scenario 48
     maySubmit: false,
   )
   let original = Mailbox(
-    id: parseId("mbx1").get(),
+    id: parseIdFromServer("mbx1").get(),
     name: "Inbox",
     parentId: Opt.none(Id),
     role: Opt.some(roleInbox),
-    sortOrder: UnsignedInt(0),
-    totalEmails: UnsignedInt(100),
-    unreadEmails: UnsignedInt(5),
-    totalThreads: UnsignedInt(80),
-    unreadThreads: UnsignedInt(3),
+    sortOrder: parseUnsignedInt(0).get(),
+    totalEmails: parseUnsignedInt(100).get(),
+    unreadEmails: parseUnsignedInt(5).get(),
+    totalThreads: parseUnsignedInt(80).get(),
+    unreadThreads: parseUnsignedInt(3).get(),
     myRights: rights,
     isSubscribed: true,
   )
@@ -404,7 +405,7 @@ block roundTripMailbox: # scenario 48
   assertEq roundTripped.unreadThreads, original.unreadThreads
   assertEq roundTripped.isSubscribed, original.isSubscribed
 
-block fromJsonMailboxMissingField: # scenario 49
+testCase fromJsonMailboxMissingField: # scenario 49
   let node = %*{
     "name": "Inbox",
     "parentId": nil,
@@ -431,12 +432,12 @@ block fromJsonMailboxMissingField: # scenario 49
 
 # ============= E. MailboxCreate serde =============
 
-block toJsonMailboxCreate: # scenario 53
+testCase toJsonMailboxCreate: # scenario 53
   let mc = parseMailboxCreate(
       "Work",
-      parentId = Opt.some(parseId("parent1").get()),
+      parentId = Opt.some(parseIdFromServer("parent1").get()),
       role = Opt.some(roleInbox),
-      sortOrder = UnsignedInt(10),
+      sortOrder = parseUnsignedInt(10).get(),
       isSubscribed = true,
     )
     .get()
@@ -447,7 +448,7 @@ block toJsonMailboxCreate: # scenario 53
   assertJsonFieldEq node, "sortOrder", newJInt(10)
   assertJsonFieldEq node, "isSubscribed", newJBool(true)
 
-block toJsonMailboxCreateNoServerFields: # scenario 54
+testCase toJsonMailboxCreateNoServerFields: # scenario 54
   let mc = parseMailboxCreate("Inbox").get()
   let node = mc.toJson()
   doAssert node{"id"} == nil, "id must not be present in MailboxCreate JSON"
@@ -457,7 +458,7 @@ block toJsonMailboxCreateNoServerFields: # scenario 54
   doAssert node{"unreadThreads"} == nil, "unreadThreads must not be present"
   doAssert node{"myRights"} == nil, "myRights must not be present"
 
-block toJsonMailboxCreateNullOpts: # scenario 55
+testCase toJsonMailboxCreateNullOpts: # scenario 55
   ## ``parentId`` is emitted as ``null`` to make "top-level mailbox"
   ## explicit on the wire (RFC 8621 §2.5 distinguishes a missing
   ## parent from an absent field). ``role`` and ``sortOrder`` are
@@ -473,12 +474,12 @@ block toJsonMailboxCreateNullOpts: # scenario 55
 
 # ============= F. MailboxUpdate serde =============
 
-block setNameTuple:
+testCase setNameTuple:
   let (key, value) = makeSetName("Renamed").toJson()
   assertEq key, "name"
   assertEq value, %"Renamed"
 
-block setParentIdNoneEmitsJsonNull:
+testCase setParentIdNoneEmitsJsonNull:
   ## RFC 8621 §2 reparent-to-top-level is expressed as ``parentId: null`` on
   ## the wire — NOT key-absent. Pins the nullable semantic that distinguishes
   ## "clear the parent" from "don't update the parent".
@@ -486,24 +487,24 @@ block setParentIdNoneEmitsJsonNull:
   assertEq key, "parentId"
   assertEq value, newJNull()
 
-block setParentIdSomeEmitsString:
-  let id1 = parseId("parent1").get()
+testCase setParentIdSomeEmitsString:
+  let id1 = parseIdFromServer("parent1").get()
   let (key, value) = makeSetParentId(Opt.some(id1)).toJson()
   assertEq key, "parentId"
   assertEq value, id1.toJson()
 
-block setRoleNoneEmitsJsonNull:
+testCase setRoleNoneEmitsJsonNull:
   ## RFC 8621 §2 clear-role is expressed as ``role: null`` on the wire.
   let (key, value) = makeSetRole(Opt.none(MailboxRole)).toJson()
   assertEq key, "role"
   assertEq value, newJNull()
 
-block setRoleSomeEmitsString:
+testCase setRoleSomeEmitsString:
   let (key, value) = makeSetRole(Opt.some(roleInbox)).toJson()
   assertEq key, "role"
   assertEq value, %"inbox"
 
-block mailboxUpdateSetFlattensTuple:
+testCase mailboxUpdateSetFlattensTuple:
   let us = makeMailboxUpdateSet(@[makeSetName("X"), makeSetIsSubscribed(false)])
   let node = us.toJson()
   doAssert node.kind == JObject
@@ -511,7 +512,7 @@ block mailboxUpdateSetFlattensTuple:
   assertJsonFieldEq node, "name", %"X"
   assertJsonFieldEq node, "isSubscribed", %false
 
-block mailboxUpdateSetRoundTripsWireOrder:
+testCase mailboxUpdateSetRoundTripsWireOrder:
   ## Re-stringify / re-parse round-trip guards against accidental
   ## key-order mangling by the flatten aggregator.
   let us = makeMailboxUpdateSet(@[makeSetName("X"), makeSetIsSubscribed(false)])
@@ -524,7 +525,7 @@ block mailboxUpdateSetRoundTripsWireOrder:
 
 # ============= I. MailboxCreatedItem serde =============
 
-block fromJsonMailboxCreatedItemMinimal:
+testCase fromJsonMailboxCreatedItemMinimal:
   ## Stalwart 0.15.5 returns Mailbox/set ``created[cid]`` as just
   ## ``{"id": "<id>"}``, omitting all other server-set fields per its
   ## strict-RFC §5.3 minor divergence. ``MailboxCreatedItem.fromJson``
@@ -533,14 +534,14 @@ block fromJsonMailboxCreatedItemMinimal:
   let r = MailboxCreatedItem.fromJson(node)
   doAssert r.isOk, $r
   let item = r.get()
-  assertEq string(item.id), "h"
+  assertEq $item.id, "h"
   doAssert item.totalEmails.isNone
   doAssert item.unreadEmails.isNone
   doAssert item.totalThreads.isNone
   doAssert item.unreadThreads.isNone
   doAssert item.myRights.isNone
 
-block fromJsonMailboxCreatedItemFull:
+testCase fromJsonMailboxCreatedItemFull:
   ## RFC 8621 §2.1 server-set subset — every field present. Round-trips
   ## through ``toJson`` symmetrically.
   let node = parseJson(
@@ -552,16 +553,20 @@ block fromJsonMailboxCreatedItemFull:
   let r = MailboxCreatedItem.fromJson(node)
   doAssert r.isOk, $r
   let item = r.get()
-  doAssert item.totalEmails.isSome and item.totalEmails.get() == UnsignedInt(3)
-  doAssert item.unreadEmails.isSome and item.unreadEmails.get() == UnsignedInt(1)
-  doAssert item.totalThreads.isSome and item.totalThreads.get() == UnsignedInt(2)
-  doAssert item.unreadThreads.isSome and item.unreadThreads.get() == UnsignedInt(1)
+  doAssert item.totalEmails.isSome and
+    item.totalEmails.get() == parseUnsignedInt(3).get()
+  doAssert item.unreadEmails.isSome and
+    item.unreadEmails.get() == parseUnsignedInt(1).get()
+  doAssert item.totalThreads.isSome and
+    item.totalThreads.get() == parseUnsignedInt(2).get()
+  doAssert item.unreadThreads.isSome and
+    item.unreadThreads.get() == parseUnsignedInt(1).get()
   doAssert item.myRights.isSome
   let reparsed = MailboxCreatedItem.fromJson(item.toJson())
   doAssert reparsed.isOk, $reparsed
   doAssert reparsed.get().totalEmails == item.totalEmails
 
-block fromJsonMailboxCreatedItemMissingId:
+testCase fromJsonMailboxCreatedItemMissingId:
   ## ``id`` is required per RFC 8620 §5.3 — its absence rejects the item.
   let node = parseJson("""{"totalEmails":0}""")
   let r = MailboxCreatedItem.fromJson(node)

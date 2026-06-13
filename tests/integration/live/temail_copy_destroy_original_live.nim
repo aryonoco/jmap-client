@@ -25,7 +25,7 @@
 ##     == mailAccountId``. Send. Capture
 ##     ``email-copy-destroy-original-rejected-stalwart``.
 ##  4. Assert ``resp.getBoth(handles).isErr`` AND
-##     ``methodErr.errorType == metInvalidArguments``.
+##     ``methodErr.kind == metInvalidArguments``.
 ##  5. Cleanup: destroy the seed; assert success — the source
 ##     survived because the rejection occurred before any state
 ##     change.
@@ -40,12 +40,12 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailCopyDestroyOriginalLive:
+testCase temailCopyDestroyOriginalLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): test asserts on client behaviour for the
     # compound RFC 8620 §5.4 rejection. Stalwart and Cyrus implement
@@ -53,12 +53,7 @@ block temailCopyDestroyOriginalLive:
     # ``metInvalidArguments``; James lacks Email/copy entirely and
     # returns ``metUnknownMethod``. Both projections are valid client-
     # library typed-error contracts.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -82,15 +77,17 @@ block temailCopyDestroyOriginalLive:
     createTbl[copyCid] =
       initEmailCopyItem(id = sourceId, mailboxIds = Opt.some(inboxSet))
     let (bCopy, handles) = addEmailCopyAndDestroy(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       fromAccountId = mailAccountId,
       accountId = mailAccountId,
       create = createTbl,
     )
-    let respCopy = client.send(bCopy).expect(
+    let respCopy = client.send(bCopy.freeze()).expect(
         "send Email/copy + destroy (rejection-bound)[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-copy-destroy-original-rejected-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "email-copy-destroy-original-rejected-" & $target.kind
+    )
       .expect("captureIfRequested")
 
     # --- 4. Assert compound rejection at method level --------------------
@@ -98,17 +95,23 @@ block temailCopyDestroyOriginalLive:
     assertOn target,
       bothResult.isErr,
       "compound same-account Email/copy + destroy must surface a typed error"
-    let methodErr = bothResult.error
+    let getErr = bothResult.error
+    doAssert getErr.kind == gekMethod, "expected gekMethod"
+    let methodErr = getErr.methodErr
     assertOn target,
-      methodErr.errorType in {metInvalidArguments, metUnknownMethod},
+      methodErr.kind in {metInvalidArguments, metUnknownMethod},
       "method error must project as metInvalidArguments or metUnknownMethod (got rawType=" &
         methodErr.rawType & ")"
 
     # --- 5. Cleanup: source must still exist -----------------------------
-    let (bClean, cleanHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[sourceId]))
-    let respClean =
-      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let (bClean, cleanHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()),
+      mailAccountId,
+      destroy = directIds(@[sourceId]),
+    )
+    let respClean = client.send(bClean.freeze()).expect(
+        "send Email/set cleanup[" & $target.kind & "]"
+      )
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
@@ -121,4 +124,3 @@ block temailCopyDestroyOriginalLive:
     do:
       assertOn target, false, "cleanup must report an outcome for sourceId"
     assertOn target, sourceDestroyed
-    client.close()

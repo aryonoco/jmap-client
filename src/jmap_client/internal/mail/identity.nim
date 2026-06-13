@@ -1,0 +1,335 @@
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2026 Aryan Ameri
+
+## Identity entity for RFC 8621 (JMAP Mail) section 6. An Identity stores
+## information about an email address or domain a user may send as. Identity
+## is a read model with plain public fields; IdentityCreate is the creation
+## model with a smart constructor enforcing non-empty email.
+
+{.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
+
+import std/hashes
+import std/tables
+
+import ../types/validation
+import ../types/primitives
+import ../types/field_echo
+import ./addresses
+
+type DeleteAuthority* = enum
+  ## Whether the client may delete an Identity (RFC 8621 §6 ``mayDelete``),
+  ## three-state (P18). RFC 8621 declares ``mayDelete`` a server-set boolean
+  ## that is always present, but Stalwart 0.15.5 omits it from some payloads.
+  ## ``daUnreported`` (the zero value) names "the server did not say" honestly
+  ## rather than collapsing the omission to ``daNo`` — which would misreport
+  ## the user as forbidden to delete the identity. ``daYes`` is wire ``true``,
+  ## ``daNo`` is wire ``false``, ``daUnreported`` omits the key.
+  daUnreported
+  daYes
+  daNo
+
+type Identity* {.ruleOff: "objects".} = object
+  ## An Identity represents information about an email address or domain
+  ## the user may send from (RFC 8621 section 6).
+  id*: Id ## Server-assigned identifier.
+  name*: string ## Display name for this identity, default "".
+  email*: string ## Email address, immutable after creation.
+  replyTo*: Opt[seq[EmailAddress]] ## Default Reply-To addresses, or none.
+  bcc*: Opt[seq[EmailAddress]] ## Default Bcc addresses, or none.
+  textSignature*: string ## Plain text signature, default "".
+  htmlSignature*: string ## HTML signature, default "".
+  mayDelete*: DeleteAuthority ## Whether the client may delete this identity.
+
+type IdentityCreate* {.ruleOff: "objects".} = object
+  ## Creation model for Identity — excludes server-set fields (id, mayDelete).
+  email*: string ## Required, must be non-empty.
+  name*: string ## Display name, default "".
+  replyTo*: Opt[seq[EmailAddress]] ## Default Reply-To addresses, or none.
+  bcc*: Opt[seq[EmailAddress]] ## Default Bcc addresses, or none.
+  textSignature*: string ## Plain text signature, default "".
+  htmlSignature*: string ## HTML signature, default "".
+
+type IdentityCreatedItem* {.ruleOff: "objects".} = object
+  ## Server-authoritative subset returned in Identity/set ``created[cid]``
+  ## (RFC 8620 §5.3): the server MUST return ``id`` plus any server-set or
+  ## server-modified properties; for Identity, the only such property is
+  ## ``mayDelete``. The full ``Identity`` record is NOT returned — the
+  ## client already knows the other fields (it sent them in ``create``).
+  ##
+  ## ``mayDelete`` is ``DeleteAuthority`` (three-state, P18): Stalwart 0.15.5
+  ## omits it from this payload (a strict-RFC §5.3 minor divergence — the
+  ## create acknowledgement is just ``{"id": "<id>"}``), which parses to
+  ## ``daUnreported``. Postel's-law accommodation per
+  ## ``.claude/rules/nim-conventions.md`` §"Serde Conventions": be lenient on
+  ## receive. Mirrors the ``EmailCreatedItem`` design (``email.nim``).
+  id*: Id
+  mayDelete*: DeleteAuthority
+
+# =============================================================================
+# PartialIdentity
+# =============================================================================
+
+type PartialIdentity* {.ruleOff: "objects".} = object
+  ## RFC 8621 §6 partial Identity. Receive-only; produced by the library
+  ## via ``SetResponse[IdentityCreatedItem, PartialIdentity].updateResults``
+  ## and ``GetResponse[PartialIdentity].list`` (A4 + A3.6).
+  id*: Opt[Id]
+  name*: Opt[string]
+  email*: Opt[string]
+  replyTo*: FieldEcho[seq[EmailAddress]]
+    ## Wire admits null (clears default Reply-To per RFC 8621 §6).
+  bcc*: FieldEcho[seq[EmailAddress]]
+    ## Wire admits null (clears default Bcc per RFC 8621 §6).
+  textSignature*: Opt[string]
+  htmlSignature*: Opt[string]
+  mayDelete*: Opt[bool]
+    ## Stays ``Opt[bool]``, not ``DeleteAuthority``: in a sparse projection the
+    ## ``Opt`` already carries the third state (``Opt.none`` = not in this
+    ## projection), so ``daUnreported`` would be a redundant fourth state.
+
+func parseIdentityCreate*(
+    email: string,
+    name: string = "",
+    replyTo: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]),
+    bcc: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]),
+    textSignature: string = "",
+    htmlSignature: string = "",
+): Result[IdentityCreate, ValidationError] =
+  ## Smart constructor: validates non-empty email, constructs IdentityCreate.
+  ## All parameters except email have RFC-matching defaults for ergonomic use.
+  if email.len == 0:
+    return err(validationError("IdentityCreate", "email must not be empty", ""))
+  return ok(
+    IdentityCreate(
+      email: email,
+      name: name,
+      replyTo: replyTo,
+      bcc: bcc,
+      textSignature: textSignature,
+      htmlSignature: htmlSignature,
+    )
+  )
+
+# =============================================================================
+# Identity Update Algebra (RFC 8621 §6 /set update path)
+# =============================================================================
+
+type IdentityUpdateVariantKind* = enum
+  ## Discriminator for ``IdentityUpdate``. RFC 8621 §6 settable Identity
+  ## properties only — ``id``, ``email``, and ``mayDelete`` have no variant
+  ## because they are server-set or immutable-after-create.
+  iuSetName
+  iuSetReplyTo
+  iuSetBcc
+  iuSetTextSignature
+  iuSetHtmlSignature
+
+type IdentityUpdate* {.ruleOff: "objects".} = object
+  ## Single typed Identity patch operation (RFC 8621 §6). Whole-value
+  ## replace semantics — no sub-path targeting. Case object makes
+  ## "exactly one target per update" a type-level fact; shape mirrors
+  ## ``MailboxUpdate`` and ``VacationResponseUpdate``.
+  case kind*: IdentityUpdateVariantKind
+  of iuSetName:
+    name*: string
+  of iuSetReplyTo:
+    replyTo*: Opt[seq[EmailAddress]]
+      ## Opt.none clears the default Reply-To per RFC 8621 §6.
+  of iuSetBcc:
+    bcc*: Opt[seq[EmailAddress]] ## Opt.none clears the default Bcc per RFC 8621 §6.
+  of iuSetTextSignature:
+    textSignature*: string
+  of iuSetHtmlSignature:
+    htmlSignature*: string
+
+func setName*(name: string): IdentityUpdate =
+  ## Replace the Identity's display name.
+  IdentityUpdate(kind: iuSetName, name: name)
+
+func setReplyTo*(replyTo: Opt[seq[EmailAddress]]): IdentityUpdate =
+  ## Replace the default Reply-To list. Opt.none clears it per RFC 8621 §6.
+  IdentityUpdate(kind: iuSetReplyTo, replyTo: replyTo)
+
+func setBcc*(bcc: Opt[seq[EmailAddress]]): IdentityUpdate =
+  ## Replace the default Bcc list. Opt.none clears it per RFC 8621 §6.
+  IdentityUpdate(kind: iuSetBcc, bcc: bcc)
+
+func setTextSignature*(textSignature: string): IdentityUpdate =
+  ## Replace the plain-text signature.
+  IdentityUpdate(kind: iuSetTextSignature, textSignature: textSignature)
+
+func setHtmlSignature*(htmlSignature: string): IdentityUpdate =
+  ## Replace the HTML signature.
+  IdentityUpdate(kind: iuSetHtmlSignature, htmlSignature: htmlSignature)
+
+type IdentityUpdateSet* {.ruleOff: "objects".} = object
+  ## Validated, conflict-free batch of IdentityUpdate operations
+  ## targeting a single Identity id. Sealed Pattern-A object —
+  ## ``rawValue`` is module-private. Construction is gated by
+  ## ``initIdentityUpdateSet``.
+  rawValue: seq[IdentityUpdate]
+
+func toSeq*(s: IdentityUpdateSet): seq[IdentityUpdate] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying seq.
+  s.rawValue
+
+func initIdentityUpdateSet*(
+    updates: openArray[IdentityUpdate]
+): Result[IdentityUpdateSet, seq[ValidationError]] =
+  ## Accumulating smart constructor. Rejects:
+  ##   * empty input — the /set builder has exactly one "no updates for
+  ##     this id" representation (omit the entry from the outer table);
+  ##   * duplicate target property — two updates with the same kind would
+  ##     produce a JSON patch object with duplicate keys.
+  ## All violations surface in a single Err pass; each repeated kind is
+  ## reported exactly once regardless of occurrence count.
+  let errs = validateUniqueByIt(
+    updates,
+    it.kind,
+    typeName = "IdentityUpdateSet",
+    emptyMsg = "must contain at least one update",
+    dupMsg = "duplicate target property",
+  )
+  if errs.len > 0:
+    return err(errs)
+  ok(IdentityUpdateSet(rawValue: @updates))
+
+# =============================================================================
+# NonEmptyIdentityUpdates — whole-container /set update algebra (RFC 8621 §6)
+# =============================================================================
+
+type NonEmptyIdentityUpdates* {.ruleOff: "objects".} = object
+  ## Non-empty, duplicate-free batch of per-identity update operations
+  ## keyed by existing Identity ``Id``. Sealed Pattern-A object —
+  ## ``rawValue`` is module-private. Construction is gated by
+  ## ``parseNonEmptyIdentityUpdates``.
+  rawValue: Table[Id, IdentityUpdateSet]
+
+func len*(a: NonEmptyIdentityUpdates): int =
+  ## Number of update entries.
+  a.rawValue.len
+
+func toTable*(s: NonEmptyIdentityUpdates): Table[Id, IdentityUpdateSet] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying table.
+  s.rawValue
+
+func parseNonEmptyIdentityUpdates*(
+    items: openArray[(Id, IdentityUpdateSet)]
+): Result[NonEmptyIdentityUpdates, seq[ValidationError]] =
+  ## Accumulating smart constructor. Rejects:
+  ##   * empty input — the /set builder's ``update:`` field has exactly
+  ##     one "no updates" representation (omit the entry via ``Opt.none``);
+  ##   * duplicate ``Id`` keys — silent last-wins shadowing at Table
+  ##     construction would swallow caller data; ``openArray`` (not
+  ##     ``Table``) preserves duplicates for inspection.
+  ## All violations surface in a single Err pass.
+  let errs = validateUniqueByIt(
+    items,
+    it[0],
+    typeName = "NonEmptyIdentityUpdates",
+    emptyMsg = "must contain at least one entry",
+    dupMsg = "duplicate identity id",
+  )
+  if errs.len > 0:
+    return err(errs)
+  var t = initTable[Id, IdentityUpdateSet](items.len)
+  for (id, updateSet) in items:
+    t[id] = updateSet
+  ok(NonEmptyIdentityUpdates(rawValue: t))
+
+# =============================================================================
+# IdentityGetProperty — typed Identity/get property selector (A3.6)
+# =============================================================================
+
+type IdentityGetPropertyKind* = enum
+  ## Discriminator for ``IdentityGetProperty``. Backing strings are the
+  ## RFC 8621 §6 Identity property wire names; ``igkOther`` carries a
+  ## capability-extension property whose raw identifier lives alongside.
+  igkId = "id"
+  igkName = "name"
+  igkEmail = "email"
+  igkReplyTo = "replyTo"
+  igkBcc = "bcc"
+  igkTextSignature = "textSignature"
+  igkHtmlSignature = "htmlSignature"
+  igkMayDelete = "mayDelete"
+  igkOther
+
+type IdentityGetProperty* {.ruleOff: "objects".} = object
+  ## Typed RFC 8621 §6 Identity/get property selector. Construction sealed;
+  ## use the ``igp…`` constants or ``parseIdentityGetProperty``.
+  case rawKind: IdentityGetPropertyKind
+  of igkOther:
+    rawIdentifier: string
+  of igkId, igkName, igkEmail, igkReplyTo, igkBcc, igkTextSignature, igkHtmlSignature,
+      igkMayDelete:
+    discard
+
+func kind*(p: IdentityGetProperty): IdentityGetPropertyKind =
+  ## Returns the discriminator — one of the named arms or ``igkOther``.
+  p.rawKind
+
+func wireName*(p: IdentityGetProperty): string =
+  ## RFC 8621 §6 wire name. For ``igkOther`` this is the captured identifier.
+  case p.rawKind
+  of igkOther:
+    p.rawIdentifier
+  of igkId, igkName, igkEmail, igkReplyTo, igkBcc, igkTextSignature, igkHtmlSignature,
+      igkMayDelete:
+    $p.rawKind
+
+func `$`*(p: IdentityGetProperty): string =
+  ## Wire-form string — equivalent to ``wireName``.
+  p.wireName
+
+func `==`*(a, b: IdentityGetProperty): bool =
+  ## Wire-identity equality: the classifying parser never yields ``igkOther``
+  ## for a known wire name, so wire-name identity is structural identity.
+  a.wireName == b.wireName
+
+func hash*(p: IdentityGetProperty): Hash =
+  ## Consistent with ``==`` — equal wire names hash equal.
+  hash(p.wireName)
+
+const
+  igpId* = IdentityGetProperty(rawKind: igkId) ## Selects ``id``.
+  igpName* = IdentityGetProperty(rawKind: igkName) ## Selects ``name``.
+  igpEmail* = IdentityGetProperty(rawKind: igkEmail) ## Selects ``email``.
+  igpReplyTo* = IdentityGetProperty(rawKind: igkReplyTo) ## Selects ``replyTo``.
+  igpBcc* = IdentityGetProperty(rawKind: igkBcc) ## Selects ``bcc``.
+  igpTextSignature* = IdentityGetProperty(rawKind: igkTextSignature)
+    ## Selects ``textSignature``.
+  igpHtmlSignature* = IdentityGetProperty(rawKind: igkHtmlSignature)
+    ## Selects ``htmlSignature``.
+  igpMayDelete* = IdentityGetProperty(rawKind: igkMayDelete) ## Selects ``mayDelete``.
+
+func parseIdentityGetProperty*(
+    raw: string
+): Result[IdentityGetProperty, ValidationError] =
+  ## Classifying smart constructor: exact, case-sensitive match against the
+  ## RFC 8621 §6 wire names; unknown non-control strings fall to ``igkOther``
+  ## (capability-extension forward-compat, A11).
+  detectNonControlString(raw).isOkOr:
+    return err(toValidationError(error, "IdentityGetProperty", raw))
+  case raw
+  of "id":
+    ok(igpId)
+  of "name":
+    ok(igpName)
+  of "email":
+    ok(igpEmail)
+  of "replyTo":
+    ok(igpReplyTo)
+  of "bcc":
+    ok(igpBcc)
+  of "textSignature":
+    ok(igpTextSignature)
+  of "htmlSignature":
+    ok(igpHtmlSignature)
+  of "mayDelete":
+    ok(igpMayDelete)
+  else:
+    ok(IdentityGetProperty(rawKind: igkOther, rawIdentifier: raw))
+
+defineSealedNonEmptySeqOps(IdentityGetProperty)

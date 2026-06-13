@@ -12,9 +12,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedMethodErrorUnsupportedFilter:
+testCase tcapturedMethodErrorUnsupportedFilter:
   let j = loadCapturedFixture("method-error-unsupported-filter-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -24,9 +26,9 @@ block tcapturedMethodErrorUnsupportedFilter:
   let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
   doAssert me.rawType == "unsupportedFilter",
     "Stalwart returns the canonical 'unsupportedFilter' rawType, got " & me.rawType
-  doAssert me.errorType == metUnsupportedFilter,
-    "errorType must project to metUnsupportedFilter, got " & $me.errorType
-  doAssert me.errorType == parseMethodErrorType(me.rawType),
+  doAssert me.kind == metUnsupportedFilter,
+    "errorType must project to metUnsupportedFilter, got " & $me.kind
+  doAssert me.kind == parseMethodErrorKind(me.rawType),
     "errorType / rawType must be derived consistently"
   doAssert me.description.isSome,
     "Stalwart populates the description with the offending filter property"

@@ -12,28 +12,29 @@
 import std/json
 import std/tables
 
-import jmap_client/types
-import jmap_client/serialisation
-import jmap_client/methods
-import jmap_client/dispatch
-import jmap_client/builder
-import jmap_client/mail/mailbox
-import jmap_client/mail/email
-import jmap_client/mail/email_blueprint
-import jmap_client/mail/email_update
-import jmap_client/mail/email_submission
-import jmap_client/mail/mail_builders
-import jmap_client/mail/submission_builders
-import jmap_client/mail/serde_email
+import jmap_client
+import jmap_client/internal/protocol/methods
+import jmap_client/internal/protocol/dispatch
+import jmap_client/internal/protocol/builder
+import jmap_client/internal/mail/mailbox
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/email_blueprint
+import jmap_client/internal/mail/email_update
+import jmap_client/internal/mail/email_submission
+import jmap_client/internal/mail/mail_builders
+import jmap_client/internal/mail/submission_builders
+import jmap_client/internal/mail/serde_email
+import jmap_client/internal/types/envelope
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # ===========================================================================
 # A. MailboxChangesResponse fromJson (scenarios 63-67)
 # ===========================================================================
 
-block mailboxChangesResponseWithUpdatedProperties:
+testCase mailboxChangesResponseWithUpdatedProperties:
   ## Scenario 63: updatedProperties present with values.
   let node = %*{
     "accountId": "acct1",
@@ -54,7 +55,7 @@ block mailboxChangesResponseWithUpdatedProperties:
   assertEq props[0], "name"
   assertEq props[1], "sortOrder"
 
-block mailboxChangesResponseWithoutUpdatedProperties:
+testCase mailboxChangesResponseWithoutUpdatedProperties:
   ## Scenario 64: updatedProperties absent → Opt.none.
   let node = %*{
     "accountId": "acct1",
@@ -69,7 +70,7 @@ block mailboxChangesResponseWithoutUpdatedProperties:
   doAssert res.isOk
   assertNone res.get().updatedProperties
 
-block mailboxChangesResponseWithNullUpdatedProperties:
+testCase mailboxChangesResponseWithNullUpdatedProperties:
   ## Scenario 65: updatedProperties: null → Opt.none.
   let node = %*{
     "accountId": "acct1",
@@ -85,7 +86,7 @@ block mailboxChangesResponseWithNullUpdatedProperties:
   doAssert res.isOk
   assertNone res.get().updatedProperties
 
-block mailboxChangesResponseForwardingAccessors:
+testCase mailboxChangesResponseForwardingAccessors:
   ## Scenario 66: UFCS forwarding accessors return base field values.
   let node = %*{
     "accountId": "acct1",
@@ -106,7 +107,7 @@ block mailboxChangesResponseForwardingAccessors:
   assertLen resp.updated, 1
   assertLen resp.destroyed, 1
 
-block mailboxChangesResponseMissingBaseField:
+testCase mailboxChangesResponseMissingBaseField:
   ## Scenario 67: missing required base field → err.
   let node = %*{
     "accountId": "acct1",
@@ -122,7 +123,7 @@ block mailboxChangesResponseMissingBaseField:
 # B. Adversarial MailboxChangesResponse serde tests
 # ===========================================================================
 
-block mailboxChangesResponseUpdatedPropertiesWrongType:
+testCase mailboxChangesResponseUpdatedPropertiesWrongType:
   ## updatedProperties: "name" (string, not array) → err.
   let node = %*{
     "accountId": "acct1",
@@ -136,7 +137,7 @@ block mailboxChangesResponseUpdatedPropertiesWrongType:
   }
   assertErr MailboxChangesResponse.fromJson(node)
 
-block mailboxChangesResponseUpdatedPropertiesNonStringElement:
+testCase mailboxChangesResponseUpdatedPropertiesNonStringElement:
   ## updatedProperties: ["name", 123] (non-string element) → err.
   let node = %*{
     "accountId": "acct1",
@@ -150,7 +151,7 @@ block mailboxChangesResponseUpdatedPropertiesNonStringElement:
   }
   assertErr MailboxChangesResponse.fromJson(node)
 
-block mailboxChangesResponseEmptyUpdatedProperties:
+testCase mailboxChangesResponseEmptyUpdatedProperties:
   ## updatedProperties: [] (empty array) → Opt.some(@[]).
   let node = %*{
     "accountId": "acct1",
@@ -171,19 +172,19 @@ block mailboxChangesResponseEmptyUpdatedProperties:
 # C. addMailboxChanges builder tests (scenarios 70-71)
 # ===========================================================================
 
-block addMailboxChangesInvocationName:
+testCase addMailboxChangesInvocationName:
   ## Scenario 70: produces "Mailbox/changes".
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addMailboxChanges(makeAccountId("a1"), makeState("s0"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnMailboxChanges
 
-block addMailboxChangesCapability:
+testCase addMailboxChangesCapability:
   ## Scenario 71: adds "urn:ietf:params:jmap:mail" to using.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addMailboxChanges(makeAccountId("a1"), makeState("s0"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.`using`, 2
   doAssert "urn:ietf:params:jmap:core" in req.`using`
   doAssert "urn:ietf:params:jmap:mail" in req.`using`
@@ -192,36 +193,36 @@ block addMailboxChangesCapability:
 # D. addMailboxQuery builder tests (scenarios 72-74)
 # ===========================================================================
 
-block addMailboxQueryInvocationName:
+testCase addMailboxQueryInvocationName:
   ## Scenario 72: produces "Mailbox/query".
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addMailboxQuery(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnMailboxQuery
 
-block addMailboxQuerySortAsTree:
+testCase addMailboxQuerySortAsTree:
   ## Scenario 73: sortAsTree = true → args{"sortAsTree"} == true.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addMailboxQuery(makeAccountId("a1"), sortAsTree = true)
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"sortAsTree"}.getBool(false) == true
 
-block addMailboxQueryFilterAsTree:
+testCase addMailboxQueryFilterAsTree:
   ## Scenario 74: filterAsTree = true → args{"filterAsTree"} == true.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addMailboxQuery(makeAccountId("a1"), filterAsTree = true)
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"filterAsTree"}.getBool(false) == true
 
-block addMailboxQueryBothTreeParams:
+testCase addMailboxQueryBothTreeParams:
   ## Both sortAsTree and filterAsTree set independently.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) =
     b0.addMailboxQuery(makeAccountId("a1"), sortAsTree = true, filterAsTree = true)
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"sortAsTree"}.getBool(false) == true
   doAssert args{"filterAsTree"}.getBool(false) == true
@@ -230,19 +231,19 @@ block addMailboxQueryBothTreeParams:
 # E. addMailboxQueryChanges builder tests (scenarios 75-76)
 # ===========================================================================
 
-block addMailboxQueryChangesInvocationName:
+testCase addMailboxQueryChangesInvocationName:
   ## Scenario 75: produces "Mailbox/queryChanges".
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addMailboxQueryChanges(makeAccountId("a1"), makeState("qs0"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnMailboxQueryChanges
 
-block addMailboxQueryChangesNoTreeParams:
+testCase addMailboxQueryChangesNoTreeParams:
   ## Scenario 76: no sortAsTree/filterAsTree in args (Decision B12).
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addMailboxQueryChanges(makeAccountId("a1"), makeState("qs0"))
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"sortAsTree"}.isNil
   doAssert args{"filterAsTree"}.isNil
@@ -251,30 +252,30 @@ block addMailboxQueryChangesNoTreeParams:
 # F. addMailboxSet builder tests (scenarios 77-79)
 # ===========================================================================
 
-block addMailboxSetInvocationName:
+testCase addMailboxSetInvocationName:
   ## Scenario 77: produces "Mailbox/set".
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addMailboxSet(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnMailboxSet
 
-block addMailboxSetOnDestroyRemoveEmails:
+testCase addMailboxSetOnDestroyRemoveEmails:
   ## Scenario 78: onDestroyRemoveEmails = true in args.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addMailboxSet(makeAccountId("a1"), onDestroyRemoveEmails = true)
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"onDestroyRemoveEmails"}.getBool(false) == true
 
-block addMailboxSetTypedCreate:
+testCase addMailboxSetTypedCreate:
   ## Scenario 79: typed MailboxCreate serialised correctly.
   let mc = parseMailboxCreate("Inbox", role = Opt.some(roleInbox)).get()
   var tbl = initTable[CreationId, MailboxCreate]()
   tbl[makeCreationId("k0")] = mc
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addMailboxSet(makeAccountId("a1"), create = Opt.some(tbl))
-  let req = b1.build()
+  let req = b1.freeze().request
   let createObj = req.methodCalls[0].arguments{"create"}
   doAssert createObj.kind == JObject
   let k0 = createObj{"k0"}
@@ -282,11 +283,11 @@ block addMailboxSetTypedCreate:
   assertEq k0{"name"}.getStr(""), "Inbox"
   assertEq k0{"role"}.getStr(""), "inbox"
 
-block addMailboxSetDefaultOnDestroy:
+testCase addMailboxSetDefaultOnDestroy:
   ## onDestroyRemoveEmails at default (false) → always emitted.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addMailboxSet(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"onDestroyRemoveEmails"}.getBool(true) == false
 
@@ -294,20 +295,20 @@ block addMailboxSetDefaultOnDestroy:
 # G. addEmailGet builder tests (scenarios 75-76)
 # ===========================================================================
 
-block addEmailGetInvocationName:
+testCase addEmailGetInvocationName:
   ## Scenario 75: produces "Email/get" with mail capability.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailGet(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailGet
   doAssert "urn:ietf:params:jmap:mail" in req.`using`
 
-block addEmailGetDefaultBodyFetch:
+testCase addEmailGetDefaultBodyFetch:
   ## Scenario 75: default EmailBodyFetchOptions produces no body-fetch keys.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailGet(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"fetchTextBodyValues"}.isNil
   doAssert args{"fetchHTMLBodyValues"}.isNil
@@ -315,16 +316,16 @@ block addEmailGetDefaultBodyFetch:
   doAssert args{"bodyProperties"}.isNil
   doAssert args{"maxBodyValueBytes"}.isNil
 
-block addEmailGetWithBodyFetchOptions:
+testCase addEmailGetWithBodyFetchOptions:
   ## Scenario 76: bvsText emits fetchTextBodyValues: true.
   let opts = EmailBodyFetchOptions(
-    bodyProperties: Opt.none(seq[PropertyName]),
+    bodyProperties: Opt.none(NonEmptySeq[EmailBodyProperty]),
     fetchBodyValues: bvsText,
     maxBodyValueBytes: Opt.none(UnsignedInt),
   )
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailGet(makeAccountId("a1"), bodyFetchOptions = opts)
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"fetchTextBodyValues"}.getBool(false) == true
   doAssert args{"fetchHTMLBodyValues"}.isNil
@@ -334,37 +335,37 @@ block addEmailGetWithBodyFetchOptions:
 # H. addEmailQuery builder tests (scenarios 78-81)
 # ===========================================================================
 
-block addEmailQueryInvocationName:
+testCase addEmailQueryInvocationName:
   ## Scenario 78: produces "Email/query" with mail capability.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailQuery(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailQuery
   doAssert "urn:ietf:params:jmap:mail" in req.`using`
 
-block addEmailQueryCollapseThreadsTrue:
+testCase addEmailQueryCollapseThreadsTrue:
   ## Scenario 79: collapseThreads = true in args.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), collapseThreads = true)
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"collapseThreads"}.getBool(false) == true
 
-block addEmailQueryCollapseThreadsDefault:
+testCase addEmailQueryCollapseThreadsDefault:
   ## Scenario 80: default collapseThreads = false always emitted.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailQuery(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"collapseThreads"}.getBool(true) == false
 
-block addEmailQueryWithSort:
+testCase addEmailQueryWithSort:
   ## Scenario 81: EmailComparator sort serialised correctly.
-  let comp = plainComparator(pspReceivedAt, isAscending = Opt.some(false))
-  let b0 = initRequestBuilder()
+  let comp = plainComparator(pspReceivedAt, direction = sdDescending)
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), sort = Opt.some(@[comp]))
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   let sortArr = args{"sort"}
   doAssert not sortArr.isNil
@@ -374,11 +375,11 @@ block addEmailQueryWithSort:
   assertEq sortObj{"property"}.getStr(""), "receivedAt"
   doAssert sortObj{"isAscending"}.getBool(true) == false
 
-block addEmailQueryNoSort:
+testCase addEmailQueryNoSort:
   ## sort: Opt.none → no sort key in args.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailQuery(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"sort"}.isNil
 
@@ -386,26 +387,26 @@ block addEmailQueryNoSort:
 # I. addEmailQueryChanges builder tests (scenarios 82-83)
 # ===========================================================================
 
-block addEmailQueryChangesInvocationName:
+testCase addEmailQueryChangesInvocationName:
   ## Scenario 82: produces "Email/queryChanges" with mail capability.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailQueryChanges(makeAccountId("a1"), makeState("qs0"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailQueryChanges
   doAssert "urn:ietf:params:jmap:mail" in req.`using`
 
-block addEmailQueryChangesCollapseAndSort:
+testCase addEmailQueryChangesCollapseAndSort:
   ## Scenario 83: both collapseThreads and sort in args.
   let comp = plainComparator(pspSize)
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailQueryChanges(
     makeAccountId("a1"),
     makeState("qs0"),
     sort = Opt.some(@[comp]),
     collapseThreads = true,
   )
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"collapseThreads"}.getBool(false) == true
   let sortArr = args{"sort"}
@@ -413,11 +414,11 @@ block addEmailQueryChangesCollapseAndSort:
   assertLen sortArr.getElems(@[]), 1
   assertEq sortArr[0]{"property"}.getStr(""), "size"
 
-block addEmailQueryChangesSinceState:
+testCase addEmailQueryChangesSinceState:
   ## sinceQueryState appears in args.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailQueryChanges(makeAccountId("a1"), makeState("qs0"))
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   assertEq args{"sinceQueryState"}.getStr(""), "qs0"
 
@@ -425,7 +426,7 @@ block addEmailQueryChangesSinceState:
 # J. addEmailSet builder (Design §4.1)
 # ===========================================================================
 
-block addEmailSetFullInvocation:
+testCase addEmailSetFullInvocation:
   ## J.1: all four of ``create``, ``update``, ``destroy``, ``ifInState``
   ## populated — every operation key lands under the correct name, and
   ## the returned handle is phantom-typed to ``EmailSetResponse``.
@@ -435,7 +436,7 @@ block addEmailSetFullInvocation:
       @[(makeId("e1"), initEmailUpdateSet(@[markRead()]).get())]
     )
     .get()
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailSet(
     makeAccountId("a1"),
     ifInState = Opt.some(makeState("s0")),
@@ -443,7 +444,7 @@ block addEmailSetFullInvocation:
     update = Opt.some(updateWrapped),
     destroy = Opt.some(direct(@[makeId("e9")])),
   )
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailSet
   assertLen req.`using`, 2
@@ -455,13 +456,13 @@ block addEmailSetFullInvocation:
   doAssert args{"destroy"}.kind == JArray
   assertEq args{"ifInState"}.getStr(""), "s0"
 
-block addEmailSetMinimalAccountIdOnly:
+testCase addEmailSetMinimalAccountIdOnly:
   ## J.2: none of ``create`` / ``update`` / ``destroy`` / ``ifInState``
   ## populated → none of those keys appear on the wire (``isNil`` on
   ## safe access). ``accountId`` is the only invariant. Pins F1 §4.1.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailSet(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   assertEq args{"accountId"}.getStr(""), "a1"
   doAssert args{"create"}.isNil
@@ -469,23 +470,23 @@ block addEmailSetMinimalAccountIdOnly:
   doAssert args{"destroy"}.isNil
   doAssert args{"ifInState"}.isNil
 
-block addEmailSetIfInStateEmitted:
+testCase addEmailSetIfInStateEmitted:
   ## J.3: ``ifInState: Opt.some`` → key present with exact state string.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) =
     b0.addEmailSet(makeAccountId("a1"), ifInState = Opt.some(makeState("s0")))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertEq req.methodCalls[0].arguments{"ifInState"}.getStr(""), "s0"
 
-block addEmailSetIfInStateOmittedWhenNone:
+testCase addEmailSetIfInStateOmittedWhenNone:
   ## J.4: ``ifInState: Opt.none`` (default) → omit the key entirely,
   ## never emit JSON ``null``. Negative counterpart to J.3.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailSet(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   doAssert req.methodCalls[0].arguments{"ifInState"}.isNil
 
-block addEmailSetTypedUpdate:
+testCase addEmailSetTypedUpdate:
   ## J.5: typed ``EmailUpdateSet`` with ``markRead()`` flattens to the
   ## RFC 8620 §5.3 wire patch ``{"keywords/$seen": true}`` via
   ## ``toJson(EmailUpdateSet)`` at the builder boundary. End-to-end pin
@@ -493,9 +494,9 @@ block addEmailSetTypedUpdate:
   ## (Design §4.1, Part F2).
   let updateSet = initEmailUpdateSet(@[markRead()]).get()
   let updateWrapped = parseNonEmptyEmailUpdates(@[(makeId("e1"), updateSet)]).get()
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailSet(makeAccountId("a1"), update = Opt.some(updateWrapped))
-  let req = b1.build()
+  let req = b1.freeze().request
   let patch = req.methodCalls[0].arguments{"update"}{"e1"}
   doAssert patch.kind == JObject
   doAssert patch{"keywords/$seen"}.getBool(false) == true
@@ -504,16 +505,16 @@ block addEmailSetTypedUpdate:
 # K. addEmailCopy simple overload (Design §5.3)
 # ===========================================================================
 
-block addEmailCopyPhantomType:
+testCase addEmailCopyPhantomType:
   ## K.1: ``addEmailCopy`` (simple overload) returns a handle typed to
   ## ``EmailCopyResponse`` and never emits ``onSuccessDestroyOriginal``
   ## (that key belongs to the compound ``addEmailCopyAndDestroy``).
   var createTbl = initTable[CreationId, EmailCopyItem]()
   createTbl[makeCreationId("k1")] = makeEmailCopyItem()
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, handle) =
     b0.addEmailCopy(makeAccountId("src"), makeAccountId("dst"), createTbl)
-  let req = b1.build()
+  let req = b1.freeze().request
   assertEq req.methodCalls[0].name, mnEmailCopy
   doAssert req.methodCalls[0].arguments{"onSuccessDestroyOriginal"}.isNil
   # Phantom-type pin: binding to a mismatched ``ResponseHandle`` parameter
@@ -522,20 +523,20 @@ block addEmailCopyPhantomType:
   assertNotCompiles:
     let badHandle: ResponseHandle[EmailSetResponse] = handle
 
-block addEmailCopyIfInStateEmittedWithCopySemantics:
+testCase addEmailCopyIfInStateEmittedWithCopySemantics:
   ## K.2: ``ifInState`` (destination state) emitted with exact value;
   ## the simple overload has no ``destroyFromIfInState`` parameter, so
   ## that key is never present on the wire.
   var createTbl = initTable[CreationId, EmailCopyItem]()
   createTbl[makeCreationId("k1")] = makeEmailCopyItem()
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailCopy(
     makeAccountId("src"),
     makeAccountId("dst"),
     createTbl,
     ifInState = Opt.some(makeState("dst0")),
   )
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   assertEq args{"ifInState"}.getStr(""), "dst0"
   doAssert args{"destroyFromIfInState"}.isNil
@@ -544,54 +545,54 @@ block addEmailCopyIfInStateEmittedWithCopySemantics:
 # L. addEmailCopyAndDestroy compound overload (Design §5.3, §5.4)
 # ===========================================================================
 
-block addEmailCopyAndDestroyEmitsTrue:
+testCase addEmailCopyAndDestroyEmitsTrue:
   ## L.1: compound overload emits ``onSuccessDestroyOriginal: true`` and
   ## returns an ``EmailCopyHandles`` where the implicit handle carries
   ## ``methodName == mnEmailSet`` and primary/implicit share a single
   ## ``MethodCallId`` per RFC 8620 §5.4 (mandatory pins from F2 §8.12).
   var createTbl = initTable[CreationId, EmailCopyItem]()
   createTbl[makeCreationId("k1")] = makeEmailCopyItem()
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, handles) =
     b0.addEmailCopyAndDestroy(makeAccountId("src"), makeAccountId("dst"), createTbl)
-  let req = b1.build()
+  let req = b1.freeze().request
   doAssert req.methodCalls[0].arguments{"onSuccessDestroyOriginal"}.getBool(false) ==
     true
   assertEq handles.implicit.methodName, mnEmailSet
   assertEq handles.implicit.callId, handles.primary.callId()
 
-block addEmailCopyAndDestroyDestroyFromIfInStateSome:
+testCase addEmailCopyAndDestroyDestroyFromIfInStateSome:
   ## L.2: ``destroyFromIfInState: Opt.some`` → key emitted with value.
   var createTbl = initTable[CreationId, EmailCopyItem]()
   createTbl[makeCreationId("k1")] = makeEmailCopyItem()
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailCopyAndDestroy(
     makeAccountId("src"),
     makeAccountId("dst"),
     createTbl,
     destroyFromIfInState = Opt.some(makeState("src0")),
   )
-  let req = b1.build()
+  let req = b1.freeze().request
   assertEq req.methodCalls[0].arguments{"destroyFromIfInState"}.getStr(""), "src0"
 
-block addEmailCopyAndDestroyDestroyFromIfInStateNone:
+testCase addEmailCopyAndDestroyDestroyFromIfInStateNone:
   ## L.3: ``destroyFromIfInState: Opt.none`` (default) → omit the key,
   ## never emit JSON ``null``.
   var createTbl = initTable[CreationId, EmailCopyItem]()
   createTbl[makeCreationId("k1")] = makeEmailCopyItem()
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) =
     b0.addEmailCopyAndDestroy(makeAccountId("src"), makeAccountId("dst"), createTbl)
-  let req = b1.build()
+  let req = b1.freeze().request
   doAssert req.methodCalls[0].arguments{"destroyFromIfInState"}.isNil
 
-block addEmailCopyAndDestroyAllStateParamsSome:
+testCase addEmailCopyAndDestroyAllStateParamsSome:
   ## L.4: all three state parameters (``ifFromInState``, ``ifInState``,
   ## ``destroyFromIfInState``) populated with distinct values → each
   ## appears under its own key; no aliasing, no silent drop.
   var createTbl = initTable[CreationId, EmailCopyItem]()
   createTbl[makeCreationId("k1")] = makeEmailCopyItem()
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailCopyAndDestroy(
     makeAccountId("src"),
     makeAccountId("dst"),
@@ -600,7 +601,7 @@ block addEmailCopyAndDestroyAllStateParamsSome:
     ifInState = Opt.some(makeState("fi0")),
     destroyFromIfInState = Opt.some(makeState("df0")),
   )
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   assertEq args{"ifFromInState"}.getStr(""), "ff0"
   assertEq args{"ifInState"}.getStr(""), "fi0"
@@ -610,9 +611,9 @@ block addEmailCopyAndDestroyAllStateParamsSome:
 # M. getBoth dispatch (Design §5.4)
 # ===========================================================================
 
-block getBothCopyAndDestroyHappyPath:
+testCase getBothCopyAndDestroyHappyPath:
   ## M.1: well-formed copy + well-formed destroy invocations at the
-  ## shared call-id decode via ``resp.getBoth(handles)`` to the paired
+  ## shared call-id decode via ``makeDispatchedResponse(resp).getBoth(handles)`` to the paired
   ## ``EmailCopyResults``. Mirrors the ``tconvenience.nim:134`` precedent.
   let cid = makeMcid("c0")
   let handles = makeEmailCopyHandles(cid)
@@ -624,46 +625,43 @@ block getBothCopyAndDestroyHappyPath:
   let setResp = makeEmailSetResponse(
     accountId = makeAccountId("dst"), newState = Opt.some(makeState("ns2"))
   )
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(mnEmailCopy, copyResp.toJson(), cid),
       initInvocation(mnEmailSet, setResp.toJson(), cid),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
-  let results = resp.getBoth(handles)
+  let results = makeDispatchedResponse(resp).getBoth(handles)
   assertOk results
   let r = results.get()
   assertEq r.primary.accountId, makeAccountId("dst")
   assertEq r.implicit.accountId, makeAccountId("dst")
 
-block getBothShortCircuitOnCopyError:
+testCase getBothShortCircuitOnCopyError:
   ## M.2: copy-side ``MethodError`` short-circuits ``getBoth`` before
   ## destroy is consulted — the typed variant survives round-trip for
-  ## every ``MethodErrorType`` variant applicable to Email/copy per
+  ## every ``MethodErrorKind`` variant applicable to Email/copy per
   ## RFC 8621 §4.7. Mirrors the ``tconvenience.nim:154`` precedent.
   const applicable = {
     metStateMismatch, metFromAccountNotFound, metFromAccountNotSupportedByMethod,
     metServerFail, metForbidden, metAccountNotFound, metAccountReadOnly,
   }
-  for variant in MethodErrorType:
+  for variant in MethodErrorKind:
     if variant notin applicable:
       continue
     let cid = makeMcid("c0")
     let handles = makeEmailCopyHandles(cid)
     let errInv = makeErrorInvocation(cid, $variant)
     let setInv = initInvocation(mnEmailSet, makeEmailSetResponse().toJson(), cid)
-    let resp = Response(
-      methodResponses: @[errInv, setInv],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: makeState("rs1"),
-    )
-    let results = resp.getBoth(handles)
+    let resp =
+      initResponse(@[errInv, setInv], Opt.none(Table[CreationId, Id]), makeState("rs1"))
+    let results = makeDispatchedResponse(resp).getBoth(handles)
     doAssert results.isErr, "variant " & $variant & " should short-circuit"
-    assertEq results.error.errorType, variant
+    assertEq results.error.methodErr.kind, variant
 
-block getBothShortCircuitOnDestroyMissing:
+testCase getBothShortCircuitOnDestroyMissing:
   ## M.3: well-formed copy + NO Email/set invocation at the shared cid
   ## → ``getBoth`` returns a ``serverFail`` ``MethodError`` with the
   ## "no Email/set response for call ID ..." description per the shipped
@@ -671,17 +669,18 @@ block getBothShortCircuitOnDestroyMissing:
   let cid = makeMcid("c0")
   let handles = makeEmailCopyHandles(cid)
   let copyResp = makeEmailCopyResponse()
-  let resp = Response(
-    methodResponses: @[initInvocation(mnEmailCopy, copyResp.toJson(), cid)],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+  let resp = initResponse(
+    @[initInvocation(mnEmailCopy, copyResp.toJson(), cid)],
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
-  let results = resp.getBoth(handles)
+  let results = makeDispatchedResponse(resp).getBoth(handles)
   doAssert results.isErr
-  assertEq results.error.rawType, "serverFail"
-  assertSomeEq results.error.description, "no Email/set response for call ID c0"
+  assertEq results.error.methodErr.rawType, "serverFail"
+  assertSomeEq results.error.methodErr.description,
+    "no Email/set response for call ID c0"
 
-block getBothShortCircuitOnDestroyError:
+testCase getBothShortCircuitOnDestroyError:
   ## M.4: well-formed copy + an "error" invocation at the shared cid
   ## (wire name ``"error"``, not ``"Email/set"``) → the name-filtered
   ## dispatch of ``NameBoundHandle`` rejects "error" invocations, so
@@ -693,35 +692,36 @@ block getBothShortCircuitOnDestroyError:
   let handles = makeEmailCopyHandles(cid)
   let copyResp = makeEmailCopyResponse()
   let errInv = makeErrorInvocation(cid, "serverFail")
-  let resp = Response(
-    methodResponses: @[initInvocation(mnEmailCopy, copyResp.toJson(), cid), errInv],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+  let resp = initResponse(
+    @[initInvocation(mnEmailCopy, copyResp.toJson(), cid), errInv],
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
-  let results = resp.getBoth(handles)
+  let results = makeDispatchedResponse(resp).getBoth(handles)
   doAssert results.isErr
-  assertEq results.error.rawType, "serverFail"
-  assertSomeEq results.error.description, "no Email/set response for call ID c0"
+  assertEq results.error.methodErr.rawType, "serverFail"
+  assertSomeEq results.error.methodErr.description,
+    "no Email/set response for call ID c0"
 
 # ===========================================================================
 # N. addMailboxSet typed-update migration (Design §3.3)
 # ===========================================================================
 
-block addMailboxSetTypedUpdate:
+testCase addMailboxSetTypedUpdate:
   ## N.1: typed ``MailboxUpdateSet`` with a single ``setName("Renamed")``
   ## flattens to ``{"name": "Renamed"}`` via ``toJson(MailboxUpdateSet)``
   ## at the builder boundary. Pins the migrated ``addMailboxSet`` signature
   ## routing through the typed algebra (Design §3.3).
-  let updateSet = initMailboxUpdateSet(@[setName("Renamed")]).get()
+  let updateSet = initMailboxUpdateSet(@[mailbox.setName("Renamed")]).get()
   let updateWrapped = parseNonEmptyMailboxUpdates(@[(makeId("mb1"), updateSet)]).get()
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addMailboxSet(makeAccountId("a1"), update = Opt.some(updateWrapped))
-  let req = b1.build()
+  let req = b1.freeze().request
   let patch = req.methodCalls[0].arguments{"update"}{"mb1"}
   doAssert patch.kind == JObject
   assertEq patch{"name"}.getStr(""), "Renamed"
 
-block addMailboxSetEmptyUpdateSetRejectedAtConstruction:
+testCase addMailboxSetEmptyUpdateSetRejectedAtConstruction:
   ## N.2: ``initMailboxUpdateSet(@[])`` returns ``Err`` — the builder is
   ## never reached. Pins the construction-level empty rejection at the
   ## protocol layer; the wire boundary cannot be crossed with an empty
@@ -733,7 +733,7 @@ block addMailboxSetEmptyUpdateSetRejectedAtConstruction:
 # O. addEmailSubmissionAndEmailSet wire anchor (RFC 8621 §7.5 ¶3)
 # ===========================================================================
 
-block addEmailSubmissionAndEmailSetWireAnchor:
+testCase addEmailSubmissionAndEmailSetWireAnchor:
   ## Pins the wire shape of the compound EmailSubmission/set + implicit
   ## Email/set (RFC 8621 §7.5 ¶3). ``onSuccessUpdateEmail`` serialises
   ## into a JObject keyed by ``idOrCreationRefWireKey``, with each entry
@@ -748,14 +748,16 @@ block addEmailSubmissionAndEmailSetWireAnchor:
   let onDst = parseNonEmptyOnSuccessDestroyEmail(@[directRef(emailId)]).get()
   var createTbl = initTable[CreationId, EmailSubmissionBlueprint]()
   createTbl[makeCreationId("s1")] = bp
-  let b0 = initRequestBuilder()
-  let (b1, _) = b0.addEmailSubmissionAndEmailSet(
+  let b0 = initRequestBuilder(makeBuilderId())
+  let res = b0.addEmailSubmissionAndEmailSet(
     accountId = makeAccountId("a1"),
     create = Opt.some(createTbl),
     onSuccessUpdateEmail = Opt.some(onUpd),
     onSuccessDestroyEmail = Opt.some(onDst),
   )
-  let req = b1.build()
+  doAssert res.isOk
+  let (b1, _) = res.unsafeValue
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailSubmissionSet
   let args = req.methodCalls[0].arguments
@@ -772,7 +774,7 @@ block addEmailSubmissionAndEmailSetWireAnchor:
 # O.2-O.7. getBoth(EmailSubmissionHandles) dispatch scenarios (G2 §8.6)
 # ===========================================================================
 
-block getBothBothSucceed:
+testCase getBothBothSucceed:
   ## O.2 — G2 §8.6 row 1: well-formed ``EmailSubmission/set`` + well-formed
   ## ``Email/set`` at the shared call-id round-trip through ``getBoth`` to
   ## the paired ``EmailSubmissionResults``. The submission-side wire JSON
@@ -790,46 +792,47 @@ block getBothBothSucceed:
   let setResp = makeEmailSetResponse(
     accountId = makeAccountId("a1"), newState = Opt.some(makeState("em1"))
   )
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(mnEmailSubmissionSet, subJson, cid),
       initInvocation(mnEmailSet, setResp.toJson(), cid),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
-  let results = resp.getBoth(handles)
+  let results = makeDispatchedResponse(resp).getBoth(handles)
   assertOk results
   let r = results.get()
   assertLen r.primary.createResults, 1
   doAssert r.primary.createResults[makeCreationId("s1")].isOk
   assertSomeEq r.implicit.newState, makeState("em1")
 
-block getBothInnerMethodError:
+testCase getBothInnerMethodError:
   ## O.3 — G2 §8.6 row 2: well-formed submission + an ``"error"``-tagged
   ## invocation at the shared call-id. The ``NameBoundHandle.methodName``
   ## filter on ``handles.implicit`` rejects the error invocation (wire tag
   ## ``"error"`` != ``"Email/set"``), so ``getBoth`` surfaces the same
   ## ``serverFail`` / "no Email/set response for call ID ..." shape as
   ## O.4 — client-side masking identical to §M.4's destroy-slot precedent.
-  ## Pins that an arbitrary ``MethodErrorType`` at the inner slot never
+  ## Pins that an arbitrary ``MethodErrorKind`` at the inner slot never
   ## leaks through dispatch; the visible error-type fold lives at the
   ## outer slot (see O.7) and in Step 16's ``tmail_method_errors.nim``.
   let cid = makeMcid("c0")
   let handles = makeEmailSubmissionHandles(cid, cid)
   let subJson = %*{"accountId": "a1", "newState": "sub1"}
   let errInv = makeErrorInvocation(cid, "accountNotFound")
-  let resp = Response(
-    methodResponses: @[initInvocation(mnEmailSubmissionSet, subJson, cid), errInv],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+  let resp = initResponse(
+    @[initInvocation(mnEmailSubmissionSet, subJson, cid), errInv],
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
-  let results = resp.getBoth(handles)
+  let results = makeDispatchedResponse(resp).getBoth(handles)
   assertErr results
-  assertEq results.error.rawType, "serverFail"
-  assertSomeEq results.error.description, "no Email/set response for call ID c0"
+  assertEq results.error.methodErr.rawType, "serverFail"
+  assertSomeEq results.error.methodErr.description,
+    "no Email/set response for call ID c0"
 
-block getBothInnerAbsent:
+testCase getBothInnerAbsent:
   ## O.4 — G2 §8.6 row 3: well-formed submission, NO ``Email/set``
   ## invocation in ``methodResponses`` at all → ``getBoth`` surfaces a
   ## ``serverFail`` ``MethodError`` whose description pins the
@@ -838,17 +841,18 @@ block getBothInnerAbsent:
   let cid = makeMcid("c0")
   let handles = makeEmailSubmissionHandles(cid, cid)
   let subJson = %*{"accountId": "a1", "newState": "sub1"}
-  let resp = Response(
-    methodResponses: @[initInvocation(mnEmailSubmissionSet, subJson, cid)],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+  let resp = initResponse(
+    @[initInvocation(mnEmailSubmissionSet, subJson, cid)],
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
-  let results = resp.getBoth(handles)
+  let results = makeDispatchedResponse(resp).getBoth(handles)
   assertErr results
-  assertEq results.error.rawType, "serverFail"
-  assertSomeEq results.error.description, "no Email/set response for call ID c0"
+  assertEq results.error.methodErr.rawType, "serverFail"
+  assertSomeEq results.error.methodErr.description,
+    "no Email/set response for call ID c0"
 
-block getBothInnerMcIdMismatch:
+testCase getBothInnerMcIdMismatch:
   ## O.5 — G2 §8.6 row 4: outer submission at ``c0`` well-formed + a
   ## well-formed ``Email/set`` at ``c1`` (the wrong call-id). The
   ## ``NameBoundHandle.callId`` filter rejects the ``c1`` invocation
@@ -865,20 +869,21 @@ block getBothInnerMcIdMismatch:
   let setResp = makeEmailSetResponse(
     accountId = makeAccountId("a1"), newState = Opt.some(makeState("em1"))
   )
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(mnEmailSubmissionSet, subJson, outerCid),
       initInvocation(mnEmailSet, setResp.toJson(), innerCid),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
-  let results = resp.getBoth(handles)
+  let results = makeDispatchedResponse(resp).getBoth(handles)
   assertErr results
-  assertEq results.error.rawType, "serverFail"
-  assertSomeEq results.error.description, "no Email/set response for call ID c0"
+  assertEq results.error.methodErr.rawType, "serverFail"
+  assertSomeEq results.error.methodErr.description,
+    "no Email/set response for call ID c0"
 
-block getBothOuterNotCreatedSole:
+testCase getBothOuterNotCreatedSole:
   ## O.6 — G2 §8.6 row 5: outer submission with one ``notCreated``
   ## ``SetError`` + an empty ``Email/set`` response at the shared
   ## call-id → ``getBoth`` returns ``Ok`` with ``submission.createResults``
@@ -909,22 +914,22 @@ block getBothOuterNotCreatedSole:
   let setResp = makeEmailSetResponse(
     accountId = makeAccountId("a1"), newState = Opt.some(makeState("em1"))
   )
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(mnEmailSubmissionSet, subJson, cid),
       initInvocation(mnEmailSet, setResp.toJson(), cid),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
-  let results = resp.getBoth(handles)
+  let results = makeDispatchedResponse(resp).getBoth(handles)
   assertOk results
   let r = results.get()
   assertLen r.primary.createResults, 1
   doAssert r.primary.createResults[makeCreationId("s1")].isErr
   assertLen r.implicit.createResults, 0
 
-block getBothOuterIfInStateMismatch:
+testCase getBothOuterIfInStateMismatch:
   ## O.7 — G2 §8.6 row 6: outer invocation is an ``"error"``-tagged
   ## invocation with ``"stateMismatch"`` at the shared call-id; no
   ## inner invocation at all (the outer ``ifInState`` check failed
@@ -939,51 +944,62 @@ block getBothOuterIfInStateMismatch:
   let cid = makeMcid("c0")
   let handles = makeEmailSubmissionHandles(cid, cid)
   let errInv = makeErrorInvocation(cid, "stateMismatch")
-  let resp = Response(
-    methodResponses: @[errInv],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
-  )
-  let results = resp.getBoth(handles)
+  let resp = initResponse(@[errInv], Opt.none(Table[CreationId, Id]), makeState("rs1"))
+  let results = makeDispatchedResponse(resp).getBoth(handles)
   assertErr results
-  assertEq results.error.errorType, metStateMismatch
+  assertEq results.error.methodErr.kind, metStateMismatch
 
 # ===========================================================================
 # P. addEmailSubmissionGet wire shape (RFC 8621 §7.1)
 # ===========================================================================
 
-block addEmailSubmissionGetInvocation:
+testCase addEmailSubmissionGetInvocation:
   ## P: addEmailSubmissionGet thin-wraps the generic ``addGet[
-  ## AnyEmailSubmission]`` and produces an ``EmailSubmission/get``
-  ## invocation (RFC 8621 §7.1) with accountId, ids, and properties
-  ## projected into arguments.
-  let b0 = initRequestBuilder()
+  ## AnyEmailSubmission]`` and produces a full-record ``EmailSubmission/get``
+  ## invocation (RFC 8621 §7.1) with accountId and ids projected into
+  ## arguments — no ``properties`` (full record).
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailSubmissionGet(
-    makeAccountId("a1"),
-    ids = Opt.some(direct(@[makeId("s1")])),
-    properties = Opt.some(@["undoStatus", "sendAt"]),
+    makeAccountId("a1"), ids = Opt.some(direct(@[makeId("s1")]))
   )
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailSubmissionGet
   let args = req.methodCalls[0].arguments
   assertEq args{"accountId"}.getStr(""), "a1"
   doAssert args{"ids"}.kind == JArray
+  doAssert args{"properties"}.isNil
+
+testCase addPartialEmailSubmissionGetInvocation:
+  ## P: addPartialEmailSubmissionGet emits a typed ``properties`` projection
+  ## of wire names and returns ``PartialEmailSubmission`` (A3.6).
+  let b0 = initRequestBuilder(makeBuilderId())
+  let (b1, _) = b0.addPartialEmailSubmissionGet(
+    makeAccountId("a1"),
+    ids = Opt.some(direct(@[makeId("s1")])),
+    properties = parseNonEmptySeq(@[esgpUndoStatus, esgpSendAt]).get(),
+  )
+  let req = b1.freeze().request
+  assertEq req.methodCalls[0].name, mnEmailSubmissionGet
+  let args = req.methodCalls[0].arguments
+  doAssert args{"ids"}.kind == JArray
   assertLen args{"properties"}, 2
+  assertEq args{"properties"}.getElems(@[])[0].getStr(""), "undoStatus"
+  assertEq args{"properties"}.getElems(@[])[1].getStr(""), "sendAt"
 
 # ===========================================================================
 # Q. addEmailSubmissionChanges wire shape (RFC 8621 §7.2)
 # ===========================================================================
 
-block addEmailSubmissionChangesInvocation:
+testCase addEmailSubmissionChangesInvocation:
   ## Q: addEmailSubmissionChanges produces ``EmailSubmission/changes``
   ## (RFC 8621 §7.2) with ``sinceState`` and ``maxChanges`` projected
   ## into arguments.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailSubmissionChanges(
     makeAccountId("a1"), makeState("s0"), maxChanges = Opt.some(makeMaxChanges(100))
   )
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailSubmissionChanges
   let args = req.methodCalls[0].arguments
@@ -994,14 +1010,14 @@ block addEmailSubmissionChangesInvocation:
 # R. addEmailSubmissionQuery wire shape (RFC 8621 §7.3)
 # ===========================================================================
 
-block addEmailSubmissionQueryInvocation:
+testCase addEmailSubmissionQueryInvocation:
   ## R: minimal addEmailSubmissionQuery (no filter, no sort) produces
   ## ``EmailSubmission/query`` (RFC 8621 §7.3). Pins that when ``filter``
   ## and ``sort`` default to ``Opt.none``, the G1 serde contract omits
   ## both keys from arguments entirely (sparse emission).
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailSubmissionQuery(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailSubmissionQuery
   let args = req.methodCalls[0].arguments
@@ -1013,15 +1029,15 @@ block addEmailSubmissionQueryInvocation:
 # S. addEmailSubmissionQueryChanges wire shape (RFC 8621 §7.4)
 # ===========================================================================
 
-block addEmailSubmissionQueryChangesInvocation:
+testCase addEmailSubmissionQueryChangesInvocation:
   ## S: addEmailSubmissionQueryChanges produces
   ## ``EmailSubmission/queryChanges`` (RFC 8621 §7.4) with
   ## ``sinceQueryState`` and ``calculateTotal`` projected into arguments.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailSubmissionQueryChanges(
     makeAccountId("a1"), makeState("q0"), calculateTotal = true
   )
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailSubmissionQueryChanges
   let args = req.methodCalls[0].arguments
@@ -1032,7 +1048,7 @@ block addEmailSubmissionQueryChangesInvocation:
 # T. addEmailSubmissionSet simple-overload wire shape (RFC 8621 §7.5)
 # ===========================================================================
 
-block addEmailSubmissionSetSimpleInvocation:
+testCase addEmailSubmissionSetSimpleInvocation:
   ## T: addEmailSubmissionSet (simple overload) with only ``ifInState``
   ## set produces ``EmailSubmission/set`` (RFC 8621 §7.5) with just
   ## that key plus ``accountId``. Pins that the simple overload's
@@ -1042,10 +1058,10 @@ block addEmailSubmissionSetSimpleInvocation:
   ## compound builder emits MUST NOT appear in the simple overload's
   ## output, and ``create`` / ``update`` / ``destroy`` are omitted
   ## when their ``Opt`` parameters default to ``none``.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) =
     b0.addEmailSubmissionSet(makeAccountId("a1"), ifInState = Opt.some(makeState("s0")))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailSubmissionSet
   let args = req.methodCalls[0].arguments

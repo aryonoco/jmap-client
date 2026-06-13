@@ -33,18 +33,15 @@ import std/sets
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tsearchSnippetGetStandaloneLive:
+testCase tsearchSnippetGetStandaloneLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    var client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -71,13 +68,14 @@ block tsearchSnippetGetStandaloneLive:
     # --- SearchSnippet/get with literal email ids -----------------------
     let filter = filterCondition(EmailFilterCondition(subject: Opt.some("stepsixteen")))
     let (b, snippetHandle) = addSearchSnippetGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       filter = filter,
       firstEmailId = id1,
       restEmailIds = @[id2],
     )
-    let resp = client.send(b).expect("send SearchSnippet/get[" & $target.kind & "]")
+    let resp =
+      client.send(b.freeze()).expect("send SearchSnippet/get[" & $target.kind & "]")
     let snippetResp =
       resp.get(snippetHandle).expect("SearchSnippet/get extract[" & $target.kind & "]")
     assertOn target,
@@ -88,17 +86,15 @@ block tsearchSnippetGetStandaloneLive:
     for snippet in snippetResp.list:
       assertOn target,
         snippet.emailId in corpus,
-        "every snippet's emailId must be one of the seeded ids; got " &
-          string(snippet.emailId)
+        "every snippet's emailId must be one of the seeded ids; got " & $snippet.emailId
       seenIds.incl(snippet.emailId)
       let subjectPresent = snippet.subject.isSome and snippet.subject.get().len > 0
       let previewPresent = snippet.preview.isSome and snippet.preview.get().len > 0
       assertOn target,
         subjectPresent or previewPresent,
         "every snippet must populate at least one of subject/preview; got emailId=" &
-          string(snippet.emailId)
+          $snippet.emailId
     assertOn target,
       id1 in seenIds, "snippet list must include the first seeded emailId"
     assertOn target,
       id2 in seenIds, "snippet list must include the second seeded emailId"
-    client.close()

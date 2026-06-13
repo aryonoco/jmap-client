@@ -36,15 +36,16 @@ import std/typedthreads
 
 import results
 
-import jmap_client/primitives
-import jmap_client/mail/body
-import jmap_client/mail/email_blueprint
-import jmap_client/mail/headers
-import jmap_client/mail/mailbox
-import jmap_client/mail/serde_email_blueprint
+import jmap_client/internal/types/primitives
+import jmap_client/internal/mail/body
+import jmap_client/internal/mail/email_blueprint
+import jmap_client/internal/mail/headers
+import jmap_client/internal/mail/mailbox
+import jmap_client/internal/mail/serde_email_blueprint
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # =============================================================================
 # Scenario 102c child-branch gate
@@ -62,7 +63,7 @@ proc minimal102cBlueprint(): EmailBlueprint =
   ## with hash-seed-dependent ordering is either single-element or empty,
   ## so ``$bp.toJson`` is byte-identical across processes under the
   ## current (non-sorting) serde implementation.
-  let ids = parseNonEmptyMailboxIdSet(@[parseId("mbx-det").get()]).get()
+  let ids = parseNonEmptyMailboxIdSet(@[parseIdFromServer("mbx-det").get()]).get()
   parseEmailBlueprint(mailboxIds = ids, subject = Opt.some("fixed subject")).get()
 
 proc multiEntry102eBlueprint(): EmailBlueprint =
@@ -74,7 +75,11 @@ proc multiEntry102eBlueprint(): EmailBlueprint =
   ## structural content. 102e pins the structural contract; byte-equality
   ## is NOT asserted and is not a contract jmap-client offers here.
   let ids = parseNonEmptyMailboxIdSet(
-      @[parseId("mbx-a").get(), parseId("mbx-b").get(), parseId("mbx-c").get()]
+      @[
+        parseIdFromServer("mbx-a").get(),
+        parseIdFromServer("mbx-b").get(),
+        parseIdFromServer("mbx-c").get(),
+      ]
     )
     .get()
   var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
@@ -103,7 +108,7 @@ if existsEnv("JMAP_STEP22_CHILD"):
 # Section A — §6.4.2 Structural and resource boundaries
 # =============================================================================
 
-block depthExceeds128Rejected: # scenario 99
+testCase depthExceeds128Rejected: # scenario 99
   ## ``parseEmailBlueprint`` rejects body trees deeper than
   ## ``MaxBodyPartDepth`` at construction time via the accumulating error
   ## rail — the invariant is carried by the type, not by serialisation.
@@ -116,7 +121,7 @@ block depthExceeds128Rejected: # scenario 99
   )
   assertBlueprintErrAny res, {ebcBodyPartDepthExceeded}
 
-block depthAt128Accepted: # scenario 99a
+testCase depthAt128Accepted: # scenario 99a
   ## Boundary success: depth exactly 128 is within the serde depth
   ## budget, so both construction AND ``toJson`` produce full output
   ## (not a truncated stub).
@@ -126,7 +131,7 @@ block depthAt128Accepted: # scenario 99a
   )
   assertOk res
 
-block breadth10kSiblings: # scenario 99b
+testCase breadth10kSiblings: # scenario 99b
   ## 10_000 inline leaves under one multipart root. Validates breadth
   ## (not depth) survives without panic or OOM on a normal test worker.
   var children = newSeqOfCap[BlueprintBodyPart](10_000)
@@ -145,7 +150,7 @@ block breadth10kSiblings: # scenario 99b
   let bp = res.get()
   doAssert bp.body.bodyStructure.subParts.len == 10_000
 
-block crossProductBushyTree: # scenario 99c
+testCase crossProductBushyTree: # scenario 99c
   ## Cross-product depth × breadth stress. Design called for "depth 8,
   ## breadth 1000" which reads as 10²⁴ nodes if taken literally — clearly
   ## not the intent. Adaptation: a four-level tree where every internal
@@ -176,7 +181,7 @@ block crossProductBushyTree: # scenario 99c
   when defined(verboseStress):
     stderr.writeLine "scenario 99c mem delta: " & $(after - before) & " bytes"
 
-block hashDosExtraHeaders: # scenario 99d
+testCase hashDosExtraHeaders: # scenario 99d
   ## HashDoS gate. Run A inserts ``n`` non-colliding names into
   ## ``extraHeaders`` (``"hdx-" & $i``); Run B inserts ``n`` collision-
   ## prone names sourced from ``adversarialHashCollisionNames`` (I-19).
@@ -216,15 +221,18 @@ block hashDosExtraHeaders: # scenario 99d
 
   assertBoundedRatio(buildRun(collisionNames), buildRun(nonColliding), 10.0)
 
-block bodyPartPathMessageTotality: # scenario 99f
+testCase bodyPartPathMessageTotality: # scenario 99f
   ## ``BodyPartPath`` distinct-cast carries arbitrary ``seq[int]``
   ## content — including negative / ``int.low`` / ``int.high`` values.
   ## ``message(e)`` for ``ebcBodyPartHeaderDuplicate`` must remain total
   ## and bounded (<4 KiB) regardless of the integer content. Runs under
   ## ``--panics:on`` (config.nims:23), so any ``RangeDefect`` would
   ## ``rawQuit(1)`` the process — implicit via test completion.
-  let adversarialPaths =
-    @[BodyPartPath(@[-1]), BodyPartPath(@[int.high]), BodyPartPath(@[0, int.low, 1])]
+  let adversarialPaths = @[
+    initBodyPartPath(@[-1]),
+    initBodyPartPath(@[int.high]),
+    initBodyPartPath(@[0, int.low, 1]),
+  ]
   for p in adversarialPaths:
     let err = EmailBlueprintError(
       constraint: ebcBodyPartHeaderDuplicate,
@@ -238,7 +246,7 @@ block bodyPartPathMessageTotality: # scenario 99f
 # Section B — §6.4.3 Error-accumulation stress
 # =============================================================================
 
-block fiveConstraintsSimultaneous: # scenario 101
+testCase fiveConstraintsSimultaneous: # scenario 101
   ## Design said "all six variants simultaneously", but the
   ## ``EmailBlueprintBody`` case discriminant makes
   ## ``ebcBodyStructureHeaderDuplicate`` (requires ``ebkStructured``)
@@ -278,7 +286,7 @@ block fiveConstraintsSimultaneous: # scenario 101
       ebcBodyPartHeaderDuplicate, ebcTextBodyNotTextPlain, ebcHtmlBodyNotTextHtml,
     }
 
-block bodyPartDupTenThousand: # scenario 101a
+testCase bodyPartDupTenThousand: # scenario 101a
   ## Multipart root with 10_000 inline leaves, each carrying an
   ## extraHeaders entry keyed ``content-type`` that duplicates the
   ## leaf's own domain-field ``contentType``. Every leaf fires one
@@ -308,7 +316,7 @@ block bodyPartDupTenThousand: # scenario 101a
   let cap = res.unsafeError.capacity
   doAssert cap <= 2 * n, "error-seq capacity " & $cap & " exceeds 2x bound"
 
-block topLevelDupCeilingAtEleven: # scenario 101b
+testCase topLevelDupCeilingAtEleven: # scenario 101b
   ## Design notes the realistic ceiling: ``Email`` has eleven convenience
   ## fields (``from`` / ``to`` / ``cc`` / ``bcc`` / ``reply-to`` /
   ## ``sender`` / ``subject`` / ``date`` / ``message-id`` / ``in-reply-to``
@@ -357,7 +365,7 @@ block topLevelDupCeilingAtEleven: # scenario 101b
   doAssert topLevelDupCount == convenienceNames.len,
     "expected " & $convenienceNames.len & " top-level dups, got " & $topLevelDupCount
 
-block allowedFormRejectedTenThousand: # scenario 101c
+testCase allowedFormRejectedTenThousand: # scenario 101c
   ## Design called for 10_000 distinct ``ebcAllowedFormRejected`` entries
   ## keyed by ``x-a0..x-a9999`` at the Email top level. Delivered
   ## ``allowedForms`` returns the full set ``{hfRaw..hfUrls}`` for any
@@ -427,7 +435,7 @@ proc threadWorker(workerId: int) {.thread, nimcall.} =
     let bp = parseEmailBlueprint(mailboxIds = ids, subject = Opt.some("s" & $i)).get()
     threadMsgChannel.send($bp.toJson())
 
-block concurrentBlueprintConstruction: # scenario 102a
+testCase concurrentBlueprintConstruction: # scenario 102a
   ## Two threads each build 1_000 distinct blueprints and serialise
   ## them to JSON; the parent fans in 2_000 messages and verifies each
   ## parses back into a JObject with the expected ``mailboxIds`` key.
@@ -455,7 +463,7 @@ block concurrentBlueprintConstruction: # scenario 102a
     inc received
   doAssert received == 2_000
 
-block crossProcessByteDeterminism: # scenario 102c
+testCase crossProcessByteDeterminism: # scenario 102c
   ## Spawn this test binary as a fresh child process with a sentinel
   ## environment variable; the child's module-top gate emits
   ## ``minimal102cBlueprint().toJson`` and ``quit(0)`` before any
@@ -484,7 +492,7 @@ block crossProcessByteDeterminism: # scenario 102c
   doAssert childStdout == parentJson,
     "cross-process byte mismatch\nparent: " & parentJson & "\nchild:  " & childStdout
 
-block crossProcessStructuralOnly: # scenario 102e
+testCase crossProcessStructuralOnly: # scenario 102e
   ## Complement to 102c. With multiple ``extraHeaders`` entries and a
   ## multi-``Id`` ``mailboxIds`` set, ``Table`` / ``HashSet`` iteration
   ## orders that depend on the process-wide hash seed influence the

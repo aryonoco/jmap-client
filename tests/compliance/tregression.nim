@@ -12,20 +12,21 @@
 import std/json
 import std/strutils
 
-import jmap_client/validation
-import jmap_client/primitives
-import jmap_client/identifiers
-import jmap_client/capabilities
-import jmap_client/framework
-import jmap_client/errors
-import jmap_client/serde_errors
-import jmap_client/serde_session
-import jmap_client/serde_framework
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/framework
+import jmap_client/internal/types/errors
+import jmap_client/internal/serialisation/serde_errors
+import jmap_client/internal/serialisation/serde_session
+import jmap_client/internal/serialisation/serde_framework
 
 import ../massertions
 import ../mserde_fixtures
+import ../mtestblock
 
-block regression_2026_03_creationIdGeneratorBug:
+testCase regression_2026_03_creationIdGeneratorBug:
   ## The property test propCreationIdNoLeadingHash previously used
   ## genValidIdStrict which only produces base64url characters — '#' could
   ## never appear, making the no-leading-hash assertion trivially true.
@@ -33,7 +34,7 @@ block regression_2026_03_creationIdGeneratorBug:
   ## except '#' at position 0.
   assertErrMsg parseCreationId("#bad"), "must not include '#' prefix"
 
-block regression_2026_03_overlongDelBypass:
+testCase regression_2026_03_overlongDelBypass:
   ## Overlong-encoded DEL (\xC1\xBF) bypasses the explicit '\x7F' check in
   ## lenient validators because both bytes are >= 0x20 and != 0x7F. This is
   ## a known Layer 1 limitation; overlong encoding validation is deferred to
@@ -44,7 +45,7 @@ block regression_2026_03_overlongDelBypass:
 
 # --- Phase 9: Regression test infrastructure ---
 
-block regression_2026_03_controlCharBoundary0x20:
+testCase regression_2026_03_controlCharBoundary0x20:
   ## Bug: lenient validators check `it < ' '` but space (0x20) is the
   ## boundary character that must be ACCEPTED.
   ## Root cause: off-by-one risk in the control char check.
@@ -53,7 +54,7 @@ block regression_2026_03_controlCharBoundary0x20:
   assertOk parseAccountId(" ")
   assertOk parseJmapState(" ")
 
-block regression_2026_03_delByteExplicitCheck:
+testCase regression_2026_03_delByteExplicitCheck:
   ## Bug: DEL (0x7F) is not caught by `it < ' '` check — requires explicit
   ## `it == '\x7F'` guard.
   ## Root cause: DEL is outside the 0x00..0x1F range.
@@ -62,42 +63,42 @@ block regression_2026_03_delByteExplicitCheck:
   assertErr parseAccountId("\x7F")
   assertErr parseJmapState("\x7F")
 
-block regression_2026_03_dateAllZeroFractionalSingleDigit:
+testCase regression_2026_03_dateAllZeroFractionalSingleDigit:
   ## Bug: single-digit ".0" fractional was not caught as all-zero.
   ## Root cause: the all-zero check uses allIt on the range [20..dotEnd).
   ## Fix: confirmed single-zero fractional is correctly rejected.
   assertErr parseDate("2024-01-01T12:00:00.0Z")
 
-block regression_2026_03_dateFractionalMiddleZero:
+testCase regression_2026_03_dateFractionalMiddleZero:
   ## Bug: fractional ".102" contains a zero but is NOT all-zeros.
   ## Root cause: risk of using anyIt instead of allIt for zero check.
   ## Fix: confirmed allIt is used (not anyIt).
   assertOk parseDate("2024-01-01T12:00:00.102Z")
 
-block regression_2026_03_creationIdHashAtNonZeroPosition:
+testCase regression_2026_03_creationIdHashAtNonZeroPosition:
   ## Bug: hash '#' in the middle of a CreationId was incorrectly rejected.
   ## Root cause: check was for any '#' instead of first-character '#'.
   ## Fix: confirmed only raw[0] == '#' is checked.
   assertOk parseCreationId("a#b")
   assertErr parseCreationId("#a")
 
-block regression_2026_03_setErrorDefensiveFallback:
+testCase regression_2026_03_setErrorDefensiveFallback:
   ## Bug: setError("invalidProperties") without variant data could crash
   ## when accessing .properties field.
   ## Root cause: discriminator not safely mapped to else branch.
   ## Fix: defensive constructor maps to setUnknown, preserving rawType.
   let se = setError("invalidProperties")
-  doAssert se.errorType == setUnknown
+  doAssert se.kind == setUnknown
   doAssert se.rawType == "invalidProperties"
 
-block regression_2026_03_utcDateNonZOffset:
+testCase regression_2026_03_utcDateNonZOffset:
   ## Bug: UTCDate accepted "+00:00" as equivalent to "Z".
   ## Root cause: check was for timezone presence, not specifically 'Z'.
   ## Fix: confirmed last character must be 'Z'.
   assertErr parseUtcDate("2024-01-01T12:00:00+00:00")
   assertOk parseUtcDate("2024-01-01T12:00:00Z")
 
-block regression_2026_03_idMaxLengthBoundary:
+testCase regression_2026_03_idMaxLengthBoundary:
   ## Bug: 255-byte ID accepted but 256-byte rejected — off-by-one risk.
   ## Root cause: length check uses `> 255` not `>= 255`.
   ## Fix: confirmed boundary is correct.
@@ -106,7 +107,7 @@ block regression_2026_03_idMaxLengthBoundary:
   assertOk parseIdFromServer("A".repeat(255))
   assertErr parseIdFromServer("A".repeat(256))
 
-block regression_2026_03_unsignedInt2Pow53Boundary:
+testCase regression_2026_03_unsignedInt2Pow53Boundary:
   ## Bug: 2^53 (9007199254740992) was accepted as valid UnsignedInt.
   ## Root cause: off-by-one in boundary check (> vs >=).
   ## Fix: confirmed MaxUnsignedInt = 2^53 - 1 and check uses >.
@@ -115,7 +116,7 @@ block regression_2026_03_unsignedInt2Pow53Boundary:
 
 # --- Phase 6B: Regression entries for Phase 0 bugs ---
 
-block regression_2026_03_extrasOverwriteStandardFields:
+testCase regression_2026_03_extrasOverwriteStandardFields:
   ## Known issue: in RequestError/MethodError/SetError toJson(), the extras
   ## loop runs AFTER standard field writes. Extras with colliding keys (e.g.
   ## "type") can overwrite standard fields in the serialised JSON output.
@@ -139,7 +140,7 @@ block regression_2026_03_extrasOverwriteStandardFields:
     doAssert me.extras.get(){"description"}.isNil,
       "collectExtras must strip known key 'description'"
 
-block regression_2026_03_toJsonAliasedInternalRefs:
+testCase regression_2026_03_toJsonAliasedInternalRefs:
   ## Known issue: ServerCapability.toJson returns the internal rawData
   ## JsonNode ref directly (for non-ckCore variants). Callers can mutate
   ## internal state through the returned ref.
@@ -148,8 +149,12 @@ block regression_2026_03_toJsonAliasedInternalRefs:
   ## deep copies. Mutation through the returned ref no longer propagates.
   let data = newJObject()
   data["original"] = %"value"
-  let cap =
-    ServerCapability(rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: data)
+  # ckMail is a discard arm — its toJson emits {} regardless of payload.
+  # Use a non-discard arm (ckMdn) to exercise rawXxxData deep-copy semantics.
+  let cap = parseServerCapability(
+      "urn:ietf:params:jmap:mdn", Opt.none(CoreCapabilities), Opt.some(data)
+    )
+    .get()
   let j = cap.toJson()
   j["injected"] = %"corrupted"
   # After fix: injection must NOT be visible through the capability
@@ -157,7 +162,7 @@ block regression_2026_03_toJsonAliasedInternalRefs:
   doAssert j2{"injected"}.isNil,
     "toJson must return independent copy — mutation must not propagate"
 
-block regression_2026_03_filterFromJsonDepthGuard:
+testCase regression_2026_03_filterFromJsonDepthGuard:
   ## Hardening: Filter[C].fromJson had no depth guard for recursion. A
   ## deeply-nested pre-parsed JsonNode tree could cause StackOverflowDefect,
   ## which is uncatchable under {.push raises: [].}.

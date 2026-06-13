@@ -333,7 +333,7 @@ transport), and cannot be independently tested in a meaningful way.
 | L1 / L2 | Layer 1 already imports `std/json` selectively for `JsonNode` as a data type; merging would add dependency on parsing *logic* (`parseJson`, `to[T]`, camelCase conversion, `#`-prefix handling). Testing smart constructors would require JSON fixtures. Wire format knowledge would leak into type definitions. |
 | L2 / L3 | Serialisation is stateless, reusable infrastructure. Protocol logic uses accumulation patterns (immutable builder construction, sequential ID generation) that differ structurally from L2's stateless value-to-value transforms. Mixing them conflates different levels of abstraction and prevents swapping JSON libraries without touching builder logic. |
 | L3 / L4 | Protocol logic is pure (`func`); transport is impure (`proc` with IO). Merging them makes the entire protocol layer untestable without network access or mocks. This is the functional core / imperative shell boundary — the most important boundary in the project. |
-| L4 / L5 | Transport returns rich Nim types (`JmapResult[Response]`); the C ABI projects them into opaque handles and error codes. Different audiences, different constraints, different type systems. |
+| L4 / L5 | Transport returns rich Nim types (`JmapResult[DispatchedResponse]`); the C ABI projects them into opaque handles and error codes. Different audiences, different constraints, different type systems. |
 
 **Haskell module analogy:**
 
@@ -532,7 +532,7 @@ src/jmap_client/
                         (GetRequest[T], ChangesRequest[T],
                         SetRequest[T, C, U], CopyRequest[T, CopyItem]) and
                         response types (GetResponse[T], ChangesResponse[T],
-                        SetResponse[T], CopyResponse[T], QueryResponse[T],
+                        SetResponse[T, U], CopyResponse[T], QueryResponse[T],
                         QueryChangesResponse[T]). Defines CopyDestroyMode
                         (case object expressing keep / destroyAfterSuccess),
                         SerializedSort and SerializedFilter (distinct
@@ -541,7 +541,7 @@ src/jmap_client/
                         serializeOptSort, and the assembleQueryArgs /
                         assembleQueryChangesArgs helpers. Request `toJson`
                         and response `fromJson` live alongside the types
-                        per Decision D3.7. SetResponse[T] and
+                        per Decision D3.7. SetResponse[T, U] and
                         CopyResponse[T] additionally carry `toJson` (with
                         internal split-emitters) for round-trip fixture
                         helpers used by tests; this is the documented
@@ -575,15 +575,15 @@ src/jmap_client/
                         setResponseType, copyItemType, copyResponseType)
                         at the caller's instantiation site via mixin.
                         Capability auto-collection via withCapability.
-                        Argument-construction helpers directIds,
-                        initCreates.
-  convenience.nim     — Pipeline combinators (opt-in, not re-exported by
-                        protocol.nim): addQueryThenGet (template),
-                        addChangesToGet (func), paired handle types
-                        QueryGetHandles[T] / ChangesGetHandles[T] and
-                        result types QueryGetResults[T] /
-                        ChangesGetResults[T]; getBoth overloads for the
-                        paired handle types.
+                        Argument-construction helper directIds.
+  convenience.nim     — Per-entity pipeline combinators (opt-in, not
+                        re-exported by jmap_client): the
+                        add<Entity>QueryThenGet / add<Entity>ChangesToGet
+                        wrappers, paired handle types QueryGetHandles[T] /
+                        ChangesGetHandles[T] / MailboxChangesGetHandles
+                        and result types QueryGetResults[T] /
+                        ChangesGetResults[T] / MailboxChangesGetResults;
+                        getBoth overloads for the paired handle types.
   protocol.nim        — Re-exports entity, methods, dispatch, builder
                         (Layer 3 hub; excludes convenience.nim).
 ```
@@ -1881,24 +1881,29 @@ ResponseHandle[T])` tuples**. The shape is dictated by three forces:
    layer uniformly `func`.
 
 ```nim
-let b0 = initRequestBuilder()
-let (b1, idsHandle) = b0.addQuery[Mailbox](accountId)
-let (b2, getHandle) = b1.addGet[Mailbox](accountId, ids = idsRef(idsHandle))
-let request = b2.build()
+let b0 = client.newBuilder()
+let (b1, idsHandle) = b0.addMailboxQuery(accountId)
+let (b2, getHandle) = b1.addMailboxGet(accountId, ids = idsRef(idsHandle))
+let req = b2.freeze()
+let dr = ?client.send(req)
+let mailboxes = ?getHandle.get(dr)
 ```
 
 Each `add*` returns a fresh `RequestBuilder` with the next call ID,
 the new invocation appended, and the entity's capability URI added
-(deduplicated). `build()` is a pure projection that snapshots the
-current state into a `Request`. The builder remains usable after
-`build()` for sequential requests against the same accumulator.
+(deduplicated). `freeze()` is a pure projection that snapshots the
+current state into a sealed `BuiltRequest`, branded with the
+builder's `BuilderId`. The builder remains usable after `freeze()`
+for sequential requests against the same accumulator; each
+accumulation must `freeze` independently before dispatch.
 
-`initRequestBuilder()` pre-seeds `urn:ietf:params:jmap:core` in the
-`using` array. RFC 8620 §3.2 obliges clients to declare every capability
-they use; lenient servers (Stalwart 0.15.5) accept requests with `core`
-omitted, but strict servers (Apache James 3.9) reject them with
-`unknownMethod`. Pre-declaring core makes the client portable across
-both.
+`newBuilder()` pre-seeds `urn:ietf:params:jmap:core` in the
+`using` array (RFC 8620 §3.2 obliges clients to declare every
+capability they use; lenient servers accept omission, strict ones
+reject it with `unknownMethod`) and mints a fresh `BuilderId`
+brand. The hub-private `initRequestBuilder(id)` is reachable only
+through whitebox imports for tests and internal callers; application
+developers use `client.newBuilder()`.
 
 The accumulation sequence is order-dependent: calling `addGet` twice
 produces call IDs `"c0"` and `"c1"`. Functional core preserved; the
@@ -1955,15 +1960,21 @@ RFC 8621 extensions are attached without growing the generic builder
 signature. `addChanges` does not take `extras` — `/changes` has no
 documented per-entity extension keys.
 
-**Argument-construction helpers** in `builder.nim`:
+**Argument-construction helper** in `builder.nim`:
 
 - `directIds(openArray[Id])` — wraps a sequence into
-  `Opt[Referencable[seq[Id]]]` for direct (non-reference) use.
-- `initCreates(pairs)` — builds an `Opt[Table[CreationId, JsonNode]]`
-  from `(CreationId, JsonNode)` pairs.
+  `Opt[Referencable[seq[Id]]]` for direct (non-reference) use,
+  absorbing the `Referencable` sum-type's `direct(...)` arm so the
+  call site reads `directIds(@[id1, id2])` instead of
+  `Opt.some(direct(@[id1, id2]))`.
 
-There is no `initUpdates` helper — updates are entity-specific typed
-algebras (`NonEmptyEmailUpdates`, `NonEmptyMailboxUpdates`,
+No `initCreates` helper exists. Per-entity create payloads are typed
+(`MailboxCreate`, `EmailBlueprint`, `IdentityCreate`,
+`EmailSubmissionBlueprint`) and the typed `addSet[T, C, U, R]` takes
+`Opt[Table[CreationId, C]]` directly; the natural Nim idiom
+`Opt.some({cid: c}.toTable)` is the construction path. There is no
+`initUpdates` helper for the same reason — updates are entity-specific
+typed algebras (`NonEmptyEmailUpdates`, `NonEmptyMailboxUpdates`,
 `NonEmptyIdentityUpdates`, `NonEmptyEmailSubmissionUpdates`),
 constructed by their own smart constructors. Generic builders accept
 the typed value directly.
@@ -2095,32 +2106,51 @@ There are four `getBoth` overloads in total: two in `dispatch.nim`
 `convenience.nim` (over `QueryGetHandles[T]` and
 `ChangesGetHandles[T]`).
 
-**Entity data limitation (D3.6).** The phantom type `T` in
-`ResponseHandle[T]` controls which response envelope type is extracted
-(e.g., `GetResponse[Mailbox]` vs `SetResponse[Mailbox]`), but entity
-data inside the *generic* protocol-level response types remains
-`JsonNode`:
+**Entity-data typing (D3.6, post-A3 + A4 + A3.6).** The phantom type
+`T` in `ResponseHandle[T]` controls which response envelope type is
+extracted (e.g., `GetResponse[Mailbox]` vs
+`SetResponse[Mailbox]`). Entity data inside response envelopes is
+typed end-to-end via mixin `T.fromJson` / `U.fromJson`:
 
-- `GetResponse[T].list` is `seq[JsonNode]`.
-- `SetResponse[T].updateResults` is
-  `Table[Id, Result[Opt[JsonNode], SetError]]` — the per-item outcome
-  carries `JsonNode` for typed conversion at the call site.
-- `SetResponse[T].createResults` is
-  `Table[CreationId, Result[T, SetError]]`. RFC 8621 entity modules
-  supply specific `T` (e.g. `EmailCreatedItem`, `IdentityCreatedItem`,
-  `MailboxCreatedItem`, `EmailSubmissionCreatedItem` — the
-  server-set-subset companions to the entity's full type), parsed
-  end-to-end through `mixin fromJson`.
-- `CopyResponse[T].createResults` is
-  `Table[CreationId, Result[T, SetError]]` — typed because `Foo/copy`
-  echoes the created object as the entity's server-set-fields shape.
+- `GetResponse[T].list` is `seq[T]` — each wire entry parsed
+  at the dispatch site through the entity's lenient
+  `T.fromJson`. Sparse `/get` is consumable on the typed public
+  surface (A3.6 D7): `T = PartialMailbox` / `PartialEmail` /
+  etc. — each `PartialT` registers as a getter-only entity, so
+  `addGet[PartialT]` works the same as `addGet[FullT]`. For
+  full-record fetches, `T.fromJson` stays full-record strict;
+  consumers who want sparse projections use the `PartialT`
+  family. Raw `Invocation.arguments` remains sealed inside
+  `internal/` per A2.
+- `SetResponse[T, U].updateResults` is `Table[Id,
+  Result[Opt[U], SetError]]` (A4 D2) — `U` is the per-entity
+  `PartialT`. Wire `updated[id] = null` →
+  `ok(Opt.none(U))` (confirmed without echo); wire
+  `updated[id] = {...}` →
+  `ok(Opt.some(?U.fromJson(v, path)))`; wire
+  `notUpdated[id]` → `err(setError)`.
+- `SetResponse[T, U].createResults` is `Table[CreationId,
+  Result[T, SetError]]`. RFC 8621 entity modules supply
+  specific `T` (e.g. `EmailCreatedItem`,
+  `IdentityCreatedItem`, `MailboxCreatedItem`,
+  `EmailSubmissionCreatedItem` — the server-set-subset
+  companions to the entity's full type), parsed end-to-end
+  through `mixin fromJson`. For singleton-only entities with
+  no create rail (`VacationResponse`), `T = NoCreate` (D6).
+- `CopyResponse[T].createResults` is `Table[CreationId,
+  Result[T, SetError]]` — typed because `Foo/copy` echoes
+  the created object as the entity's server-set-fields shape.
+  `/copy` has no update branch per RFC 8620 §5.4, so
+  `CopyResponse` stays single-parameter.
 
-The mixed pattern reflects the RFC: `/get` returns full entity objects
-(typed parsing belongs in extension modules), `/set` update outcomes
-echo a property subset that is best parsed at the call site
-(`updatedProperties`), and `/copy` plus `/set` create outcomes echo
-the server-set fields with a shape tight enough to type at the
-protocol layer.
+The mixed pattern reflects the RFC: `/get` returns full
+entity objects (typed end-to-end after A3; sparse projection
+on the public application API requires `PartialT` types per
+A3.6), `/set` update outcomes echo a property subset that is
+best parsed at the call site (`updatedProperties`), and
+`/copy` plus `/set` create outcomes echo the server-set
+fields with a shape tight enough to type at the protocol
+layer.
 
 ### 3.5 Entity Type Framework
 
@@ -2383,12 +2413,12 @@ SetResponse[T] = object
 #### Option 3.9B: Unified result map (per-item Result pattern)
 
 ```nim
-SetResponse[T] = object
+SetResponse[T, U] = object
   accountId: AccountId
   oldState: Opt[JmapState]
   newState: Opt[JmapState]
   createResults: Table[CreationId, Result[T, SetError]]
-  updateResults: Table[Id, Result[Opt[JsonNode], SetError]]
+  updateResults: Table[Id, Result[Opt[U], SetError]]
   destroyResults: Table[Id, Result[void, SetError]]
 ```
 
@@ -2407,18 +2437,24 @@ Deserialise from the RFC format (parallel maps). Immediately merge into
 gives users the clean per-item Result pattern while respecting the
 wire format.
 
-**Type asymmetry between create and update outcomes.** `createResults`
+**Typed create and update outcomes (post-A4 D1/D2).** `createResults`
 is `Table[CreationId, Result[T, SetError]]` because RFC 8620 §5.3
 echoes the server-set fields of the created object, which entity
 modules type as `EmailCreatedItem`, `MailboxCreatedItem`,
 `IdentityCreatedItem`, `EmailSubmissionCreatedItem` (the server-set
-subset of the entity, parsed end-to-end via `mixin fromJson`).
-`updateResults` is `Table[Id, Result[Opt[JsonNode], SetError]]` because
-the RFC permits the server to echo a property subset under `updated[id]`
-whose shape is non-uniform — typed parsing belongs at the call site
-rather than the protocol layer. `destroyResults` carries
-`Result[void, SetError]` because a successful destroy reports only the
-ID.
+subset of the entity, parsed end-to-end via `mixin fromJson`). For
+singleton-only entities with no create rail (`VacationResponse`),
+`T = NoCreate` per D6. `updateResults` is
+`Table[Id, Result[Opt[U], SetError]]` where `U` is the per-entity
+`PartialT` — `PartialEmail`, `PartialMailbox`, etc. Each `PartialT`
+mirrors the full read model with wire-nullable fields typed as
+`FieldEcho[T]` (three states: absent / null / value) and wire-non-
+nullable fields typed as `Opt[T]` (two states: absent / value). Wire
+`updated[id] = null` → `ok(Opt.none(U))` (server confirmed without
+echo); wire `updated[id] = {...}` → `ok(Opt.some(partial))` parsed
+via `U.fromJson` (resolved via mixin at instantiation).
+`destroyResults` carries `Result[void, SetError]` because a successful
+destroy reports only the ID.
 
 `CopyResponse[T].createResults` is
 `Table[CreationId, Result[T, SetError]]`, mirroring `/set`'s create
@@ -2526,41 +2562,50 @@ layer.
   types. Forces a circular dependency: protocol layer (Layer 3) must
   know entity serialisation. Impractical for a Core-only library.
 
-#### Option 3.11B: Raw `JsonNode` entity data with selectively typed echoes (D3.6)
+#### Option 3.11B: Typed entity data end-to-end via mixin dispatch (D3.6)
 
-Entity data in the *generic* protocol-level types is `JsonNode`. The
-phantom type parameter `T` controls method dispatch (method name,
-capability URI, handle constraints) but does not participate in entity
-body parsing for `/get` `list` items.
+Entity data in protocol-level response types is typed via mixin
+resolution at instantiation. The phantom type parameter(s) on each
+envelope control method dispatch (method name, capability URI, handle
+constraints) AND drive entity body parsing.
 
 ```
-GetResponse[T].list:               seq[JsonNode]
-SetRequest[T].create:              Opt[Table[CreationId, JsonNode]]
-SetResponse[T].createResults:      Table[CreationId, Result[T, SetError]]   # typed via mixin
-SetResponse[T].updateResults:      Table[Id, Result[Opt[JsonNode], SetError]]
+GetResponse[T].list:               seq[T]             # typed via mixin T.fromJson (A3)
+SetRequest[T, C, U].create:        Opt[Table[CreationId, C]]
+SetResponse[T, U].createResults:   Table[CreationId, Result[T, SetError]]   # typed via mixin T.fromJson
+SetResponse[T, U].updateResults:   Table[Id, Result[Opt[U], SetError]]      # typed via mixin U.fromJson (A4)
 CopyResponse[T].createResults:     Table[CreationId, Result[T, SetError]]   # typed via mixin
 ```
 
+Full-record fetches use the entity type (`T = Email`, etc.); sparse
+projections use the partial (`T = PartialEmail`, etc., A3.6 D7). For
+singleton-only entities with no create rail, `T = NoCreate` (D6).
+
 - **Pros:**
-  - RFC 8620 Core is self-contained — no entity-specific knowledge
-    needed for `/get` `list` items.
-  - Extension modules (RFC 8621) can add typed parsing independently for
-    `createResults` via the entity's `*CreatedItem` type.
-  - Matches the Rust `jmap-client` crate's approach (`serde_json::Value`
-    for entity data in generic response types).
-  - No data loss — unknown entity properties are preserved.
+  - Typed end-to-end on the consumer rail — no `JsonNode` exposed
+    on the public API.
+  - Each `PartialT` faithfully preserves the RFC 8620 §5.3
+    three-state per-field echo (absent / null / value) via
+    `FieldEcho[T]`.
+  - RFC 8620 Core stays self-contained — mixin defers entity-
+    specific knowledge to the entity module's `fromJson`/`toJson`
+    overloads, resolved at the dispatch site.
+  - Sparse `/get` is consumable through `addGet[PartialT]` (or
+    Email's `addPartialEmailGet` wrapper).
 - **Cons:**
-  - Entity data in `GetResponse.list` is untyped at the protocol layer.
-    Callers must parse `JsonNode` items themselves.
+  - Mixin chains require every entity-specific `fromJson` to be
+    reachable at the outermost instantiation site. Mitigated by
+    re-exporting transitive serde dependencies from each entity's
+    serde module.
 
 #### Decision: 3.11B
 
-Raw `JsonNode` for `/get` entity data; typed `T` for create-item echoes
-(`/set` and `/copy` `createResults`). RFC 8620 Core genuinely has no
-entity types to parse. The phantom type `T` provides substantial value —
-method name resolution, capability auto-registration, handle type
-constraints, type-safe reference functions, typed create-item echoes —
-without requiring entity body parsing for `/get` lists.
+Typed end-to-end via mixin dispatch — `T` and `U` parameters on
+response envelopes drive both method dispatch and entity body
+parsing. The phantom parameters provide method name resolution,
+capability auto-registration, handle type constraints, type-safe
+reference functions, and typed create/update entity echoes — all
+without forcing entity-specific dependencies into the Core layer.
 
 **Extension point.** When adding typed entity support, the expected
 pattern is:
@@ -2597,9 +2642,9 @@ are received from the server and parsed by the client.
 
 - **Request types** (`GetRequest[T]`, `SetRequest[T]`, etc.) receive
   only `toJson`. The client never parses its own requests.
-- **Response types** (`GetResponse[T]`, `SetResponse[T]`, etc.) receive
-  only `fromJson` for the production code path. The client never
-  serialises server responses.
+- **Response types** (`GetResponse[T]`, `SetResponse[T, U]`, etc.)
+  receive only `fromJson` for the production code path. The client
+  never serialises server responses.
 
 This eliminates unused serialisation functions and avoids maintaining
 code paths that can never be exercised. Layer 2 types (Invocation,
@@ -2607,47 +2652,51 @@ Session, errors, etc.) retain bidirectional serialisation because they
 participate in both directions (e.g., Invocation appears in both
 Request and Response).
 
-**Round-trip exception.** `SetResponse[T]` and `CopyResponse[T]` have
-`toJson` (with internal split-emitters that explode the unified Result
-maps back into the wire's parallel `created`/`notCreated`/… maps) for
-fixture round-tripping in tests. These are documented in-source as
+**Round-trip exception.** `SetResponse[T, U]` and `CopyResponse[T]`
+have `toJson` (with internal split-emitters that explode the unified
+Result maps back into the wire's parallel `created`/`notCreated`/…
+maps) for fixture round-tripping in tests. Each `PartialT` also has a
+`toJson` for the same reason. These are documented in-source as
 test-only and are not consumed by production code.
 
 ### 3.13 Pipeline Combinators
 
 Common JMAP patterns chain two method calls with a result reference
-between them (e.g., query-then-get, changes-then-get). While the
-builder's `add*` functions and result reference construction are
-sufficient, the boilerplate is repetitive.
+between them (e.g., query-then-get, changes-then-get). While the typed
+per-entity builders and `reference` construction are sufficient, the
+boilerplate is repetitive.
 
-The `convenience.nim` module (not re-exported by `protocol.nim`)
-provides pipeline combinators:
+The `convenience.nim` module (not re-exported by `jmap_client`)
+provides per-entity pipeline combinators:
 
 ```
-addQueryThenGet[T](b, accountId, ...)
-  → QueryGetHandles[T] = (query: ResponseHandle[QueryResponse[T]],
-                           get: ResponseHandle[GetResponse[T]])
+add<Entity>QueryThenGet(b, accountId, ...)
+  → QueryGetHandles[<Entity>] = (query: ResponseHandle[QueryResponse[...]],
+                                 get: ResponseHandle[GetResponse[...]])
 
-addChangesToGet[T](b, accountId, sinceState, ...)
-  → ChangesGetHandles[T] = (changes: ResponseHandle[ChangesResponse[T]],
-                             get: ResponseHandle[GetResponse[T]])
+add<Entity>ChangesToGet(b, accountId, sinceState, ...)
+  → ChangesGetHandles[<Entity>] = (changes: ResponseHandle[ChangesResponse[...]],
+                                   get: ResponseHandle[GetResponse[...]])
 ```
 
-Each combinator adds two method calls to the builder, wires the result
-reference automatically, and returns a paired handle type for type-safe
-extraction of both responses. Paired `getBoth[T]` extraction funcs
-return both results as a named result object (`QueryGetResults[T]`,
-`ChangesGetResults[T]`).
+Eight per-entity wrappers — `addEmailQueryThenGet`,
+`addMailboxQueryThenGet`, `addEmailSubmissionQueryThenGet`,
+`addEmailChangesToGet`, `addIdentityChangesToGet`,
+`addThreadChangesToGet`, `addEmailSubmissionChangesToGet`,
+`addMailboxChangesToGet` — each add two method calls to the builder,
+wire the result reference internally via the public `reference`
+primitive (the `/ids` path for query chains, `/created` for changes
+chains), and return a paired handle type for type-safe extraction of
+both responses. Paired `getBoth` extraction funcs return both results
+as a named result object (`QueryGetResults[T]`, `ChangesGetResults[T]`,
+`MailboxChangesGetResults`).
 
-These are opt-in ergonomics — users who import only `protocol` get the
-full builder API without the convenience layer. `addQueryThenGet` is a
-`template` (to ensure `mixin filterType` resolution at the call site
-for the underlying `addQuery[T]` call). `addChangesToGet` is a `func`
-that hardcodes `addChanges[T, ChangesResponse[T]]` (rather than
-resolving `changesResponseType(T)`) because `createdRef` is only
-defined over `ResponseHandle[ChangesResponse[T]]`. Paired `getBoth`
-extraction is `func` — `mixin fromJson` resolves at the caller's
-instantiation site.
+These are opt-in ergonomics — users who `import jmap_client` get the
+full typed per-entity builder API without the convenience layer. Each
+wrapper is a non-generic `func` over the public typed builders;
+`addMailboxChangesToGet` returns the bespoke `MailboxChangesGetHandles`
+because Mailbox/changes yields the extended `MailboxChangesResponse`,
+which `ChangesGetHandles[Mailbox]` cannot type.
 
 ---
 
@@ -2737,9 +2786,9 @@ proc discoverJmapClient(...): Result[JmapClient, ValidationError]
 proc setBearerToken(client: var JmapClient, token: string): Result[void, ValidationError]
 proc close(client: var JmapClient)
 proc fetchSession(client: var JmapClient): JmapResult[Session]
-proc send(client: var JmapClient, request: Request): JmapResult[Response]
-proc send(client: var JmapClient, builder: RequestBuilder): JmapResult[Response]
-proc refreshSessionIfStale(client: var JmapClient, response: Response): JmapResult[bool]
+proc newBuilder(client: var JmapClient): RequestBuilder
+proc send(client: var JmapClient, req: BuiltRequest): JmapResult[DispatchedResponse]
+proc refreshSessionIfStale(client: var JmapClient, dr: DispatchedResponse): JmapResult[bool]
 proc setSessionForTest(client: var JmapClient, session: Session)         ## test-only
 proc sendRawHttpForTesting(client: var JmapClient, body: string): JmapResult[Response]  ## test-only
 
@@ -2748,24 +2797,37 @@ func sessionUrl(client: JmapClient): string
 func bearerToken(client: JmapClient): string
 func authScheme(client: JmapClient): string
 func lastRawResponseBody(client: JmapClient): string
-func isSessionStale(client: JmapClient, response: Response): bool
+func isSessionStale(client: JmapClient, dr: DispatchedResponse): bool
 ```
 
-`JmapClient` is an object with eight module-private fields:
-`httpClient: HttpClient`, `sessionUrl: string`, `bearerToken: string`,
-`authScheme: string`, `session: Opt[Session]`, `maxResponseBytes: int`,
-`userAgent: string`, `lastRawResponseBody: string`. Copying a
-`JmapClient` shares the underlying HTTP connection — `close()` on any
-copy closes it for all copies.
+`JmapClient` is an object with module-private fields covering the
+HTTP client, session cache, last raw body buffer, and the
+**`clientBrand`** (random 64-bit token drawn once at construction
+via `std/sysrand.urandom`) plus **`nextBuilderSerial`** (monotonic
+counter for branding builders minted by `newBuilder`). Copying a
+`JmapClient` shares the underlying HTTP connection — `close()` on
+any copy closes it for all copies.
 
 The IO procs take `var JmapClient` because session caching is a
 mutation on the client object. `send()` lazy-fetches the session into
 the cached field; `fetchSession()` populates it explicitly;
 `refreshSessionIfStale()` may replace it.
 
-The `send(Request)` overload is the core IO boundary. The `send(builder)`
-convenience overload calls `builder.build()` and forwards to
-`send(Request)`.
+**Lifecycle — `newBuilder` → `add*` → `freeze` → `send` → `get`.**
+The application developer's path is one closed loop:
+
+1. `client.newBuilder()` returns a fresh `RequestBuilder` branded
+   with the client's `clientBrand` and a fresh `serial`.
+2. `add*` methods accumulate invocations, returning a new
+   `RequestBuilder` plus typed `ResponseHandle[T]` values.
+3. `b.freeze()` returns a sealed `BuiltRequest` (frozen,
+   dispatch-ready, branded).
+4. `client.send(req)` validates limits, POSTs, parses, and returns a
+   sealed `DispatchedResponse` (branded with the originating
+   builder's `BuilderId`).
+5. `handle.get(dr)` extracts the typed value, returning
+   `Result[T, GetError]`. Brand-mismatch handles return
+   `err(gekHandleMismatch)`; server errors return `err(gekMethod)`.
 
 **Lazy session fetch.** `send()` auto-fetches the Session if not yet
 cached. This triggers IO on first use — callers can also call
@@ -2935,7 +2997,7 @@ what is implemented and the structural choices that shape it.
 | L1 (types)   | `addresses`, `body`, `email`, `email_blueprint`, `email_submission`, `email_update`, `headers`, `identity`, `keyword`, `mail_capabilities`, `mail_errors`, `mail_filters`, `mailbox`, `mailbox_changes_response`, `snippet`, `submission_atoms`, `submission_envelope`, `submission_mailbox`, `submission_param`, `submission_status`, `thread`, `vacation` |
 | L2 (serde)   | `serde_addresses`, `serde_body`, `serde_email`, `serde_email_blueprint`, `serde_email_submission`, `serde_email_update`, `serde_headers`, `serde_identity`, `serde_identity_update`, `serde_keyword`, `serde_mail_capabilities`, `serde_mail_filters`, `serde_mailbox`, `serde_snippet`, `serde_submission_envelope`, `serde_submission_status`, `serde_thread`, `serde_vacation` |
 | L3 (protocol)| `mail_entities`, `mail_methods`, `mail_builders`, `identity_builders`, `submission_builders` |
-| Hubs         | `mail/types.nim` (L1 hub), `mail/serialisation.nim` (L2 hub), top-level `mail.nim` (re-exports L1+L2+L3) |
+| Hubs         | `mail/types.nim` (L1 hub), top-level `mail.nim` (re-exports the public mail surface: entity types + method / builder modules) |
 
 Two structural notes:
 
@@ -2944,10 +3006,11 @@ Two structural notes:
   are not re-exported by the L1 hub; they reach consumers transitively
   through `submission_envelope` (and its serde companion). Direct
   consumers needing those grammar primitives import them explicitly.
-- `mail/serialisation.nim` re-exports the L1 module
-  `mailbox_changes_response` because that file carries both the
-  `MailboxChangesResponse` type *and* its `fromJson` (no separate
-  serde file exists for it).
+- `mailbox_changes_response.nim` is an L1 module carrying both the
+  `MailboxChangesResponse` type *and* its `fromJson` (no separate serde
+  file exists for it). `mail/types.nim` re-exports the type; `mail.nim`
+  applies `export types except fromJson` so the parser stays hub-private
+  (A1d) — `MailboxChangesResponse` arrives through `dr.get(handle)`.
 - `identity_update.nim` does not exist as a separate L1 file — the
   `IdentityUpdate` ADT lives inside `identity.nim`. There IS a
   separate `serde_identity_update.nim`.
@@ -2990,9 +3053,9 @@ only, only valid against an existing query result).
 Mail-layer compound and chainable participation gates are registered in
 `mail_entities.nim`:
 
-- `registerCompoundMethod(CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem])`
+- `registerCompoundMethod(CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail])`
   — for `Email/copy onSuccessDestroyOriginal`.
-- `registerCompoundMethod(EmailSubmissionSetResponse, SetResponse[EmailCreatedItem])`
+- `registerCompoundMethod(EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail])`
   — for `EmailSubmission/set` with `onSuccessUpdateEmail`.
 - `registerChainableMethod(QueryResponse[Email])` — `Email/query` →
   downstream `Email/get` via `/ids`.
@@ -3077,7 +3140,7 @@ is the type-gated cancel operation.
 
 `EmailSubmissionCreatedItem` is the `*CreatedItem` projection (server-
 set subset of an EmailSubmission).
-`EmailSubmissionSetResponse = SetResponse[EmailSubmissionCreatedItem]`
+`EmailSubmissionSetResponse = SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]`
 is the typed response alias.
 
 **RFC 5321 atoms (`submission_atoms.nim`,
@@ -3342,6 +3405,7 @@ option in §1.3).
 | 1. Types+Errors | `QueryParams` aggregate (§1.5.5) | Window + calculateTotal in one value type; default-constructible to RFC defaults. |
 | 1. Types+Errors | `NonEmptySeq[T]` newtype in primitives (§1.5.6) | Used wherever RFC mandates "at least one" semantics. |
 | 1. Types+Errors | `JmapResult[T] = Result[T, ClientError]` defined in `types.nim` (Layer 1 hub) | Outer railway alias; importing the hub brings it into scope. |
+| 1. Types+Errors | `field_echo.nim`: `FieldEcho[T]` three-state case object + `NoCreate` marker (A4 + A3.6 D2/D3/D6) | `FieldEcho[T]` preserves the RFC 8620 §5.3 per-field echo's three states (absent / null / value) for wire-nullable properties; `NoCreate` fills the `T` slot of `SetResponse[T, U]` for entities whose `/set` has no create rail. |
 | 2. Serialisation | `std/json` manual ser/de, no external deps (2.1A) | Total parsing, `raises: []` via boundary catch. |
 | 2. Serialisation | camelCase in Nim source (2.2A) | Zero conversion, leverages style insensitivity. |
 | 2. Serialisation | `SerdeViolation` structured error type with 9 variant kinds (§2.4) | JSON Pointer paths and rich kind discriminator; bridged to `ValidationError` via `toValidationError(v, rootType)`; bridged to `MethodError` via `serdeToMethodError` closure factory. |
@@ -3355,9 +3419,9 @@ option in §1.3).
 | 3. Protocol | Plain overloaded `func`s + three registration templates: `registerJmapEntity`, `registerQueryableEntity`, `registerSettableEntity` (3.5B) | `methodEntity` + per-verb `MethodName` resolvers replace string-based dispatch; missing overloads produce domain-specific compile errors. `Email` adds `importMethodName`. |
 | 3. Protocol | Three-parameter `addQuery[T, C, SortT]` builders + single-type-parameter template aliases (3.7B) | `filterType(T)` resolved at call site via `mixin` for `addQuery[T]`; explicit form available for entity-typed sort. |
 | 3. Protocol | Entity-specific typed update algebras (§3.8) | Sum-type ADT per entity replaces a generic patch builder; whole-container `NonEmptyXxxUpdates` enforces non-emptiness and prefix-conflict invariants. |
-| 3. Protocol | SetResponse as unified Result maps with mixed typing (3.9B) | `createResults: Result[T, SetError]` (typed via mixin fromJson on entity created-item types); `updateResults: Result[Opt[JsonNode], SetError]` (post-update echo shape varies by server); `destroyResults: Result[void, SetError]`. |
+| 3. Protocol | SetResponse as unified Result maps, fully typed (3.9B + A4) | `createResults: Result[T, SetError]` (typed via mixin `T.fromJson` on entity created-item types; `T = NoCreate` for singleton entities per D6); `updateResults: Result[Opt[U], SetError]` (typed via mixin `U.fromJson` on per-entity `PartialT`); `destroyResults: Result[void, SetError]`. |
 | 3. Protocol | Typed `RefPath` enum + constrained convenience constructors (§3.10) | `idsRef`, `listIdsRef`, `addedIdsRef`, `createdRef`, `updatedRef` only compile on the correct phantom handle; lenient parser preserves vendor paths verbatim. |
-| 3. Protocol | Mixed entity-data typing (3.11B / D3.6) | `GetResponse[T].list` is `seq[JsonNode]`; `SetResponse[T].createResults` and `CopyResponse[T].createResults` are `Result[T, SetError]` (typed); `updateResults` keeps `JsonNode` for variable per-server echo shapes. |
+| 3. Protocol | Entity-data typing end-to-end via mixin (3.11B / D3.6) | `GetResponse[T].list` is `seq[T]` typed via mixin `T.fromJson` (A3); `SetResponse[T, U].createResults` / `CopyResponse[T].createResults` are `Result[T, SetError]` (typed); `SetResponse[T, U].updateResults` is `Result[Opt[U], SetError]` typed via mixin `U.fromJson` on per-entity `PartialT` (A4); sparse `/get` typed via getter-only `PartialT` entity registration (A3.6 D7); raw `Invocation.arguments` sealed inside `internal/` per A2. |
 | 3. Protocol | Unidirectional serialisation: request `toJson` only, response `fromJson` only, with documented `SetResponse`/`CopyResponse` round-trip exception (D3.7) | Eliminates unused code paths; L2 types retain bidirectional serialisation; round-trip exception serves test fixtures. |
 | 3. Protocol | Pipeline combinators in opt-in `convenience.nim` (§3.13) | Reduces result-reference wiring boilerplate; not re-exported by `protocol.nim`. |
 | 3. Protocol | `assembleQueryArgs` emits `anchorOffset` only when `anchor.isSome` (§3.7) | Apache James 3.9 rejects bare `anchorOffset`; this preserves portability. |
@@ -3371,7 +3435,7 @@ option in §1.3).
 | 4. Transport | Pre-flight `validateLimits` checks `maxCallsInRequest`, `maxObjectsInGet`, `maxObjectsInSet`; `maxSizeRequest` enforced inline in `send()` after serialisation (§4.3) | Three limits checkable from the typed Request; the size limit needs the serialised body. Both routes project `ValidationError` to `ClientError` via `validationToClientError`. |
 | 4. Transport | Two-phase response body size enforcement (Content-Length pre-check + body-length post-check) (§4.3) | `maxResponseBytes == 0` disables both. |
 | 4. Transport | Session staleness detection: `isSessionStale` (pure func) + `refreshSessionIfStale` (proc) (§4.3) | Caller controls refresh; `send()` does not auto-refresh. |
-| 4. Transport | `send(builder)` convenience overload (§4.3) | Calls `builder.build()` then `send(request)`. |
+| 4. Transport | `send(builder)` convenience overload (§4.3) | Calls `builder.freeze()` then `send(request)`. |
 | 4. Transport | Test-only escape hatches: `sendRawHttpForTesting`, `setSessionForTest`, `lastRawResponseBody` (§4.3) | Adversarial wire fixtures and session injection without exposing private fields. |
 | 4. Transport | `resolveAgainstSession` for relative `apiUrl` (§4.3) | RFC 3986 §5 resolution against the session URL; required for Cyrus's relative `/jmap/` paths. |
 | 4. Transport | `classifyException` order: Timeout → SslError → OSError-with-TLS-msg → IOError → ValueError → catch-all (§4.3) | Maps every `std/httpclient` failure mode to a precise `TransportErrorKind`. |

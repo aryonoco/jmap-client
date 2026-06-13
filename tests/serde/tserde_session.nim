@@ -11,15 +11,17 @@ import std/sets
 import std/strutils
 import std/tables
 
-import jmap_client/serde_session
-import jmap_client/identifiers
-import jmap_client/capabilities
-import jmap_client/session
-import jmap_client/errors
-import jmap_client/validation
+import jmap_client/internal/serialisation/serde_session
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/session
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/validation
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # =============================================================================
 # A. Session — Golden Test & Round-Trip
@@ -29,14 +31,14 @@ import ../mfixtures
 # goldenSessionJson() — RFC 8620 section 2.1 golden example
 # validSessionJson() — minimal valid Session for edge-case modifications
 
-block sessionDeserGoldenRfcAndRoundTrip:
+testCase sessionDeserGoldenRfcAndRoundTrip:
   let j = goldenSessionJson()
   let s = Session.fromJson(j).get()
   # Verify all 8 expected parsed values per section 13.1
   assertEq s.capabilities.len, 4
-  assertEq int64(s.coreCapabilities().maxSizeUpload), 50000000'i64
+  assertEq s.coreCapabilities().maxSizeUpload.toInt64, 50000000'i64
   # D2.6: singular maxConcurrentRequest parsed into plural field
-  assertEq int64(s.coreCapabilities().maxConcurrentRequests), 8'i64
+  assertEq s.coreCapabilities().maxConcurrentRequests.toInt64, 8'i64
   assertEq s.coreCapabilities().collationAlgorithms.len, 3
   assertEq s.accounts.len, 2
   doAssert s.accounts[parseAccountId("A13824").get()].isPersonal
@@ -49,7 +51,7 @@ block sessionDeserGoldenRfcAndRoundTrip:
   let rt = Session.fromJson(j2).get()
   doAssert sessionEq(rt, s), "golden round-trip values differ"
 
-block sessionToJsonCapabilityKeys:
+testCase sessionToJsonCapabilityKeys:
   let j = goldenSessionJson()
   let s = Session.fromJson(j).get()
   let sj = s.toJson()
@@ -59,7 +61,7 @@ block sessionToJsonCapabilityKeys:
   doAssert capsObj{"https://example.com/apis/foobar"} != nil
   doAssert capsObj{"ckUnknown"}.isNil
 
-block sessionToJsonAccountKeys:
+testCase sessionToJsonAccountKeys:
   let j = goldenSessionJson()
   let s = Session.fromJson(j).get()
   let sj = s.toJson()
@@ -68,7 +70,7 @@ block sessionToJsonAccountKeys:
   doAssert acctsObj{"A13824"} != nil
   doAssert acctsObj{"A97813"} != nil
 
-block sessionToJsonUnicodePreserved:
+testCase sessionToJsonUnicodePreserved:
   var j = validSessionJson()
   j["username"] = %"noño@example.com"
   j["accounts"] = %*{
@@ -89,7 +91,7 @@ block sessionToJsonUnicodePreserved:
 # B. Session deserialisation — missing/invalid fields
 # =============================================================================
 
-block sessionDeserMissingCapabilities:
+testCase sessionDeserMissingCapabilities:
   let j = %*{
     "accounts": {},
     "primaryAccounts": {},
@@ -104,27 +106,27 @@ block sessionDeserMissingCapabilities:
   }
   assertErrContains Session.fromJson(j), "capabilities"
 
-block sessionDeserCapabilitiesNotObject:
+testCase sessionDeserCapabilitiesNotObject:
   var j = validSessionJson()
   j["capabilities"] = %*[1, 2, 3]
   assertErr Session.fromJson(j)
 
-block sessionDeserMissingCoreCapability:
+testCase sessionDeserMissingCoreCapability:
   var j = validSessionJson()
   j["capabilities"] = %*{"urn:ietf:params:jmap:mail": {}}
   assertErrContains Session.fromJson(j), "capabilities must include"
 
-block sessionDeserUnknownCapabilityUris:
+testCase sessionDeserUnknownCapabilityUris:
   let j = validSessionJson()
   assertOk Session.fromJson(j)
 
-block sessionDeserExtraTopLevelFields:
+testCase sessionDeserExtraTopLevelFields:
   var j = validSessionJson()
   j["extraField"] = %"ignored"
   j["anotherExtra"] = %42
   assertOk Session.fromJson(j)
 
-block sessionDeserMissingPrimaryAccounts:
+testCase sessionDeserMissingPrimaryAccounts:
   var j = validSessionJson()
   # Remove primaryAccounts by rebuilding without it
   let j2 = %*{
@@ -139,16 +141,16 @@ block sessionDeserMissingPrimaryAccounts:
   }
   assertErrContains Session.fromJson(j2), "primaryAccounts"
 
-block sessionDeserPrimaryAccountsValueIsInt:
+testCase sessionDeserPrimaryAccountsValueIsInt:
   var j = validSessionJson()
   j["primaryAccounts"] = %*{"urn:ietf:params:jmap:mail": 42}
   assertErrContains Session.fromJson(j), "at /primaryAccounts/"
 
-block sessionDeserEmptyAccounts:
+testCase sessionDeserEmptyAccounts:
   let j = validSessionJson()
   assertOk Session.fromJson(j)
 
-block sessionDeserMissingUsername:
+testCase sessionDeserMissingUsername:
   var j = validSessionJson()
   let j2 = %*{
     "capabilities": j["capabilities"],
@@ -162,7 +164,7 @@ block sessionDeserMissingUsername:
   }
   assertErrContains Session.fromJson(j2), "username"
 
-block sessionDeserMissingApiUrl:
+testCase sessionDeserMissingApiUrl:
   var j = validSessionJson()
   let j2 = %*{
     "capabilities": j["capabilities"],
@@ -176,12 +178,12 @@ block sessionDeserMissingApiUrl:
   }
   assertErrContains Session.fromJson(j2), "apiUrl"
 
-block sessionDeserEmptyApiUrl:
+testCase sessionDeserEmptyApiUrl:
   var j = validSessionJson()
   j["apiUrl"] = %""
   assertErrContains Session.fromJson(j), "apiUrl"
 
-block sessionDeserMissingState:
+testCase sessionDeserMissingState:
   var j = validSessionJson()
   let j2 = %*{
     "capabilities": j["capabilities"],
@@ -195,12 +197,12 @@ block sessionDeserMissingState:
   }
   assertErrContains Session.fromJson(j2), "state"
 
-block sessionDeserNotObjectOrNil:
+testCase sessionDeserNotObjectOrNil:
   assertErr Session.fromJson(%*[1, 2])
   const nilNode: JsonNode = nil
   assertErr Session.fromJson(nilNode)
 
-block sessionDeserDeepInvalidValue:
+testCase sessionDeserDeepInvalidValue:
   ## Proves exception propagation through the full 4-level chain:
   ## Session -> ServerCapability -> CoreCapabilities -> UnsignedInt
   var j = validSessionJson()
@@ -211,25 +213,25 @@ block sessionDeserDeepInvalidValue:
 # C. Session fixture round-trip tests
 # =============================================================================
 
-block roundTripSessionDefault:
+testCase roundTripSessionDefault:
   let session = parseSessionFromArgs(makeSessionArgs())
   let j = session.toJson()
   let rt = Session.fromJson(j).get()
   doAssert sessionEq(rt, session), "default round-trip values differ"
 
-block roundTripSessionMinimal:
+testCase roundTripSessionMinimal:
   let session = parseSessionFromArgs(makeMinimalSession())
   let j = session.toJson()
   let rt = Session.fromJson(j).get()
   doAssert sessionEq(rt, session), "minimal round-trip values differ"
 
-block roundTripSessionFastmail:
+testCase roundTripSessionFastmail:
   let session = parseSessionFromArgs(makeFastmailSession())
   let j = session.toJson()
   let rt = Session.fromJson(j).get()
   doAssert sessionEq(rt, session), "fastmail round-trip values differ"
 
-block roundTripSessionCyrus:
+testCase roundTripSessionCyrus:
   let session = parseSessionFromArgs(makeCyrusSession())
   let j = session.toJson()
   let rt = Session.fromJson(j).get()
@@ -239,7 +241,7 @@ block roundTripSessionCyrus:
 # D. Session structural and maximal round-trip
 # =============================================================================
 
-block sessionMaximalStructureRoundTrip:
+testCase sessionMaximalStructureRoundTrip:
   ## Session with many accounts, multiple capabilities, all fields populated.
   let j = %*{
     "capabilities": {
@@ -263,14 +265,20 @@ block sessionMaximalStructureRoundTrip:
         "name": "Personal",
         "isPersonal": true,
         "isReadOnly": false,
-        "accountCapabilities":
-          {"urn:ietf:params:jmap:mail": {}, "urn:ietf:params:jmap:contacts": {}},
+        "accountCapabilities": {
+          "urn:ietf:params:jmap:mail":
+            {"maxSizeAttachmentsPerEmail": 50000000, "mayCreateTopLevelMailbox": true},
+          "urn:ietf:params:jmap:contacts": {},
+        },
       },
       "A002": {
         "name": "Work",
         "isPersonal": false,
         "isReadOnly": false,
-        "accountCapabilities": {"urn:ietf:params:jmap:mail": {}},
+        "accountCapabilities": {
+          "urn:ietf:params:jmap:mail":
+            {"maxSizeAttachmentsPerEmail": 50000000, "mayCreateTopLevelMailbox": true}
+        },
       },
       "A003": {
         "name": "Shared",
@@ -306,7 +314,7 @@ block sessionMaximalStructureRoundTrip:
 # E. Equality helper verification
 # =============================================================================
 
-block equalityHelperSessionEqDifferentState:
+testCase equalityHelperSessionEqDifferentState:
   ## Verify sessionEq returns false for sessions with different state.
   let s1 = parseSessionFromArgs(makeMinimalSession())
   var args2 = makeMinimalSession()
@@ -314,7 +322,7 @@ block equalityHelperSessionEqDifferentState:
   let s2 = parseSessionFromArgs(args2)
   doAssert not sessionEq(s1, s2), "sessionEq must return false for different state"
 
-block equalityHelperSetErrorEqDifferentType:
+testCase equalityHelperSetErrorEqDifferentType:
   ## Verify setErrorEq returns false for SetErrors with different errorType.
   let se1 = setError("forbidden")
   let se2 = setError("notFound")
@@ -325,7 +333,7 @@ block equalityHelperSetErrorEqDifferentType:
 # F. Phase 3C: Session URL template field serde tests
 # =============================================================================
 
-block sessionDeserMissingDownloadUrl:
+testCase sessionDeserMissingDownloadUrl:
   ## Session JSON missing downloadUrl must raise ValidationError.
   var j = validSessionJson()
   let j2 = %*{
@@ -340,7 +348,7 @@ block sessionDeserMissingDownloadUrl:
   }
   assertErrContains Session.fromJson(j2), "downloadUrl"
 
-block sessionDeserMissingUploadUrl:
+testCase sessionDeserMissingUploadUrl:
   ## Session JSON missing uploadUrl must raise ValidationError.
   var j = validSessionJson()
   let j2 = %*{
@@ -355,7 +363,7 @@ block sessionDeserMissingUploadUrl:
   }
   assertErrContains Session.fromJson(j2), "uploadUrl"
 
-block sessionDeserMissingEventSourceUrl:
+testCase sessionDeserMissingEventSourceUrl:
   ## Session JSON missing eventSourceUrl must raise ValidationError.
   var j = validSessionJson()
   let j2 = %*{
@@ -370,37 +378,37 @@ block sessionDeserMissingEventSourceUrl:
   }
   assertErrContains Session.fromJson(j2), "eventSourceUrl"
 
-block sessionDeserDownloadUrlMissingBlobId:
+testCase sessionDeserDownloadUrlMissingBlobId:
   ## downloadUrl lacking {blobId} must be rejected by parseSession validation.
   var j = validSessionJson()
   j["downloadUrl"] = %"https://example.com/download/{accountId}/{name}?accept={type}"
   assertErrContains Session.fromJson(j), "downloadUrl missing {blobId}"
 
-block sessionDeserDownloadUrlMissingAccountId:
+testCase sessionDeserDownloadUrlMissingAccountId:
   ## downloadUrl lacking {accountId} must be rejected by parseSession validation.
   var j = validSessionJson()
   j["downloadUrl"] = %"https://example.com/download/{blobId}/{name}?accept={type}"
   assertErrContains Session.fromJson(j), "downloadUrl missing {accountId}"
 
-block sessionDeserUploadUrlMissingAccountId:
+testCase sessionDeserUploadUrlMissingAccountId:
   ## uploadUrl lacking {accountId} must be rejected by parseSession validation.
   var j = validSessionJson()
   j["uploadUrl"] = %"https://example.com/upload/"
   assertErrContains Session.fromJson(j), "uploadUrl missing {accountId}"
 
-block sessionDeserEventSourceUrlMissingTypes:
+testCase sessionDeserEventSourceUrlMissingTypes:
   ## eventSourceUrl lacking {types} must be rejected by parseSession validation.
   var j = validSessionJson()
   j["eventSourceUrl"] = %"https://example.com/es/?closeafter={closeafter}&ping={ping}"
   assertErrContains Session.fromJson(j), "eventSourceUrl missing {types}"
 
-block sessionDeserEventSourceUrlMissingCloseafter:
+testCase sessionDeserEventSourceUrlMissingCloseafter:
   ## eventSourceUrl lacking {closeafter} must be rejected.
   var j = validSessionJson()
   j["eventSourceUrl"] = %"https://example.com/es/?types={types}&ping={ping}"
   assertErrContains Session.fromJson(j), "eventSourceUrl missing {closeafter}"
 
-block sessionDeserEventSourceUrlMissingPing:
+testCase sessionDeserEventSourceUrlMissingPing:
   ## eventSourceUrl lacking {ping} must be rejected.
   var j = validSessionJson()
   j["eventSourceUrl"] = %"https://example.com/es/?types={types}&closeafter={closeafter}"
@@ -410,52 +418,70 @@ block sessionDeserEventSourceUrlMissingPing:
 # G. Phase 3J: Capability URI key preservation for all 12 standard URIs
 # =============================================================================
 
-block sessionToJsonPreservesAll12StandardCapabilityUris:
+testCase sessionToJsonPreservesAll12StandardCapabilityUris:
   ## Construct a Session with all 12 known CapabilityKind variants as
   ## server capabilities. Serialise and verify each URI string appears
   ## as a key in the "capabilities" JSON object.
   let coreCaps = zeroCoreCaps()
   let capabilities = @[
-    ServerCapability(kind: ckCore, rawUri: "urn:ietf:params:jmap:core", core: coreCaps),
-    ServerCapability(
-      kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", rawData: newJObject()
-    ),
-    ServerCapability(
-      kind: ckSubmission,
-      rawUri: "urn:ietf:params:jmap:submission",
-      rawData: newJObject(),
-    ),
-    ServerCapability(
-      kind: ckVacationResponse,
-      rawUri: "urn:ietf:params:jmap:vacationresponse",
-      rawData: newJObject(),
-    ),
-    ServerCapability(
-      kind: ckWebsocket, rawUri: "urn:ietf:params:jmap:websocket", rawData: newJObject()
-    ),
-    ServerCapability(
-      kind: ckMdn, rawUri: "urn:ietf:params:jmap:mdn", rawData: newJObject()
-    ),
-    ServerCapability(
-      kind: ckSmimeVerify,
-      rawUri: "urn:ietf:params:jmap:smimeverify",
-      rawData: newJObject(),
-    ),
-    ServerCapability(
-      kind: ckBlob, rawUri: "urn:ietf:params:jmap:blob", rawData: newJObject()
-    ),
-    ServerCapability(
-      kind: ckQuota, rawUri: "urn:ietf:params:jmap:quota", rawData: newJObject()
-    ),
-    ServerCapability(
-      kind: ckContacts, rawUri: "urn:ietf:params:jmap:contacts", rawData: newJObject()
-    ),
-    ServerCapability(
-      kind: ckCalendars, rawUri: "urn:ietf:params:jmap:calendars", rawData: newJObject()
-    ),
-    ServerCapability(
-      kind: ckSieve, rawUri: "urn:ietf:params:jmap:sieve", rawData: newJObject()
-    ),
+    parseServerCapability(
+      "urn:ietf:params:jmap:core", Opt.some(coreCaps), Opt.none(JsonNode)
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:mail", Opt.none(CoreCapabilities), Opt.none(JsonNode)
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:submission", Opt.none(CoreCapabilities), Opt.none(JsonNode)
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:vacationresponse",
+      Opt.none(CoreCapabilities),
+      Opt.none(JsonNode),
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:websocket",
+      Opt.none(CoreCapabilities),
+      Opt.some(newJObject()),
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:mdn", Opt.none(CoreCapabilities), Opt.some(newJObject())
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:smimeverify",
+      Opt.none(CoreCapabilities),
+      Opt.some(newJObject()),
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:blob", Opt.none(CoreCapabilities), Opt.some(newJObject())
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:quota", Opt.none(CoreCapabilities), Opt.some(newJObject())
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:contacts",
+      Opt.none(CoreCapabilities),
+      Opt.some(newJObject()),
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:calendars",
+      Opt.none(CoreCapabilities),
+      Opt.some(newJObject()),
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:sieve", Opt.none(CoreCapabilities), Opt.some(newJObject())
+    )
+      .get(),
   ]
   let session = parseSession(
       capabilities = capabilities,

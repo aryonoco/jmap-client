@@ -13,9 +13,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailGetCrossAccountRejected:
+testCase tcapturedEmailGetCrossAccountRejected:
   let j = loadCapturedFixture("email-get-cross-account-rejected-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -23,7 +25,7 @@ block tcapturedEmailGetCrossAccountRejected:
   doAssert inv.rawName == "error", "expected 'error' invocation, got " & inv.rawName
 
   let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
-  doAssert me.errorType == metForbidden,
+  doAssert me.kind == metForbidden,
     "Stalwart 0.15.5 cross-account rejection must project as metForbidden " & "(got " &
-      $me.errorType & ", rawType=" & me.rawType & ")"
+      $me.kind & ", rawType=" & me.rawType & ")"
   doAssert me.rawType == "forbidden", "rawType must round-trip the wire literal"

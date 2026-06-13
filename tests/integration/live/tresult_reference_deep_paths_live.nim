@@ -27,19 +27,15 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
+import jmap_client/internal/types/envelope
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tresultReferenceDeepPathsLive:
+testCase tresultReferenceDeepPathsLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    var (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -80,12 +76,18 @@ block tresultReferenceDeepPathsLive:
       let chainFilter =
         filterCondition(EmailFilterCondition(subject: Opt.some("phasej67refdeep")))
       let (b1, queryHandle) = addEmailQuery(
-        initRequestBuilder(), mailAccountId, filter = Opt.some(chainFilter)
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        filter = Opt.some(chainFilter),
       )
-      let queryRef = initResultReference(callId(queryHandle), mnEmailQuery, rpIds)
-      let (b2, getHandle) = addEmailGetByRef(b1, mailAccountId, idsRef = queryRef)
-      let resp =
-        client.send(b2).expect("send Email/query → Email/get[" & $target.kind & "]")
+      let (b2, getHandle) = addEmailGet(
+        b1,
+        mailAccountId,
+        ids = Opt.some(reference[seq[Id]](queryHandle, mnEmailQuery, rpIds)),
+      )
+      let resp = client.send(b2.freeze()).expect(
+          "send Email/query → Email/get[" & $target.kind & "]"
+        )
       let queryResp =
         resp.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
       let getResp =
@@ -110,22 +112,28 @@ block tresultReferenceDeepPathsLive:
       let chainFilter =
         filterCondition(EmailFilterCondition(subject: Opt.some("phasej67refdeep")))
       let (b1, queryHandle) = addEmailQuery(
-        initRequestBuilder(), mailAccountId, filter = Opt.some(chainFilter)
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        filter = Opt.some(chainFilter),
       )
-      let queryRef = initResultReference(callId(queryHandle), mnEmailQuery, rpIds)
-      let (b2, getHandle) = addEmailGetByRef(
-        b1, mailAccountId, idsRef = queryRef, properties = Opt.some(@["id", "threadId"])
+      let (b2, getHandle) = addPartialEmailGet(
+        b1,
+        mailAccountId,
+        ids = Opt.some(reference[seq[Id]](queryHandle, mnEmailQuery, rpIds)),
+        properties = parseNonEmptySeq(@[egpId, egpThreadId]).get(),
       )
-      let getThreadIdRef =
-        initResultReference(callId(getHandle), mnEmailGet, rpListThreadId)
-      let (b3, threadHandle) =
-        addThreadGetByRef(b2, mailAccountId, idsRef = getThreadIdRef)
-      let resp = client.send(b3).expect(
+      let (b3, threadHandle) = addThreadGet(
+        b2,
+        mailAccountId,
+        ids = Opt.some(reference[seq[Id]](getHandle, mnEmailGet, rpListThreadId)),
+      )
+      let resp = client.send(b3.freeze()).expect(
           "send Email/query → Email/get → Thread/get[" & $target.kind & "]"
         )
-      captureIfRequested(client, "result-reference-deep-path-" & $target.kind).expect(
-        "captureIfRequested deep ref"
+      captureIfRequested(
+        recorder.lastResponseBody, "result-reference-deep-path-" & $target.kind
       )
+        .expect("captureIfRequested deep ref")
       let queryResp =
         resp.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
       let getResp =
@@ -161,7 +169,9 @@ block tresultReferenceDeepPathsLive:
       let chainFilter =
         filterCondition(EmailFilterCondition(subject: Opt.some("phasej67refdeep")))
       let (b1, queryHandle) = addEmailQuery(
-        initRequestBuilder(), mailAccountId, filter = Opt.some(chainFilter)
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        filter = Opt.some(chainFilter),
       )
       discard queryHandle
       let getArgs = %*{"accountId": $mailAccountId}
@@ -171,7 +181,7 @@ block tresultReferenceDeepPathsLive:
         refPath = "/list/99/threadId",
         refName = "Email/query",
       )
-      let req1 = b1.build()
+      let req1 = b1.freeze().request
       var combinedCalls = req1.methodCalls
       let mcid = parseMethodCallId("c" & $combinedCalls.len).expect(
           "parseMethodCallId[" & $target.kind & "]"
@@ -180,14 +190,20 @@ block tresultReferenceDeepPathsLive:
           "parseInvocation[" & $target.kind & "]"
         )
       combinedCalls.add(brokenInv)
-      let combined = Request(
-        `using`: req1.`using` & @["urn:ietf:params:jmap:mail"],
-        methodCalls: combinedCalls,
-        createdIds: Opt.none(Table[CreationId, Id]),
+      let combined = initRequest(
+        req1.`using` & @["urn:ietf:params:jmap:mail"],
+        combinedCalls,
+        Opt.none(Table[CreationId, Id]),
       )
-      let resp = client.send(combined).expect(
-          "send query+broken-get envelope[" & $target.kind & "]"
-        )
+      # The public ``send(BuiltRequest)`` path requires a builder-issued
+      # carrier; this test wants to dispatch a hand-stitched ``Request``
+      # with a deliberately-broken back-reference. Drop into
+      # ``postRawJmap`` — same wire path via a private one-shot
+      # Transport, returns the raw ``Response`` envelope directly.
+      let (_, respResult) =
+        postRawJmap(target, session, $combined.toJson(), target.aliceCredential)
+      let resp =
+        respResult.expect("send query+broken-get envelope[" & $target.kind & "]")
       assertOn target,
         resp.methodResponses.len == 2,
         "envelope must carry two responses, got " & $resp.methodResponses.len
@@ -200,15 +216,17 @@ block tresultReferenceDeepPathsLive:
         )
       assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
       assertOn target,
-        me.errorType in
+        me.kind in
           {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown},
-        "errorType must project into the closed enum, got " & $me.errorType
+        "errorType must project into the closed enum, got " & $me.kind
 
     # Cleanup: destroy the seed emails so re-runs are idempotent.
-    let (bClean, cleanHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(seedIds))
-    let respClean =
-      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let (bClean, cleanHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, destroy = directIds(seedIds)
+    )
+    let respClean = client.send(bClean.freeze()).expect(
+        "send Email/set cleanup[" & $target.kind & "]"
+      )
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
@@ -217,5 +235,3 @@ block tresultReferenceDeepPathsLive:
         assertOn target, outcome.isOk, "cleanup destroy must succeed"
       do:
         assertOn target, false, "cleanup must report an outcome for each seed id"
-
-    client.close()

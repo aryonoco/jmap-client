@@ -30,19 +30,14 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailGetHtmlBodyLive:
+testCase temailGetHtmlBodyLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -58,50 +53,53 @@ block temailGetHtmlBodyLive:
       )
       .expect("seedAlternativeEmail[" & $target.kind & "]")
 
-    let (b, getHandle) = addEmailGet(
-      initRequestBuilder(),
+    let (b, getHandle) = addPartialEmailGet(
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "textBody", "htmlBody", "bodyValues"]),
+      properties =
+        parseNonEmptySeq(@[egpId, egpTextBody, egpHtmlBody, egpBodyValues]).get(),
       bodyFetchOptions = EmailBodyFetchOptions(fetchBodyValues: bvsTextAndHtml),
     )
-    let resp = client.send(b).expect("send Email/get html body[" & $target.kind & "]")
-    captureIfRequested(client, "email-multipart-alternative-" & $target.kind).expect(
-      "captureIfRequested"
+    let resp =
+      client.send(b.freeze()).expect("send Email/get html body[" & $target.kind & "]")
+    captureIfRequested(
+      recorder.lastResponseBody, "email-multipart-alternative-" & $target.kind
     )
+      .expect("captureIfRequested")
     let getResp =
       resp.get(getHandle).expect("Email/get html body extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let email =
-      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
-    assertOn target, email.textBody.len == 1, "expected one text/plain leaf in textBody"
-    let textLeaf = email.textBody[0]
+    let email = getResp.list[0]
+    let textParts = email.textBody.valueOr(@[])
+    assertOn target, textParts.len == 1, "expected one text/plain leaf in textBody"
+    let textLeaf = textParts[0]
     assertOn target, textLeaf.isLeaf, "textBody[0] must be a leaf"
     assertOn target,
       textLeaf.contentType == "text/plain",
       "textBody[0].contentType must be text/plain (got " & textLeaf.contentType & ")"
 
-    assertOn target, email.htmlBody.len == 1, "expected one text/html leaf in htmlBody"
-    let htmlLeaf = email.htmlBody[0]
+    let htmlParts = email.htmlBody.valueOr(@[])
+    assertOn target, htmlParts.len == 1, "expected one text/html leaf in htmlBody"
+    let htmlLeaf = htmlParts[0]
     assertOn target, htmlLeaf.isLeaf, "htmlBody[0] must be a leaf"
     assertOn target,
       htmlLeaf.contentType == "text/html",
       "htmlBody[0].contentType must be text/html (got " & htmlLeaf.contentType & ")"
 
+    let bodyValues = email.bodyValues.valueOr(initTable[PartId, EmailBodyValue]())
     assertOn target,
-      email.bodyValues.len == 2,
-      "bvsTextAndHtml must yield two bodyValues entries (got " & $email.bodyValues.len &
-        ")"
+      bodyValues.len == 2,
+      "bvsTextAndHtml must yield two bodyValues entries (got " & $bodyValues.len & ")"
     assertOn target,
-      textLeaf.partId in email.bodyValues,
+      textLeaf.partId in bodyValues,
       "bodyValues missing entry for text partId " & $textLeaf.partId
     assertOn target,
-      htmlLeaf.partId in email.bodyValues,
+      htmlLeaf.partId in bodyValues,
       "bodyValues missing entry for html partId " & $htmlLeaf.partId
 
-    let htmlValue = email.bodyValues[htmlLeaf.partId]
+    let htmlValue = bodyValues[htmlLeaf.partId]
     assertOn target,
       htmlValue.value == htmlBody,
       "html bodyValue.value must round-trip the injected string verbatim"
-    client.close()

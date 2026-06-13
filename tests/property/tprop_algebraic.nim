@@ -8,28 +8,29 @@ import std/random
 import results
 
 import ../mproperty
+import ../mtestblock
 
 # --- Opt ---
 
-block propOptSomeNoneRoundTrip:
+testCase propOptSomeNoneRoundTrip:
   checkProperty "Opt.some(x).get() == x":
     let x = rng.rand(int)
     lastInput = $x
     doAssert Opt.some(x).get() == x
     doAssert Opt.none(int).isNone
 
-block propOptSomeIsSome:
+testCase propOptSomeIsSome:
   checkProperty "Opt.some(x).isSome == true":
     let x = rng.rand(int)
     lastInput = $x
     doAssert Opt.some(x).isSome == true
 
-block propOptNoneIsNone:
+testCase propOptNoneIsNone:
   checkProperty "Opt.none(int).isNone == true":
     lastInput = "(none)"
     doAssert Opt.none(int).isNone == true
 
-block propOptMapIdentity:
+testCase propOptMapIdentity:
   checkProperty "Opt.some(x).map(identity) == Opt.some(x)":
     let x = rng.rand(int)
     lastInput = $x
@@ -40,7 +41,7 @@ block propOptMapIdentity:
     )
     doAssert mapped == m
 
-block propOptMapComposition:
+testCase propOptMapComposition:
   checkProperty "Opt.some(x).map(f).map(g) == Opt.some(x).map(g . f)":
     let x = rng.rand(int.low div 4 .. int.high div 4)
     lastInput = $x
@@ -60,7 +61,7 @@ block propOptMapComposition:
     )
     doAssert lhs == rhs
 
-block propOptFlatMapLeftIdentity:
+testCase propOptFlatMapLeftIdentity:
   checkProperty "Opt.some(a).flatMap(f) == f(a)":
     let a = rng.rand(int.low div 2 .. int.high div 2)
     lastInput = $a
@@ -70,7 +71,7 @@ block propOptFlatMapLeftIdentity:
 
     doAssert Opt.some(a).flatMap(f) == f(a)
 
-block propOptFlatMapRightIdentity:
+testCase propOptFlatMapRightIdentity:
   checkProperty "m.flatMap(some) == m":
     let a = rng.rand(int)
     lastInput = $a
@@ -80,7 +81,7 @@ block propOptFlatMapRightIdentity:
         Opt.some(x)
     ) == m
 
-block propOptFlatMapAssociativity:
+testCase propOptFlatMapAssociativity:
   checkProperty "m.flatMap(f).flatMap(g) == m.flatMap(x => f(x).flatMap(g))":
     let a = rng.rand(int.low div 4 .. int.high div 4)
     lastInput = $a
@@ -100,7 +101,7 @@ block propOptFlatMapAssociativity:
     )
     doAssert lhs == rhs
 
-block propOptNoneFlatMapIsNone:
+testCase propOptNoneFlatMapIsNone:
   checkProperty "none.flatMap(f) == none":
     lastInput = "(none)"
     proc f(x: int): Opt[int] =
@@ -109,7 +110,7 @@ block propOptNoneFlatMapIsNone:
 
     doAssert Opt.none(int).flatMap(f) == Opt.none(int)
 
-block propOptNoneMapIsNone:
+testCase propOptNoneMapIsNone:
   checkProperty "none.map(f) == none":
     lastInput = "(none)"
     proc f(x: int): int =
@@ -118,7 +119,7 @@ block propOptNoneMapIsNone:
 
     doAssert Opt.none(int).map(f) == Opt.none(int)
 
-block propOptIsSomeXorIsNone:
+testCase propOptIsSomeXorIsNone:
   checkProperty "o.isSome != o.isNone for some and none":
     let a = rng.rand(int)
     lastInput = $a

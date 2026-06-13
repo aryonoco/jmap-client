@@ -2,32 +2,45 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Meta-test: parser-side round-trip integrity over every committed
-## fixture (Stalwart and James).  For each fixture, picks the right
-## parser (``Session.fromJson``, ``RequestError.fromJson``, or
-## ``envelope.Response.fromJson``) and asserts the typed shape
-## re-emits via ``toJson()`` without raising.
+## fixture (Stalwart, James, and Cyrus).  For each fixture, picks the
+## right parser (``Session.fromJson``, ``RequestError.fromJson``, or
+## ``envelope.Response.fromJson``) and verifies the projection into
+## the typed surface.
+##
+## For ``envelope.Response`` fixtures, the previous wire round-trip
+## check (``Response.toJson(Response.fromJson(j))``) is replaced with
+## a two-parse identity check after A16: ``Response.toJson`` is
+## deleted, so the meta-test pins that ``Response.fromJson`` is
+## deterministic over the captured wire shape (parse twice → equal
+## values).  ``Session.toJson`` and ``RequestError.toJson`` are
+## hub-public and continue to round-trip directly.
 ##
 ## Out of scope: byte-equal equality after re-emission.  Server
 ## maps ordering, whitespace, and server-keyed maps with no client-
 ## side smart constructor diverge from canonical formatting; the
-## structural invariant is what matters.  The contract verified
-## here is: the parser projects every committed wire shape into
-## the typed surface AND the typed surface re-emits without
-## raising.  Phase J Step 73 capstone, extended in Phase K to cover
-## both Stalwart 0.15.5 and Apache James 3.9 captures.
+## structural invariant is what matters.  Phase J Step 73 capstone,
+## extended in Phase K to cover Stalwart 0.15.5, Apache James 3.9,
+## and Cyrus 3.12.2 captures.
 
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
 template roundtripResponse(name: static string) =
-  ## Round-trip a Response-shape fixture.
+  ## Two-parse identity check for a Response-shape fixture.
+  ## ``Response.toJson`` is gone (A16); pin determinism on the parse
+  ## direction instead.
   block:
     let j = loadCapturedFixture(name)
-    let parsed =
+    let resp1 =
       envelope.Response.fromJson(j).expect("envelope.Response.fromJson " & name)
-    discard parsed.toJson()
+    let resp2 =
+      envelope.Response.fromJson(j).expect("envelope.Response.fromJson " & name)
+    doAssert resp1 == resp2,
+      "two parses of " & name & " must yield equal Response values"
 
 template roundtripSession(name: static string) =
   ## Round-trip a Session-shape fixture.
@@ -43,7 +56,7 @@ template roundtripRequestError(name: static string) =
     let parsed = RequestError.fromJson(j).expect("RequestError.fromJson " & name)
     discard parsed.toJson()
 
-block tcapturedRoundTripIntegrity:
+testCase tcapturedRoundTripIntegrity:
   # Session-shape fixtures.
   roundtripSession("session-stalwart")
   roundtripSession("bob-session-stalwart")

@@ -28,12 +28,12 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tvacationGetSetLive:
+testCase tvacationGetSetLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): Stalwart 0.15.5 and James 3.9 implement
     # VacationResponse/{get,set}. Cyrus 3.12.2 ships the implementation
@@ -42,12 +42,7 @@ block tvacationGetSetLive:
     # (``imap/jmap_api.c:713-714``) returns ``metUnknownMethod`` for
     # both methods. Each VacationResponse extract uses
     # ``assertSuccessOrTypedError``.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     var vacAccountId: AccountId
     var vacAccountFound = false
@@ -57,7 +52,6 @@ block tvacationGetSetLive:
     do:
       discard
     if not vacAccountFound:
-      client.close()
       continue
 
     let singletonId =
@@ -72,8 +66,9 @@ block tvacationGetSetLive:
         ]
       )
       .expect("initVacationResponseUpdateSet[" & $target.kind & "]")
-    let (b1, setHandle1) =
-      addVacationResponseSet(initRequestBuilder(), vacAccountId, update = updateSet)
+    let (b1, setHandle1) = addVacationResponseSet(
+      initRequestBuilder(makeBuilderId()), vacAccountId, update = updateSet
+    )
     # Cyrus 3.12.2 ships VacationResponse but the test image disables
     # it via ``imapd.conf: jmap_vacation: no``; the URN is absent
     # from the session's ``capabilities`` map. ``addVacationResponseSet``
@@ -88,12 +83,13 @@ block tvacationGetSetLive:
     # site below; an unconditional capture here would silently change
     # Stalwart/James fixture content from get-response to set-response
     # on any fresh-fixture re-capture.
-    let resp1Result = client.send(b1)
+    let resp1Result = client.send(b1.freeze())
     case target.kind
     of ltkCyrus:
-      captureIfRequested(client, "vacation-get-singleton-" & $target.kind).expect(
-        "captureIfRequested cyrus pre-error"
+      captureIfRequested(
+        recorder.lastResponseBody, "vacation-get-singleton-" & $target.kind
       )
+        .expect("captureIfRequested cyrus pre-error")
     of ltkStalwart, ltkJames:
       discard
     if resp1Result.isErr:
@@ -106,7 +102,6 @@ block tvacationGetSetLive:
             $err.kind & ")"
       of ltkStalwart, ltkJames:
         assertOn target, false, "VacationResponse/set must succeed on " & $target.kind
-      client.close()
       continue
     let resp1 = resp1Result.unsafeValue
     let setExtract = resp1.get(setHandle1)
@@ -122,22 +117,22 @@ block tvacationGetSetLive:
 
     # --- Step 2: re-read and verify the three fields round-tripped ------
     if updateOk:
-      let (b2, getHandle2) = addVacationResponseGet(initRequestBuilder(), vacAccountId)
-      let resp2 = client.send(b2).expect(
+      let (b2, getHandle2) =
+        addVacationResponseGet(initRequestBuilder(makeBuilderId()), vacAccountId)
+      let resp2 = client.send(b2.freeze()).expect(
           "send VacationResponse/get post-set[" & $target.kind & "]"
         )
-      captureIfRequested(client, "vacation-get-singleton-" & $target.kind).expect(
-        "captureIfRequested"
+      captureIfRequested(
+        recorder.lastResponseBody, "vacation-get-singleton-" & $target.kind
       )
+        .expect("captureIfRequested")
       let getExtract2 = resp2.get(getHandle2)
       assertSuccessOrTypedError(target, getExtract2, {metUnknownMethod}):
         let getResp2 = success
         assertOn target,
           getResp2.list.len == 1,
           "VacationResponse/get must still return exactly one singleton entry"
-        let vr = VacationResponse.fromJson(getResp2.list[0]).expect(
-            "parse updated VacationResponse"
-          )
+        let vr = getResp2.list[0]
         assertOn target, vr.isEnabled, "isEnabled must round-trip as true after set"
         assertOn target,
           vr.subject.isSome and vr.subject.get() == "phase-b step-9 OOO",
@@ -150,9 +145,9 @@ block tvacationGetSetLive:
       let cleanupSet = initVacationResponseUpdateSet(@[setIsEnabled(false)]).expect(
           "initVacationResponseUpdateSet cleanup"
         )
-      let (b3, _) =
-        addVacationResponseSet(initRequestBuilder(), vacAccountId, update = cleanupSet)
-      discard client.send(b3).expect(
+      let (b3, _) = addVacationResponseSet(
+        initRequestBuilder(makeBuilderId()), vacAccountId, update = cleanupSet
+      )
+      discard client.send(b3.freeze()).expect(
           "send VacationResponse/set cleanup[" & $target.kind & "]"
         )
-    client.close()

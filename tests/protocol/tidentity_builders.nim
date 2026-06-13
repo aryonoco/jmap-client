@@ -13,47 +13,49 @@
 import std/json
 import std/tables
 
-import jmap_client/types
-import jmap_client/builder
-import jmap_client/methods_enum
-import jmap_client/mail/identity
-import jmap_client/mail/identity_builders
+import jmap_client
+import jmap_client/internal/protocol/builder
+import jmap_client/internal/types/methods_enum
+import jmap_client/internal/mail/identity
+import jmap_client/internal/mail/identity_builders
+import jmap_client/internal/types/envelope
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # ===========================================================================
 # A. addIdentityGet / addIdentityChanges wire routing
 # ===========================================================================
 
-block addIdentityGetRoutesToIdentityGet:
-  let b0 = initRequestBuilder()
+testCase addIdentityGetRoutesToIdentityGet:
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addIdentityGet(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnIdentityGet
   doAssert "urn:ietf:params:jmap:submission" in req.`using`
 
-block addIdentityChangesRoutesToIdentityChanges:
-  let b0 = initRequestBuilder()
+testCase addIdentityChangesRoutesToIdentityChanges:
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addIdentityChanges(makeAccountId("a1"), makeState("s0"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertEq req.methodCalls[0].name, mnIdentityChanges
 
 # ===========================================================================
 # B. addIdentitySet create-only wire anchor (RFC 8621 §6.3)
 # ===========================================================================
 
-block addIdentitySetCreateOnlyEmitsSixFields:
+testCase addIdentitySetCreateOnlyEmitsSixFields:
   ## ``IdentityCreate`` has six serialised fields: email, name, replyTo,
   ## bcc, textSignature, htmlSignature. The server-set ``id`` and
   ## ``mayDelete`` are deliberately absent.
   let ic = parseIdentityCreate("alice@example.com", name = "Alice").get()
   var tbl = initTable[CreationId, IdentityCreate]()
   tbl[makeCreationId("k0")] = ic
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addIdentitySet(makeAccountId("a1"), create = Opt.some(tbl))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnIdentitySet
   doAssert "urn:ietf:params:jmap:submission" in req.`using`
@@ -70,15 +72,15 @@ block addIdentitySetCreateOnlyEmitsSixFields:
 # C. addIdentitySet update wire anchor
 # ===========================================================================
 
-block addIdentitySetUpdateEmitsPerIdPatches:
-  let id1 = parseId("idt1").get()
-  let id2 = parseId("idt2").get()
-  let us1 = initIdentityUpdateSet(@[setName("Alice")]).get()
+testCase addIdentitySetUpdateEmitsPerIdPatches:
+  let id1 = parseIdFromServer("idt1").get()
+  let id2 = parseIdFromServer("idt2").get()
+  let us1 = initIdentityUpdateSet(@[identity.setName("Alice")]).get()
   let us2 = initIdentityUpdateSet(@[setTextSignature("sig")]).get()
   let wrap = parseNonEmptyIdentityUpdates(@[(id1, us1), (id2, us2)]).get()
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addIdentitySet(makeAccountId("a1"), update = Opt.some(wrap))
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   let updObj = args{"update"}
   doAssert updObj != nil and updObj.kind == JObject
@@ -92,12 +94,12 @@ block addIdentitySetUpdateEmitsPerIdPatches:
 # D. addIdentitySet destroy wire anchor
 # ===========================================================================
 
-block addIdentitySetDestroyEmitsIdArray:
-  let id1 = parseId("idt1").get()
-  let id2 = parseId("idt2").get()
-  let b0 = initRequestBuilder()
+testCase addIdentitySetDestroyEmitsIdArray:
+  let id1 = parseIdFromServer("idt1").get()
+  let id2 = parseIdFromServer("idt2").get()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addIdentitySet(makeAccountId("a1"), destroy = directIds(@[id1, id2]))
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   let destroyArr = args{"destroy"}
   doAssert destroyArr != nil and destroyArr.kind == JArray

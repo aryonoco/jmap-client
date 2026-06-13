@@ -16,10 +16,12 @@
 {.push raises: [].}
 
 import jmap_client
-import jmap_client/mail/thread as jthread
+import jmap_client/internal/mail/thread as jthread
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedResultReferenceDeepPath:
+testCase tcapturedResultReferenceDeepPath:
   forEachCapturedServer("result-reference-deep-path", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 3,
@@ -49,8 +51,7 @@ block tcapturedResultReferenceDeepPath:
     # ``/list/*/threadId`` pointer on the Email/get response.  Linear
     # scans avoid HashSet overload ambiguity between std/sets and the
     # mail-layer ``MailboxIdSet`` / ``KeywordSet`` ``contains`` defs.
-    for emailNode in getResp.list:
-      let email = Email.fromJson(emailNode).expect("Email.fromJson")
+    for email in getResp.list:
       doAssert email.id.isSome, "Email.id must be present after fromJson"
       let emailId = email.id.unsafeGet
       var foundInQuery = false
@@ -61,13 +62,11 @@ block tcapturedResultReferenceDeepPath:
       doAssert foundInQuery,
         "every Email/get id must trace back to the Email/query result"
 
-    for emailNode in getResp.list:
-      let email = Email.fromJson(emailNode).expect("Email.fromJson")
+    for email in getResp.list:
       doAssert email.threadId.isSome, "Email.threadId must be present"
       let emailThreadId = email.threadId.unsafeGet
       var foundInThreads = false
-      for threadNode in threadResp.list:
-        let t = jthread.Thread.fromJson(threadNode).expect("Thread.fromJson")
+      for t in threadResp.list:
         if t.id == emailThreadId:
           foundInThreads = true
           break

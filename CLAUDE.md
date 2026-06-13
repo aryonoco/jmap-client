@@ -15,7 +15,7 @@ The following 3 lines MUST be included at the end of EVERY git message body:
 
 Co-developed-by: Aryan Ameri <github@aryan.ameri.coffee>
 Signed-off-by: Aryan Ameri <github@aryan.ameri.coffee>
-Assisted-by: Claude:claude-4.7-opus
+Assisted-by: Claude:claude-4.8-opus
 
 No other AI/LLM attribution in any other format should appear in the git message.
 
@@ -94,18 +94,21 @@ Access the Nim source code at /.nim-reference
 - `docs/rfcs/` — Authoritative text of various RFCs related to the project.
   Consult freely to validate your understanding of what an RFC actually stipulates.
 
-- `src/jmap_client.nim` — Library entry point (C ABI exports, Layer 5)
-- `src/jmap_client/types.nim` — Re-exports all Layer 1 modules
-- `src/jmap_client/validation.nim` — `ValidationError` (plain object for Result error rail), borrow templates, charset constants
-- `src/jmap_client/primitives.nim` — `Id`, `UnsignedInt`, `JmapInt`, `Date`, `UTCDate`, `MaxChanges`
-- `src/jmap_client/identifiers.nim` — `AccountId`, `JmapState`, `MethodCallId`, `CreationId`
-- `src/jmap_client/capabilities.nim` — `CapabilityKind`, `CoreCapabilities`, `ServerCapability`
-- `src/jmap_client/session.nim` — `AccountCapabilityEntry`, `Account`, `UriTemplate`, `Session`
-- `src/jmap_client/envelope.nim` — `Invocation`, `Request`, `Response`, `ResultReference`, `Referencable[T]`
-- `src/jmap_client/framework.nim` — `PropertyName`, `FilterOperator`, `Filter[C]`, `Comparator`, `AddedItem`
-- `src/jmap_client/errors.nim` — `TransportError`, `RequestError`, `ClientError`, `MethodError`, `SetError`
-- `src/jmap_client/client.nim` — HTTP client wrapper (Only Layer 4 file)
-- `src/jmap_client/mail` — RFC8621 JMAP Mail implementation
+- `src/jmap_client.nim` — Library entry point and sole public re-export hub (C ABI exports land here per A10)
+- `src/jmap_client/convenience.nim` — Opt-in pipeline combinators (P6 quarantine; the ONLY public module path besides root)
+- `src/jmap_client/internal/types.nim` — Re-exports all Layer 1 modules (internal hub; re-exported from `src/jmap_client.nim`)
+- L1 modules under `src/jmap_client/internal/types/` (`validation`,
+  `primitives`, `identifiers`, `collation`, `capabilities`,
+  `methods_enum`, `session`, `envelope`, `framework`, `errors`,
+  `field_echo`) — re-exported via `src/jmap_client/internal/types.nim`
+  and surfaced to consumers through `src/jmap_client.nim`. See
+  `docs/design/01-layer-1-design.md` for per-module symbol inventory.
+- `src/jmap_client/internal/serialisation/` — Layer 2 serde modules (no public hub; in-tree callers import leaves directly under H10)
+- `src/jmap_client/internal/protocol.nim` — Re-exports the Layer 3 protocol surface (builders, dispatch, methods, entity)
+- `src/jmap_client/internal/transport.nim` — Pluggable HTTP transport interface (Layer 4; re-exported from `src/jmap_client.nim`)
+- `src/jmap_client/internal/client.nim` — JMAP client handle (Layer 4; re-exported from `src/jmap_client.nim`)
+- `src/jmap_client/internal/mail/` — RFC 8621 JMAP Mail entities (re-exported from `src/jmap_client.nim`)
+- `src/jmap_client/internal/{push,websocket}.nim` — Type stubs for RFC 8620 §7 Push and RFC 8887 WebSocket; types re-exported from root, no separate public module paths (A10c per P5 + P23)
 - `tests/` — Test modules (categories: `unit/`, `serde/`, `property/`, `compliance/`, `stress/`)
 
 ## Coding Conventions

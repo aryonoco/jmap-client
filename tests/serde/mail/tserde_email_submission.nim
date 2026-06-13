@@ -13,7 +13,7 @@
 ##     name ``sendAt`` (G19).
 ##   * ``IdOrCreationRef`` toJson: direct → bare id string, creation →
 ##     ``"#" & creationId`` per RFC 8620 §5.3 / RFC 8621 §7.5 ¶3 (G35).
-##   * ``SetResponse[EmailSubmissionCreatedItem]`` fromJson envelope —
+##   * ``SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]`` fromJson envelope —
 ##     fromJson-only because ``EmailSubmissionCreatedItem`` carries no
 ##     ``toJson`` counterpart (G39).
 
@@ -22,25 +22,26 @@
 import std/json
 import std/tables
 
-import jmap_client/mail/email_submission
-import jmap_client/mail/serde_email_submission
-import jmap_client/mail/submission_envelope
-import jmap_client/mail/serde_submission_envelope
-import jmap_client/mail/submission_mailbox
-import jmap_client/mail/submission_status
-import jmap_client/methods
-import jmap_client/errors
-import jmap_client/identifiers
-import jmap_client/primitives
-import jmap_client/serde
-import jmap_client/types
+import jmap_client/internal/mail/email_submission
+import jmap_client/internal/mail/serde_email_submission
+import jmap_client/internal/mail/submission_envelope
+import jmap_client/internal/mail/serde_submission_envelope
+import jmap_client/internal/mail/submission_mailbox
+import jmap_client/internal/mail/submission_status
+import jmap_client/internal/protocol/methods
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/primitives
+import jmap_client/internal/serialisation/serde
+import jmap_client
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # ============= A. AnyEmailSubmission fromJson dispatch ======================
 
-block anyEmailSubmissionPendingRoundTrip:
+testCase anyEmailSubmissionPendingRoundTrip:
   ## Wire ``"undoStatus": "pending"`` dispatches to the ``usPending``
   ## branch; shared fields survive ``fromJsonShared[usPending]``; absent
   ## ``envelope`` collapses to ``Opt.none`` via ``parseEnvelopeField``
@@ -70,7 +71,7 @@ block anyEmailSubmissionPendingRoundTrip:
   assertNone sub.envelope
   assertNone sub.deliveryStatus
 
-block anyEmailSubmissionFinalRoundTrip:
+testCase anyEmailSubmissionFinalRoundTrip:
   ## Wire ``"undoStatus": "final"`` with a populated ``envelope`` field
   ## dispatches to the ``usFinal`` branch. Cross-cuts the envelope
   ## composite — the standalone envelope serde round-trip is pinned in
@@ -100,7 +101,7 @@ block anyEmailSubmissionFinalRoundTrip:
   assertSome sub.envelope
   doAssert sub.envelope.get() == envValue, "envelope did not survive dispatch"
 
-block anyEmailSubmissionCanceledRoundTrip:
+testCase anyEmailSubmissionCanceledRoundTrip:
   ## Wire ``"undoStatus": "canceled"`` with a populated ``deliveryStatus``
   ## recipient map dispatches to the ``usCanceled`` branch and preserves
   ## the per-recipient composite (RFC 8621 §7 ¶8
@@ -145,7 +146,7 @@ block anyEmailSubmissionCanceledRoundTrip:
 
 # ============= B. EmailSubmissionBlueprint toJson-only ======================
 
-block blueprintToJsonOnlyNoFromJson:
+testCase blueprintToJsonOnlyNoFromJson:
   ## G22/G26: Blueprint is the client → server creation model; serde
   ## surface is toJson only. Exercises the coverage-dense full fixture so
   ## every settable field reaches the wire in one pass. Attempting
@@ -162,7 +163,7 @@ block blueprintToJsonOnlyNoFromJson:
   doAssert envNode != nil and envNode.kind == JObject,
     "envelope must emit as a JObject composite"
 
-block blueprintOptNoneEnvelopePassesThrough:
+testCase blueprintOptNoneEnvelopePassesThrough:
   ## G27 (RFC 8621 §7.5 ¶4): when the client omits the envelope, the
   ## server synthesises it from the referenced Email's headers.
   ## ``Opt.none(Envelope)`` on the value side MUST elide the key entirely
@@ -181,7 +182,7 @@ block blueprintOptNoneEnvelopePassesThrough:
 
 # ============= C. EmailSubmissionFilterCondition toJson-only ================
 
-block filterConditionAllFieldsPopulated:
+testCase filterConditionAllFieldsPopulated:
   ## G18: all six fields set. Sparse-emission invariant stays compatible
   ## with the fully-populated case — the emitted object has exactly one
   ## key per non-``Opt.none`` field and no stray null entries.
@@ -207,7 +208,7 @@ block filterConditionAllFieldsPopulated:
   assertJsonFieldEq node, "before", %"2026-04-01T00:00:00Z"
   assertJsonFieldEq node, "after", %"2026-01-01T00:00:00Z"
 
-block filterConditionOnlyUndoStatus:
+testCase filterConditionOnlyUndoStatus:
   ## G18: five of six fields ``Opt.none`` emit nothing; the single
   ## populated ``undoStatus`` is the only key on the wire. Mirrors the
   ## ``MailboxFilterCondition`` sparse-emission pattern in
@@ -229,7 +230,7 @@ block filterConditionOnlyUndoStatus:
   assertJsonKeyAbsent node, "before"
   assertJsonKeyAbsent node, "after"
 
-block filterConditionRejectsEmptyIdSeq:
+testCase filterConditionRejectsEmptyIdSeq:
   ## G37: the structural gate is at construction. ``NonEmptyIdSeq``
   ## rejects an empty list via ``parseNonEmptyIdSeq``, so the only path
   ## an empty list could reach ``toJson`` is a ``cast[NonEmptyIdSeq]``
@@ -242,7 +243,7 @@ block filterConditionRejectsEmptyIdSeq:
 
 # ============= D. EmailSubmissionComparator toJson ==========================
 
-block comparatorSentAtTokenNotSendAt:
+testCase comparatorSentAtTokenNotSendAt:
   ## G19 (load-bearing): the RFC 8621 §7.3 sort-property wire token is
   ## ``"sentAt"`` but the entity field carrying the analogous value is
   ## ``sendAt``. ``toJson`` emits ``rawProperty`` verbatim — any
@@ -255,27 +256,38 @@ block comparatorSentAtTokenNotSendAt:
   let node = c.toJson()
   assertJsonFieldEq node, "property", %"sentAt"
   assertJsonKeyAbsent node, "sendAt"
-  assertJsonFieldEq node, "isAscending", %true
+  assertJsonKeyAbsent node, "isAscending"
   assertJsonKeyAbsent node, "collation"
 
-block comparatorAscendingByEmailId:
+testCase comparatorServerDefaultByEmailId:
   ## Happy path: ``"emailId"`` is one of the three RFC-defined wire
-  ## tokens; it resolves to the ``esspEmailId`` enum variant. Default
-  ## ``isAscending`` is ``true`` per RFC 8620 §5.5; ``collation``
-  ## defaults to ``Opt.none`` (server's default per RFC 4790 registry)
-  ## and stays sparse on the wire.
+  ## tokens; it resolves to the ``esspEmailId`` enum variant. The default
+  ## ``direction`` is ``sdServerDefault`` — the ``isAscending`` key is
+  ## omitted and the server applies its RFC 8620 §5.5 default (ascending);
+  ## ``collation`` defaults to ``Opt.none`` and stays sparse.
   let c = parseEmailSubmissionComparator("emailId").unsafeGet()
   assertEq c.property, esspEmailId
   assertEq c.rawProperty, "emailId"
   let node = c.toJson()
-  assertLen node, 2
+  assertLen node, 1
   assertJsonFieldEq node, "property", %"emailId"
-  assertJsonFieldEq node, "isAscending", %true
+  assertJsonKeyAbsent node, "isAscending"
+  assertJsonKeyAbsent node, "collation"
+
+testCase comparatorDescendingEmitsIsAscendingFalse:
+  ## An explicit ``sdDescending`` direction emits ``isAscending: false`` via
+  ## the shared ``emitSortDirection`` wire-mapping.
+  let c =
+    parseEmailSubmissionComparator("threadId", direction = sdDescending).unsafeGet()
+  let node = c.toJson()
+  assertLen node, 2
+  assertJsonFieldEq node, "property", %"threadId"
+  assertJsonFieldEq node, "isAscending", %false
   assertJsonKeyAbsent node, "collation"
 
 # ============= E. IdOrCreationRef toJson ====================================
 
-block idOrCreationRefDirectWire:
+testCase idOrCreationRefDirectWire:
   ## G35 / RFC 8620 §5.3: a direct reference to an existing
   ## EmailSubmission serialises as the bare id string (no ``#`` prefix).
   ## Wire shape is ``JString`` — complements the Step 10 unit-layer
@@ -284,7 +296,7 @@ block idOrCreationRefDirectWire:
   let r = makeIdOrCreationRefDirect(makeId("sub1"))
   assertIdOrCreationRefWire r, "sub1"
 
-block idOrCreationRefCreationWire:
+testCase idOrCreationRefCreationWire:
   ## G35 / RFC 8620 §5.3: a forward-reference to a sibling create
   ## operation serialises as ``"#"`` concatenated with the creation id.
   ## The ``#`` prefix is a wire concern added at ``toJson`` time, NOT
@@ -292,9 +304,9 @@ block idOrCreationRefCreationWire:
   let r = makeIdOrCreationRefCreation(makeCreationId("k0"))
   assertIdOrCreationRefWire r, "#k0"
 
-# ============= F. SetResponse[EmailSubmissionCreatedItem] envelope ==========
+# ============= F. SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission] envelope ==========
 
-block emailSubmissionSetResponseEntityRoundTrip:
+testCase emailSubmissionSetResponseEntityRoundTrip:
   ## G39: full wire envelope for ``EmailSubmission/set``. Mirrors
   ## ``setResponseEmailEnvelopeShape`` in tserde_email_set_response.nim:30.
   ##
@@ -331,7 +343,8 @@ block emailSubmissionSetResponseEntityRoundTrip:
     "destroyed": ["sub4"],
     "notDestroyed": {"sub5": {"type": "serverFail"}},
   }
-  let res = SetResponse[EmailSubmissionCreatedItem].fromJson(node)
+  let res =
+    SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission].fromJson(node)
   assertOk res
   let r = res.get()
   assertEq r.accountId, makeAccountId("acct1")
@@ -369,7 +382,7 @@ block emailSubmissionSetResponseEntityRoundTrip:
   doAssert r.destroyResults[makeId("sub4")].isOk
   doAssert r.destroyResults[makeId("sub5")].isErr
 
-block emailSubmissionCreatedItemUndoStatusAbsent:
+testCase emailSubmissionCreatedItemUndoStatusAbsent:
   ## Stalwart-shape create response: ``{"id": "<id>"}`` only.
   ## ``undoStatus`` is absent → must project as ``Opt.none(UndoStatus)``.
   let node = %*{"id": "sub1"}
@@ -382,7 +395,7 @@ block emailSubmissionCreatedItemUndoStatusAbsent:
   doAssert item.undoStatus.isNone,
     "absent undoStatus must surface as Opt.none for Stalwart wire shape"
 
-block emailSubmissionCreatedItemUndoStatusPending:
+testCase emailSubmissionCreatedItemUndoStatusPending:
   ## HOLDFOR-style submissions return ``undoStatus: pending`` in the
   ## create response. The parser captures it.
   let node = %*{"id": "sub2", "sendAt": "2026-04-01T12:00:00Z", "undoStatus": "pending"}

@@ -88,15 +88,14 @@ curl -u "$ADMIN_AUTH" -X PATCH \
   "$STALWART_URL/api/queue/messages?at=$NOW_TS" || true
 
 # --- Write env file for integration tests ---
-ALICE_B64=$(echo -n 'alice:alice123' | base64 -w0)
-BOB_B64=$(echo -n 'bob:bob123' | base64 -w0)
 ADMIN_B64=$(echo -n "$ADMIN_AUTH" | base64 -w0)
 
 cat > /tmp/stalwart-env.sh <<EOF
 export JMAP_TEST_STALWART_SESSION_URL="http://stalwart:8080/jmap/session"
-export JMAP_TEST_STALWART_AUTH_SCHEME="Basic"
-export JMAP_TEST_STALWART_ALICE_TOKEN="$ALICE_B64"
-export JMAP_TEST_STALWART_BOB_TOKEN="$BOB_B64"
+export JMAP_TEST_STALWART_ALICE_USER="alice"
+export JMAP_TEST_STALWART_ALICE_PASSWORD="alice123"
+export JMAP_TEST_STALWART_BOB_USER="bob"
+export JMAP_TEST_STALWART_BOB_PASSWORD="bob123"
 export JMAP_TEST_STALWART_ADMIN_BASIC="$ADMIN_B64"
 EOF
 

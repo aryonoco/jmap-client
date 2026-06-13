@@ -13,9 +13,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedMethodErrorInvalidResultReference:
+testCase tcapturedMethodErrorInvalidResultReference:
   forEachCapturedServer("method-error-invalid-result-reference", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len >= 1
@@ -26,9 +28,9 @@ block tcapturedMethodErrorInvalidResultReference:
     doAssert me.rawType == "invalidResultReference",
       "Stalwart returns the canonical 'invalidResultReference' rawType, got " &
         me.rawType
-    doAssert me.errorType == metInvalidResultReference,
-      "errorType must project to metInvalidResultReference, got " & $me.errorType
-    doAssert me.errorType == parseMethodErrorType(me.rawType),
+    doAssert me.kind == metInvalidResultReference,
+      "errorType must project to metInvalidResultReference, got " & $me.kind
+    doAssert me.kind == parseMethodErrorKind(me.rawType),
       "errorType / rawType must be derived consistently"
     # ``description`` is RFC 8620 §3.6 optional ("MAY include").
     # Stalwart and James populate it with a human-readable resolution

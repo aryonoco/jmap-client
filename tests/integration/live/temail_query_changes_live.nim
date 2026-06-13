@@ -21,12 +21,12 @@
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailQueryChangesLive:
+testCase temailQueryChangesLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): test asserts on client behaviour, not on
     # specific server implementations. Stalwart 0.15.5 and Cyrus 3.12.2
@@ -38,12 +38,7 @@ block temailQueryChangesLive:
     # contract: the success arm verifies the queryChanges round-trip
     # semantic; the error arm verifies the typed-error projection
     # against a real-world server response.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -70,9 +65,10 @@ block temailQueryChangesLive:
       .expect("seedSimpleEmail 3[" & $target.kind & "]")
 
     # --- Email/query: capture queryState_1 + baseline-cardinality -------
-    let (b1, queryHandle) = addEmailQuery(initRequestBuilder(), mailAccountId)
+    let (b1, queryHandle) =
+      addEmailQuery(initRequestBuilder(makeBuilderId()), mailAccountId)
     let resp1 =
-      client.send(b1).expect("send Email/query baseline[" & $target.kind & "]")
+      client.send(b1.freeze()).expect("send Email/query baseline[" & $target.kind & "]")
     let queryResp = resp1.get(queryHandle).expect(
         "Email/query baseline extract[" & $target.kind & "]"
       )
@@ -90,33 +86,35 @@ block temailQueryChangesLive:
 
     # --- Email/queryChanges since queryState_1 --------------------------
     let (b2, qcHandle) = addEmailQueryChanges(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       sinceQueryState = queryState1,
       calculateTotal = true,
     )
-    let resp2 =
-      client.send(b2).expect("send Email/queryChanges with-total[" & $target.kind & "]")
-    captureIfRequested(client, "email-query-changes-with-total-" & $target.kind).expect(
-      "captureIfRequested"
+    let resp2 = client.send(b2.freeze()).expect(
+        "send Email/queryChanges with-total[" & $target.kind & "]"
+      )
+    captureIfRequested(
+      recorder.lastResponseBody, "email-query-changes-with-total-" & $target.kind
     )
+      .expect("captureIfRequested")
     let qcExtract = resp2.get(qcHandle)
     assertSuccessOrTypedError(
       target, qcExtract, {metCannotCalculateChanges, metUnknownMethod}
     ):
       let qcr = success
       assertOn target,
-        string(qcr.oldQueryState) == string(queryState1),
+        $qcr.oldQueryState == $queryState1,
         "oldQueryState must echo the supplied baseline"
       assertOn target,
-        string(qcr.newQueryState) != string(queryState1),
+        $qcr.newQueryState != $queryState1,
         "newQueryState must differ after a fresh seed"
       # RFC 8620 §5.6 permits a server to return ``calculateTotal`` as
       # absent (e.g. James 3.9 doesn't honour the parameter on Email/
       # query). When present it must reflect the latest count.
       if qcr.total.isSome:
         assertOn target,
-          qcr.total.get() >= UnsignedInt(baselineCount + 1),
+          qcr.total.get().toInt64 >= baselineCount + 1,
           "calculateTotal lower bound: at least baselineCount+1 (got " & $qcr.total & ")"
       # RFC 8620 §5.6 permits the same id appearing in both ``removed``
       # and ``added`` to signal a reposition under a sorted query. The
@@ -124,10 +122,10 @@ block temailQueryChangesLive:
       # exact cardinality of ``removed``/``added`` is server-specific.
       var foundAdded = false
       for item in qcr.added:
-        if string(item.id) == string(id4):
+        if $item.id == $id4:
           foundAdded = true
           assertOn target,
-            item.index < UnsignedInt(baselineCount + 1),
+            item.index.toInt64 < baselineCount + 1,
             "added.index must fall within the new query's bounds (got " & $item.index &
               ")"
           break
@@ -141,13 +139,15 @@ block temailQueryChangesLive:
     # explicitly ``Opt.none`` — RFC 8620 §5.6: ``total`` is only present
     # when ``calculateTotal: true`` was sent.
     let (b3, qcNoTotalHandle) = addEmailQueryChanges(
-      initRequestBuilder(), mailAccountId, sinceQueryState = queryState1
+      initRequestBuilder(makeBuilderId()), mailAccountId, sinceQueryState = queryState1
     )
-    let resp3 =
-      client.send(b3).expect("send Email/queryChanges no-total[" & $target.kind & "]")
-    captureIfRequested(client, "email-query-changes-no-total-" & $target.kind).expect(
-      "captureIfRequested"
+    let resp3 = client.send(b3.freeze()).expect(
+        "send Email/queryChanges no-total[" & $target.kind & "]"
+      )
+    captureIfRequested(
+      recorder.lastResponseBody, "email-query-changes-no-total-" & $target.kind
     )
+      .expect("captureIfRequested")
     let qcNoTotalExtract = resp3.get(qcNoTotalHandle)
     assertSuccessOrTypedError(
       target, qcNoTotalExtract, {metCannotCalculateChanges, metUnknownMethod}
@@ -158,4 +158,3 @@ block temailQueryChangesLive:
       # absence. The wire-shape parse is the universal client-library
       # contract — both ``isNone`` and ``isSome`` are accepted here.
       discard success
-    client.close()

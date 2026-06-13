@@ -21,12 +21,14 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
+import jmap_client/internal/types/envelope
+import jmap_client/internal/protocol/dispatch
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tpostelsLawReceiveLive:
+testCase tpostelsLawReceiveLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): RFC 8621 §4.6 lets a server require pre-
     # uploaded blob attachments and reject inline-bodyValues with
@@ -35,12 +37,7 @@ block tpostelsLawReceiveLive:
     # the rejection arm the typed-error projection has fired inside
     # ``seedForwardedEmail``; on the success arm the lenient-receive
     # parsers run end-to-end.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -63,7 +60,6 @@ block tpostelsLawReceiveLive:
       creationLabel = "phase-j-73-outer",
     )
     if outerRes.isErr:
-      client.close()
       continue
     let outerId = outerRes.unsafeValue
 
@@ -82,9 +78,11 @@ block tpostelsLawReceiveLive:
     let importMap = initNonEmptyEmailImportMap(@[(importCid, importItem)]).expect(
         "initNonEmptyEmailImportMap"
       )
-    let (bImp, importHandle) =
-      addEmailImport(initRequestBuilder(), mailAccountId, emails = importMap)
-    let respImp = client.send(bImp).expect("send Email/import[" & $target.kind & "]")
+    let (bImp, importHandle) = addEmailImport(
+      initRequestBuilder(makeBuilderId()), mailAccountId, emails = importMap
+    )
+    let respImp =
+      client.send(bImp.freeze()).expect("send Email/import[" & $target.kind & "]")
     let importResp =
       respImp.get(importHandle).expect("Email/import extract[" & $target.kind & "]")
     var importedEmailId: Id
@@ -99,23 +97,26 @@ block tpostelsLawReceiveLive:
     assertOn target, imported
 
     # Step 4: read back via Email/get and capture the wire shape.
-    let (bGet, getHandle) = addEmailGet(
-      initRequestBuilder(),
+    let (bGet, getHandle) = addPartialEmailGet(
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[importedEmailId]),
-      properties =
-        Opt.some(@["id", "from", "receivedAt", "subject", "keywords", "mailboxIds"]),
+      properties = parseNonEmptySeq(
+          @[egpId, egpFrom, egpReceivedAt, egpSubject, egpKeywords, egpMailboxIds]
+        )
+        .get(),
     )
-    let respGet =
-      client.send(bGet).expect("send Email/get import readback[" & $target.kind & "]")
-    captureIfRequested(client, "postels-law-receive-adversarial-mime-" & $target.kind)
+    let respGet = client.send(bGet.freeze()).expect(
+        "send Email/get import readback[" & $target.kind & "]"
+      )
+    captureIfRequested(
+      recorder.lastResponseBody, "postels-law-receive-adversarial-mime-" & $target.kind
+    )
       .expect("captureIfRequested postel's law")
     let getResp =
       respGet.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1
-    let email = Email.fromJson(getResp.list[0]).expect(
-        "Email.fromJson lenient[" & $target.kind & "]"
-      )
+    let email = getResp.list[0]
 
     # The lenient parser must surface every requested field as
     # populated even when the underlying MIME has unusual encoding.
@@ -123,48 +124,58 @@ block tpostelsLawReceiveLive:
     assertOn target,
       email.receivedAt.isSome, "Stalwart fills receivedAt for imported messages"
     assertOn target,
-      email.fromAddr.isSome and email.fromAddr.unsafeGet.len >= 1,
+      email.fromAddr.kind == fekValue and email.fromAddr.value.len >= 1,
       "imported email's From header must round-trip"
-    assertOn target, email.subject.isSome, "imported email's Subject must round-trip"
+    assertOn target,
+      email.subject.kind == fekValue, "imported email's Subject must round-trip"
 
     # Step 5: empty-vs-null table parser tolerance.  Email/get a
     # second email (the seed) that has no keywords set; Email.fromJson
     # must accept whatever wire shape (``{}`` or absent) Stalwart
     # emits for the empty case.  Library contract: empty / null /
     # absent all project to the same empty Table[Keyword, bool].
-    let (bGet2, getHandle2) = addEmailGet(
-      initRequestBuilder(),
+    let (bGet2, getHandle2) = addPartialEmailGet(
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[outerId, importedEmailId]),
-      properties = Opt.some(@["id", "keywords", "mailboxIds"]),
+      properties = parseNonEmptySeq(@[egpId, egpKeywords, egpMailboxIds]).get(),
     )
-    let respGet2 = client.send(bGet2).expect(
+    let respGet2 = client.send(bGet2.freeze()).expect(
         "send Email/get keywords readback[" & $target.kind & "]"
       )
     let getResp2 =
       respGet2.get(getHandle2).expect("Email/get extract[" & $target.kind & "]")
     assertOn target, getResp2.list.len == 2
-    for node in getResp2.list:
-      # Wire shape may be {} or null for empty keywords; the parser
-      # tolerates both per Postel's law.
-      let kwNode = node{"keywords"}
+    # Wire-shape Postel diagnostic via the internal envelope module
+    # (A2 seal — not part of the public application API; reachable
+    # only through ``jmap_client/internal/types/envelope`` imported
+    # above). The typed parse already succeeded (getResp2.list is
+    # seq[PartialEmail]); this additionally pins the on-wire shape Stalwart
+    # emits for empty keywords (RFC 8621 §4 Table[Keyword, bool]
+    # projection).
+    let listArr = respGet2.response.methodResponses[0].arguments{"list"}
+    assertOn target,
+      not listArr.isNil and listArr.kind == JArray and listArr.getElems().len == 2,
+      "wire arguments must carry the two-entry list"
+    for elem in listArr.getElems():
+      let kwNode = elem{"keywords"}
       if not kwNode.isNil:
         assertOn target,
           kwNode.kind in {JObject, JNull},
           "keywords wire shape must be JObject or JNull; got " & $kwNode.kind
-      let parsed =
-        Email.fromJson(node).expect("Email.fromJson tolerant[" & $target.kind & "]")
-      assertOn target, parsed.id.isSome
+    for email in getResp2.list:
+      assertOn target, email.id.isSome
 
     # Cleanup: destroy outer + imported emails so re-runs are
     # idempotent.
     let (bClean, cleanHandle) = addEmailSet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       destroy = directIds(@[outerId, importedEmailId]),
     )
-    let respClean =
-      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let respClean = client.send(bClean.freeze()).expect(
+        "send Email/set cleanup[" & $target.kind & "]"
+      )
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
@@ -173,5 +184,3 @@ block tpostelsLawReceiveLive:
         assertOn target, outcome.isOk, "cleanup destroy must succeed"
       do:
         assertOn target, false, "cleanup must report an outcome for each seed"
-
-    client.close()

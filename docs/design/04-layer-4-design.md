@@ -163,7 +163,7 @@ compiler constraints and architectural decisions.
 | Module | What is used | Where | Rationale |
 |--------|-------------|-------|-----------|
 | `std/httpclient` | `HttpClient`, `newHttpClient`, `request`, `close`, `HttpMethod`, `newHttpHeaders` | `client.nim` | Decision 4.1A. Synchronous HTTP. The sole network IO dependency. |
-| `std/json` | `parseJson`, `$` (serialise `JsonNode` to string), `JsonNode`, `JObject`, `JArray`, `hasKey`, `{}` (nil-safe key access) | `client.nim` | JSON string parsing (`string -> JsonNode`) is the Layer 4 boundary that Layers 1-3 delegate upward. `$` serialises `Request.toJson()` to the HTTP body. `parseJson` is the reverse for responses. `JArray` used in `detectGetLimit` for ids array detection. `{}` used in `detectGetLimit`/`detectSetLimit` for nil-safe access to optional method arguments. |
+| `std/json` | `parseJson`, `$` (serialise `JsonNode` to string), `JsonNode`, `JObject`, `JArray`, `hasKey`, `{}` (nil-safe key access) | `client.nim` | JSON string parsing (`string -> JsonNode`) is the Layer 4 boundary that Layers 1-3 delegate upward. `$` serialises `Request.toJson()` (hub-private after A16; reachable inside L4 for HTTP-body construction) to the HTTP body. `parseJson` is the reverse for responses. `JArray` used in `detectGetLimit` for ids array detection. `{}` used in `detectGetLimit`/`detectSetLimit` for nil-safe access to optional method arguments. |
 | `std/uri` | `parseUri`, `combine` | `client.nim` | RFC 3986 §5 reference resolution in `resolveAgainstSession` — relative `apiUrl` values (e.g., Cyrus's `"/jmap/"`) are resolved against the absolute session URL. Absolute `apiUrl` values bypass `combine` entirely. |
 | `std/strutils` | `toLowerAscii`, `startsWith`, `endsWith`, `contains`, `Whitespace` | `client.nim`, `errors.nim` | Content-Type case-insensitive matching, method name suffix detection on `inv.rawName` in `detectRequestLimits`, domain validation in `detectDomain`, embedded-newline check in `detectSessionUrl`, TLS message heuristic. URI template expansion folds parsed parts (§7). |
 | `std/net` | `TimeoutError`, `SslError` (selective imports) | `errors.nim` | `TimeoutError` for timeout classification in `classifyException`. `SslError` (guarded by `when defined(ssl)`) for direct TLS error classification — `SslError` inherits `CatchableError` directly, not `OSError`, so it requires its own branch. |
@@ -549,6 +549,47 @@ proc sendRawHttpForTesting*(
   ## intent visible at every call site and silence nimalyzer's
   ## unused-export rule when no test file references it yet.
 ```
+
+### 1.7 Wire-shape inspection — `BuiltRequest.toJson` and `setDebugCallback`
+
+The two application-facing wire-shape diagnostics are:
+
+```nim
+func toJson*(br: BuiltRequest): JsonNode
+proc setDebugCallback*(client: JmapClient, cb: DebugCallback)
+```
+
+`BuiltRequest.toJson` is modelled after SQLite's
+`sqlite3_expanded_sql(stmt)`: render the prepared thing before
+any I/O. The bytes returned are the canonical-form representation
+that `client.send(br)` serialises into the HTTP body, byte-for-
+byte (locked by A28b in `tests/property/twire_determinism.nim`).
+
+`setDebugCallback` is modelled after libcurl's
+`CURLOPT_DEBUGFUNCTION`: a per-handle callback the library
+invokes once with `wdSend` (request body bytes — an empty
+`openArray[byte]` for the GET on `fetchSession`) immediately
+before `Transport.send`, and once with `wdReceive` (response
+body bytes) immediately after. Both `fetchSession` and every
+`send` fire the callback. The `bytes` parameter is borrowed for
+the duration of the call — the application must copy if it
+needs to retain the data across the return. Pass `nil` to
+detach; the library does not provide a separate
+`clearDebugCallback`.
+
+The two seams compose: the application can render planned bytes
+via `br.toJson` and observed bytes via the debug callback and
+compare them. Differences are by design — TLS-layer rewrites,
+`Content-Length` and `Authorization` headers, connection pooling
+behaviour, and server redirect targets all live between the two.
+
+Bare `Request.toJson`, `Invocation.toJson`, and
+`ResultReference.toJson` are hub-private (A16); `Response.toJson`
+is deleted entirely. `Request` and `Response` themselves are
+Pattern-A sealed objects with private `raw*` fields and `initX`
+(total) / `parseX` (fallible) smart constructors (A30).
+Application code does not construct or render either type
+directly.
 
 ---
 
@@ -970,9 +1011,15 @@ the return value is initialised on all paths through the stdlib code.
 (lines 975-1003).
 
 ```nim
-proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Response] =
-  ## Serialises a JMAP Request, POSTs to the server's apiUrl, and
-  ## deserialises the Response.
+proc send*(
+    client: var JmapClient, req: BuiltRequest
+): JmapResult[DispatchedResponse] =
+  ## Validates limits, fetches the session lazily, POSTs the serialised
+  ## request, parses the wire ``Response``, and returns a sealed
+  ## ``DispatchedResponse`` branded with the originating builder's
+  ## ``BuilderId``. Single blessed send path — the application
+  ## developer's lifecycle is
+  ## ``newBuilder → add* → freeze → send → handle.get(dr)``.
   ##
   ## Lazily fetches the session on first call if not yet cached.
   ## Does NOT automatically refresh a stale session (D4.10).
@@ -1134,10 +1181,10 @@ proc send*(
     client: var JmapClient, builder: RequestBuilder
 ): JmapResult[envelope.Response] =
   ## Convenience: builds the request and sends it in one step.
-  ## Equivalent to ``client.send(builder.build())``.
+  ## Equivalent to ``client.send(builder.freeze())``.
   ## This is the imperative shell boundary where the functional core
   ## (builder) meets IO.
-  client.send(builder.build())
+  client.send(builder.freeze())
 ```
 
 This overload bridges the Layer 3 `RequestBuilder` directly to the
@@ -1170,67 +1217,69 @@ type QueryGetHandles*[T] = object
   query*: ResponseHandle[QueryResponse[T]]
   get*: ResponseHandle[GetResponse[T]]
 
-template addQueryThenGet*[T](
-    b: RequestBuilder, accountId: AccountId
-): (RequestBuilder, QueryGetHandles[T])
-  ## Adds Foo/query + Foo/get with automatic result reference wiring.
-  ## The get's ``ids`` parameter references the query's ``/ids`` path.
-  ##
-  ## Implemented as a template so filter and sort type defaults
-  ## resolve at the caller's instantiation site (the underlying
-  ## ``addQuery[T]`` template performs that resolution via
-  ## ``filterType(T)`` and ``Comparator``).
-  ##
-  ## Implicit decisions:
-  ## - Reference path is always ``/ids`` (``rpIds``)
-  ## - Both calls use the same ``accountId`` (no cross-account)
-  ## - No filter, sort, or properties constraints applied
-  ## - Response method name derived from ``queryMethodName(T)``
-
 type ChangesGetHandles*[T] = object
   ## Paired phantom-typed handles from a changes-then-get pipeline.
   changes*: ResponseHandle[ChangesResponse[T]]
   get*: ResponseHandle[GetResponse[T]]
 
-func addChangesToGet*[T](
-    b: RequestBuilder,
-    accountId: AccountId,
-    sinceState: JmapState,
-    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
-): (RequestBuilder, ChangesGetHandles[T])
-  ## Adds Foo/changes + Foo/get with automatic result reference from
-  ## ``/created``. Only newly created IDs are fetched — for updated IDs,
-  ## use the core API with ``updatedRef``. Internally calls
-  ## ``addChanges[T, ChangesResponse[T]]`` rather than
-  ## ``changesResponseType(T)``: ``createdRef`` is defined only over
-  ## ``ResponseHandle[ChangesResponse[T]]`` because its contract is the
-  ## RFC 8620 §5.2 ``/created`` field, not any entity-specific extension.
+type MailboxChangesGetHandles* = object
+  ## Bespoke pair — Mailbox/changes yields the extended
+  ## ``MailboxChangesResponse``, which ``ChangesGetHandles[Mailbox]``
+  ## cannot type.
+  changes*: ResponseHandle[MailboxChangesResponse]
+  get*: ResponseHandle[GetResponse[Mailbox]]
+
+func addEmailQueryThenGet*(
+    b: sink RequestBuilder, accountId: AccountId, ...
+): (RequestBuilder, QueryGetHandles[Email])
+  ## Email/query + Email/get; the get's ``ids`` back-references the
+  ## query's ``/ids`` path via the public ``reference`` primitive.
+
+func addEmailChangesToGet*(
+    b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, ...
+): (RequestBuilder, ChangesGetHandles[Email])
+  ## Email/changes + Email/get; the get's ``ids`` back-references the
+  ## changes response's ``/created`` path.
+
+# Eight per-entity wrappers in total: addEmailQueryThenGet,
+# addMailboxQueryThenGet, addEmailSubmissionQueryThenGet,
+# addEmailChangesToGet, addIdentityChangesToGet, addThreadChangesToGet,
+# addEmailSubmissionChangesToGet, addMailboxChangesToGet — each a
+# non-generic func over the public typed per-entity builders.
 
 type QueryGetResults*[T] = object
   ## Paired extraction results from a query-then-get pipeline.
   query*: QueryResponse[T]
   get*: GetResponse[T]
 
-func getBoth*[T](
-    resp: Response, handles: QueryGetHandles[T]
-): Result[QueryGetResults[T], MethodError]
-  ## Extracts both query and get responses, failing on the first error.
-  ## Composes naturally with the ``?`` operator.
-
 type ChangesGetResults*[T] = object
   ## Paired extraction results from a changes-then-get pipeline.
   changes*: ChangesResponse[T]
   get*: GetResponse[T]
 
+type MailboxChangesGetResults* = object
+  changes*: MailboxChangesResponse
+  get*: GetResponse[Mailbox]
+
 func getBoth*[T](
-    resp: Response, handles: ChangesGetHandles[T]
-): Result[ChangesGetResults[T], MethodError]
+    dr: DispatchedResponse, handles: QueryGetHandles[T]
+): Result[QueryGetResults[T], GetError]
+  ## Extracts both query and get responses, failing on the first error.
+  ## Composes naturally with the ``?`` operator.
+
+func getBoth*[T](
+    dr: DispatchedResponse, handles: ChangesGetHandles[T]
+): Result[ChangesGetResults[T], GetError]
+
+func getBoth*(
+    dr: DispatchedResponse, handles: MailboxChangesGetHandles
+): Result[MailboxChangesGetResults, GetError]
   ## Extracts both changes and get responses, failing on the first error.
 ```
 
-For queries with filters, sorting, or properties constraints, use the
-core builder API directly (`addQuery[T, C, S]` + `idsRef` + `addGet[T]`).
+For full control over filters, sorting, or properties, use the typed
+per-entity builders directly (`addEmailQuery` + `reference` +
+`addEmailGet`).
 
 ---
 
@@ -1632,12 +1681,14 @@ src/jmap_client/
                          findInvocationByName (private),
                          extractInvocationByName (private).
                          Layer 3 module, re-exported via protocol.nim.
-  convenience.nim     — Pipeline combinators: QueryGetHandles[T],
-                         addQueryThenGet, ChangesGetHandles[T],
-                         addChangesToGet, QueryGetResults[T],
-                         ChangesGetResults[T], getBoth (two overloads).
-                         NOT re-exported — explicit import required
-                         (Decision D4.14).
+  convenience.nim     — Per-entity pipeline combinators:
+                         QueryGetHandles[T], ChangesGetHandles[T],
+                         MailboxChangesGetHandles; QueryGetResults[T],
+                         ChangesGetResults[T], MailboxChangesGetResults;
+                         the eight add<Entity>QueryThenGet /
+                         add<Entity>ChangesToGet wrappers; getBoth
+                         (three overloads). NOT re-exported — explicit
+                         import required (Decision D4.14).
 ```
 
 **Decision D4.13: Module split.** Error types and pure error-related
@@ -2015,7 +2066,7 @@ default (Decision D4.14).
     detection, response deserialisation with the same two-stage
     error mapping.
 12. Implemented `send(RequestBuilder)` — convenience overload over
-    `send(builder.build())`.
+    `send(builder.freeze())`.
 13. Implemented `isSessionStale` and `refreshSessionIfStale`.
 14. Implemented `dispatch.nim` — `ResponseHandle[T]`,
     `NameBoundHandle[T]`, the three `get[T]` overloads
@@ -2024,12 +2075,12 @@ default (Decision D4.14).
     `registerCompoundMethod` (RFC 8620 §5.4),
     `ChainedHandles`/`ChainedResults` with
     `registerChainableMethod` (RFC 8620 §3.7), `getBoth` overloads,
-    `reference`, and the type-safe convenience refs (`idsRef`,
-    `listIdsRef`, `addedIdsRef`, `createdRef`, `updatedRef`).
-15. Implemented `convenience.nim` — pipeline combinators
-    (`addQueryThenGet` template, `addChangesToGet`, two `getBoth`
-    overloads), all returning `(RequestBuilder, <Handles>)` tuples.
-    Deliberately omitted from all re-export hubs.
+    and `reference` (the sole back-reference primitive).
+15. Implemented `convenience.nim` — eight per-entity pipeline
+    combinators (`add<Entity>QueryThenGet` / `add<Entity>ChangesToGet`)
+    plus three `getBoth` overloads, all returning
+    `(RequestBuilder, <Handles>)` tuples. Deliberately omitted from
+    all re-export hubs.
 16. Updated `src/jmap_client.nim` to import and re-export `types`,
     `serialisation`, `protocol`, and `client`. Updated `protocol.nim`
     to re-export `entity`, `methods`, `dispatch`, `builder`.
@@ -2054,8 +2105,8 @@ default (Decision D4.14).
 | `ResponseHandle[T]` | §3.4 (lines 975-1003) | Phantom-typed handle for compile-time response dispatch (in `dispatch.nim`) |
 | `callId` | §3.4 (lines 975-1003) | Extracts underlying `MethodCallId` from a `ResponseHandle[T]` (in `dispatch.nim`) |
 | `get[T]` | §3.4 (lines 975-1003), §3.6.2 | Typed extraction from Response envelope, detects method errors (in `dispatch.nim`) |
-| `addQueryThenGet` | §5.1 (Foo/query), §5.1 (Foo/get), §3.7 (result references) | Pipeline combinator with automatic `/ids` reference wiring (in `convenience.nim`) |
-| `addChangesToGet` | §5.2 (Foo/changes), §5.1 (Foo/get), §3.7 (result references) | Sync pipeline with `/created` reference wiring (in `convenience.nim`) |
+| `add<Entity>QueryThenGet` | §5.1 (Foo/query), §5.1 (Foo/get), §3.7 (result references) | Per-entity pipeline combinator with `/ids` reference wiring (in `convenience.nim`) |
+| `add<Entity>ChangesToGet` | §5.2 (Foo/changes), §5.1 (Foo/get), §3.7 (result references) | Per-entity sync pipeline with `/created` reference wiring (in `convenience.nim`) |
 | `classifyHttpResponse` | §3.6.1 (lines 1079-1136) | Request-level errors |
 | `tryParseProblemDetails` | §3.6.1 (lines 1079-1136) | RFC 7807 problem details extraction |
 | `validateLimits` | §2 (CoreCapabilities), §3.6.1, §5.1, §5.3 | Pre-flight validation, public surface over `RequestLimitViolation` |

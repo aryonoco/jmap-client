@@ -13,18 +13,19 @@
 
 import std/json
 
-import jmap_client/mail/serde_submission_status
-import jmap_client/mail/submission_mailbox
-import jmap_client/mail/submission_status
-import jmap_client/serde
-import jmap_client/types
+import jmap_client/internal/mail/serde_submission_status
+import jmap_client/internal/mail/submission_mailbox
+import jmap_client/internal/mail/submission_status
+import jmap_client/internal/serialisation/serde
+import jmap_client
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # ============= A. UndoStatus round-trip + closed-enum gate =============
 
-block undoStatusPendingRoundTrip:
+testCase undoStatusPendingRoundTrip:
   ## ``usPending`` ↔ ``"pending"`` symmetric round-trip. Covers the wire
   ## token both directions: ``fromJson`` recognises the backing string,
   ## ``toJson`` emits it.
@@ -34,7 +35,7 @@ block undoStatusPendingRoundTrip:
   assertEq parsed.unsafeGet(), usPending
   assertEq usPending.toJson(), wire
 
-block undoStatusFinalRoundTrip:
+testCase undoStatusFinalRoundTrip:
   ## ``usFinal`` ↔ ``"final"``.
   let wire = %"final"
   let parsed = UndoStatus.fromJson(wire)
@@ -42,7 +43,7 @@ block undoStatusFinalRoundTrip:
   assertEq parsed.unsafeGet(), usFinal
   assertEq usFinal.toJson(), wire
 
-block undoStatusCanceledRoundTrip:
+testCase undoStatusCanceledRoundTrip:
   ## ``usCanceled`` ↔ ``"canceled"``. Note the single-``l`` spelling per
   ## RFC 8621 §7 — a vendor extension using ``"cancelled"`` would be
   ## rejected by the closed-enum gate below.
@@ -52,7 +53,7 @@ block undoStatusCanceledRoundTrip:
   assertEq parsed.unsafeGet(), usCanceled
   assertEq usCanceled.toJson(), wire
 
-block undoStatusUnknownIsRejected:
+testCase undoStatusUnknownIsRejected:
   ## G3 closed-enum commitment. Unknown wire value ``"deferred"`` MUST
   ## surface as ``svkEnumNotRecognised`` — NOT silently fall through to
   ## an ``usOther`` catch-all. Quiet-fallback here would break the
@@ -66,7 +67,7 @@ block undoStatusUnknownIsRejected:
 
 # ============= B. DeliveryStatus composite parse + rawBacking =============
 
-block deliveryStatusRoundTrip:
+testCase deliveryStatusRoundTrip:
   ## G10 / G11: the two ``Parsed*`` subfields must preserve ``rawBacking``
   ## byte-for-byte on both RFC-canonical and unknown values. This block
   ## exercises both halves in one shot: an unknown ``"deferred"`` delivered
@@ -98,7 +99,7 @@ block deliveryStatusRoundTrip:
 
 # ============= C. DeliveryStatusMap recipient-keyed entries =============
 
-block deliveryStatusMapRoundTripPreservesOrder:
+testCase deliveryStatusMapRoundTripPreservesOrder:
   ## G9: every ``(mailbox, status)`` pair in the wire object must appear
   ## in the parsed map exactly once under byte-equal ``RFC5321Mailbox``
   ## key semantics. ``assertDeliveryStatusMapEq`` compares via the
@@ -159,7 +160,7 @@ block deliveryStatusMapRoundTripPreservesOrder:
 
 # ============= D. DeliveryStatus toJson CRLF→LF canonicalisation =============
 
-block deliveryStatusToJsonCanonicalisesSmtpReplyLineEndings:
+testCase deliveryStatusToJsonCanonicalisesSmtpReplyLineEndings:
   ## H24 canonicalisation contract: ``ParsedSmtpReply.raw`` preserves
   ## ingress bytes (including CRLF); ``toJson`` emits the canonical LF
   ## form via ``renderSmtpReply``. Pins the sole documented

@@ -14,9 +14,11 @@
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailGetHeaderFormsExtended:
+testCase tcapturedEmailGetHeaderFormsExtended:
   forEachCapturedServer("email-get-header-forms-extended", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 1
@@ -26,7 +28,7 @@ block tcapturedEmailGetHeaderFormsExtended:
     let getResp =
       GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
     doAssert getResp.list.len == 1, "captured Email/get must carry one record"
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    let email = getResp.list[0]
 
     let messageIdsKey = parseHeaderPropertyName("header:Message-ID:asMessageIds").expect(
         "parseHeaderPropertyName messageIds"

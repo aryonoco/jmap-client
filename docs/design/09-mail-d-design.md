@@ -1517,13 +1517,14 @@ in Part E. Similarly, `mail_builders.nim` hosts the Mailbox builders
 **`mail/types.nim`** re-exports `email`, `snippet`, `mail_filters`
 alongside all other Layer 1 mail modules.
 
-**`mail/serialisation.nim`** re-exports `serde_email`, `serde_snippet`,
-`serde_mail_filters` alongside all other Layer 2 mail serde modules.
-
-`mail_builders.nim` and `mail_methods.nim` re-export the relevant serde
-modules whose `fromJson` overloads are needed at the dispatch call site
-(generic responses resolve `T.fromJson` via `mixin` at the outer
-instantiation site).
+The Layer 2 mail serde modules (`serde_email`, `serde_snippet`,
+`serde_mail_filters`, …) are hub-private (A1d): they are imported
+directly by the `internal/mail/` method and builder modules and never
+re-exported onto the `import jmap_client` surface. A serde module
+re-exports the sibling serde of types it nests (`serde_email` re-exports
+`serde_addresses` etc.) so the `mixin`-resolved `T.fromJson` chain of a
+generic response (`GetResponse[T]`, `SetResponse[T, U]`) resolves at the
+builder-definition site.
 
 ---
 

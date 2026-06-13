@@ -14,7 +14,6 @@ discard """
 ##   jmap_client.nim
 ##     -> jmap_client/mail.nim
 ##         -> jmap_client/mail/types.nim
-##         -> jmap_client/mail/serialisation.nim
 ##
 ## A missing ``export`` at any hop surfaces as a compile error here.
 ##
@@ -34,8 +33,6 @@ discard """
 ## pure compile-check; there is no meaningful runtime behaviour to run.
 
 {.push raises: [].}
-
-import std/json
 
 import jmap_client
 
@@ -82,15 +79,6 @@ proc touchEmailBlueprintAccessors(bp: EmailBlueprint) {.used.} =
   discard bp.bodyKind
 
 # -----------------------------------------------------------------------------
-# serde_email_blueprint.nim — ``toJson`` for EmailBlueprint.
-# -----------------------------------------------------------------------------
-
-proc touchEmailBlueprintSerde(bp: EmailBlueprint): JsonNode {.used.} =
-  ## Forces ``toJson(EmailBlueprint)`` to resolve through the
-  ## serde re-export hub.
-  bp.toJson
-
-# -----------------------------------------------------------------------------
 # mailbox.nim (§4.2) — NonEmptyMailboxIdSet.
 # -----------------------------------------------------------------------------
 
@@ -120,13 +108,13 @@ static:
 
 # -----------------------------------------------------------------------------
 # primitives.nim (§4.6) — NonEmptySeq[T], parseNonEmptySeq[T],
-# defineNonEmptySeqOps template.
+# defineSealedNonEmptySeqOps template.
 # -----------------------------------------------------------------------------
 
 static:
   doAssert declared(NonEmptySeq)
   doAssert declared(parseNonEmptySeq)
-  doAssert declared(defineNonEmptySeqOps)
+  doAssert declared(defineSealedNonEmptySeqOps)
 
 proc touchNonEmptySeqInstantiation(xs: NonEmptySeq[string]) {.used.} =
   ## Proves the generic type instantiates through the re-export chain;

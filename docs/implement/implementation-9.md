@@ -169,8 +169,8 @@ Run `just ci` before committing.
 
 - **Step 26:** Update `src/jmap_client/mail/types.nim` to re-export
   `email_blueprint` per design §1.5.
-- **Step 27:** Update `src/jmap_client/mail/serialisation.nim` to
-  re-export `serde_email_blueprint` per design §1.5.
+- **Step 27:** Add `src/jmap_client/mail/serde_email_blueprint.nim` —
+  imported directly by the Part E builder modules per design §1.5.
 - **Step 28:** Verify Part E public symbols are accessible via
   `import jmap_client` per design §1.5 module summary. The import
   must expose:

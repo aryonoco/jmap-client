@@ -38,12 +38,12 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailGetBodyPropertiesAllLive:
+testCase temailGetBodyPropertiesAllLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): RFC 8621 §4.6 lets a server require pre-
     # uploaded blob attachments. James 3.9 rejects every inline-
@@ -52,12 +52,7 @@ block temailGetBodyPropertiesAllLive:
     # text/* parts. The library's ``/upload`` surface is deliberately
     # deferred; the seed-rejection arm exercises the typed-error
     # projection.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -71,55 +66,48 @@ block temailGetBodyPropertiesAllLive:
       "phase-i-54-seed",
     )
     if seededRes.isErr:
-      client.close()
       continue
     let seededId = seededRes.unsafeValue
 
-    let bodyProperties = @[
-      parsePropertyName("partId").expect("partId[" & $target.kind & "]"),
-      parsePropertyName("blobId").expect("blobId[" & $target.kind & "]"),
-      parsePropertyName("type").expect("type[" & $target.kind & "]"),
-      parsePropertyName("name").expect("name[" & $target.kind & "]"),
-      parsePropertyName("size").expect("size[" & $target.kind & "]"),
-    ]
-    let (b, getHandle) = addEmailGet(
-      initRequestBuilder(),
+    let bodyProperties =
+      parseNonEmptySeq(@[ebpPartId, ebpBlobId, ebpType, ebpName, ebpSize]).get()
+    let (b, getHandle) = addPartialEmailGet(
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "bodyStructure", "bodyValues"]),
+      properties = parseNonEmptySeq(@[egpId, egpBodyStructure, egpBodyValues]).get(),
       bodyFetchOptions = EmailBodyFetchOptions(
         fetchBodyValues: bvsAll, bodyProperties: Opt.some(bodyProperties)
       ),
     )
-    let resp = client.send(b).expect(
+    let resp = client.send(b.freeze()).expect(
         "send Email/get bodyProperties+bvsAll[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-get-body-properties-all-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-get-body-properties-all-" & $target.kind
     )
+      .expect("captureIfRequested")
     let getResp = resp.get(getHandle).expect(
         "Email/get bodyProperties+bvsAll extract[" & $target.kind & "]"
       )
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
-    let email =
-      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    let email = getResp.list[0]
     assertOn target,
-      email.bodyStructure.isSome,
+      email.bodyStructure.kind == fekValue,
       "bodyStructure must be present when explicitly requested"
-    let bs = email.bodyStructure.unsafeGet
+    let bs = email.bodyStructure.value
     assertOn target,
       bs.isMultipart, "multipart/mixed seed must produce a multipart bodyStructure root"
     assertOn target,
       bs.subParts.len >= 2,
       "multipart/mixed seed must yield at least text + attachment subParts (got " &
         $bs.subParts.len & ")"
+    let bodyValues = email.bodyValues.valueOr(initTable[PartId, EmailBodyValue]())
     assertOn target,
-      email.bodyValues.len >= 1,
-      "bvsAll must yield at least the textBody bodyValue (got " & $email.bodyValues.len &
+      bodyValues.len >= 1,
+      "bvsAll must yield at least the textBody bodyValue (got " & $bodyValues.len &
         " — Stalwart 0.15.5 omits attachment bodyValues even for text/* leaves)"
-    for partId, bv in email.bodyValues.pairs:
-      assertOn target, string(partId).len > 0, "every bodyValues key must be non-empty"
+    for partId, bv in bodyValues.pairs:
+      assertOn target, ($partId).len > 0, "every bodyValues key must be non-empty"
       assertOn target,
         bv.value.len > 0, "bvsAll-emitted bodyValue must carry decoded content"
-
-    client.close()

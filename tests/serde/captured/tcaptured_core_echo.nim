@@ -13,9 +13,11 @@
 import std/json
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedCoreEcho:
+testCase tcapturedCoreEcho:
   forEachCapturedServer("core-echo", j):
     let respRes = envelope.Response.fromJson(j)
     doAssert respRes.isOk, "envelope.Response.fromJson must succeed"
@@ -25,8 +27,8 @@ block tcapturedCoreEcho:
     let inv = resp.methodResponses[0]
     doAssert inv.rawName == "Core/echo",
       "method name must be Core/echo (got " & inv.rawName & ")"
-    doAssert string(inv.methodCallId) == "c0",
-      "callId must be c0 (got " & string(inv.methodCallId) & ")"
+    doAssert $inv.methodCallId == "c0",
+      "callId must be c0 (got " & $inv.methodCallId & ")"
     doAssert ($resp.sessionState).len > 0, "sessionState must be non-empty"
     doAssert inv.arguments.kind == JObject, "arguments must be a JObject"
     doAssert inv.arguments{"hello"}.getBool(false), "echo args carry hello=true"

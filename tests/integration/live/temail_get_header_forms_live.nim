@@ -36,19 +36,14 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailGetHeaderFormsLive:
+testCase temailGetHeaderFormsLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -92,10 +87,11 @@ block temailGetHeaderFormsLive:
       parseCreationId("seedHeaders").expect("parseCreationId[" & $target.kind & "]")
     var createTbl = initTable[CreationId, EmailBlueprint]()
     createTbl[cid] = blueprintOk
-    let (bSeed, seedHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
+    let (bSeed, seedHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+    )
     let seedResp =
-      client.send(bSeed).expect("send Email/set seed[" & $target.kind & "]")
+      client.send(bSeed.freeze()).expect("send Email/set seed[" & $target.kind & "]")
     let seedSet =
       seedResp.get(seedHandle).expect("Email/set seed extract[" & $target.kind & "]")
     var seededId: Id
@@ -111,35 +107,39 @@ block temailGetHeaderFormsLive:
       assertOn target, false, "Email/set returned no result for creationId"
     assertOn target, found
 
-    let (b, getHandle) = addEmailGet(
-      initRequestBuilder(),
+    let (b, getHandle) = addPartialEmailGet(
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(
-        @[
-          "id", "header:List-Post:asURLs", "header:Date:asDate",
-          "header:From:asAddresses",
-        ]
-      ),
+      properties = parseNonEmptySeq(
+          @[
+            egpId,
+            emailGetHeader(parseHeaderPropertyName("header:List-Post:asURLs").get()),
+            emailGetHeader(parseHeaderPropertyName("header:Date:asDate").get()),
+            emailGetHeader(parseHeaderPropertyName("header:From:asAddresses").get()),
+          ]
+        )
+        .get(),
     )
-    let resp =
-      client.send(b).expect("send Email/get header forms[" & $target.kind & "]")
-    captureIfRequested(client, "email-header-forms-" & $target.kind).expect(
-      "captureIfRequested"
-    )
+    let resp = client.send(b.freeze()).expect(
+        "send Email/get header forms[" & $target.kind & "]"
+      )
+    captureIfRequested(recorder.lastResponseBody, "email-header-forms-" & $target.kind)
+      .expect("captureIfRequested")
     let getResp =
       resp.get(getHandle).expect("Email/get header forms extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let email =
-      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    let email = getResp.list[0]
+    let requestedHeaders =
+      email.requestedHeaders.valueOr(initTable[HeaderPropertyKey, HeaderValue]())
 
     let listPostKey = parseHeaderPropertyName("header:List-Post:asURLs").expect(
         "listPostKey[" & $target.kind & "]"
       )
-    let listPostHv = email.requestedHeaders.getOrDefault(listPostKey)
+    let listPostHv = requestedHeaders.getOrDefault(listPostKey)
     assertOn target,
-      listPostKey in email.requestedHeaders, "header:List-Post:asURLs must be present"
+      listPostKey in requestedHeaders, "header:List-Post:asURLs must be present"
     assertOn target,
       listPostHv.form == hfUrls, "List-Post HeaderValue must carry hfUrls form"
     assertOn target,
@@ -152,9 +152,8 @@ block temailGetHeaderFormsLive:
     let dateKey = parseHeaderPropertyName("header:Date:asDate").expect(
         "dateKey[" & $target.kind & "]"
       )
-    assertOn target,
-      dateKey in email.requestedHeaders, "header:Date:asDate must be present"
-    let dateHv = email.requestedHeaders.getOrDefault(dateKey)
+    assertOn target, dateKey in requestedHeaders, "header:Date:asDate must be present"
+    let dateHv = requestedHeaders.getOrDefault(dateKey)
     assertOn target, dateHv.form == hfDate, "Date HeaderValue must carry hfDate form"
     assertOn target,
       dateHv.date.isSome, "Date hfDate payload must parse — server returned non-null"
@@ -163,8 +162,8 @@ block temailGetHeaderFormsLive:
         "fromKey[" & $target.kind & "]"
       )
     assertOn target,
-      fromKey in email.requestedHeaders, "header:From:asAddresses must be present"
-    let fromHv = email.requestedHeaders.getOrDefault(fromKey)
+      fromKey in requestedHeaders, "header:From:asAddresses must be present"
+    let fromHv = requestedHeaders.getOrDefault(fromKey)
     assertOn target,
       fromHv.form == hfAddresses, "From HeaderValue must carry hfAddresses form"
     assertOn target,
@@ -173,4 +172,3 @@ block temailGetHeaderFormsLive:
     assertOn target,
       fromHv.addresses[0].email == "alice@example.com",
       "From address must be alice@example.com (got " & fromHv.addresses[0].email & ")"
-    client.close()

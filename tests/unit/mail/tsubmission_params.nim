@@ -28,14 +28,15 @@ import std/json
 import std/sugar
 import std/tables
 
-import jmap_client/primitives
-import jmap_client/validation
-import jmap_client/mail/submission_atoms
-import jmap_client/mail/submission_param
-import jmap_client/mail/serde_submission_envelope
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/submission_atoms
+import jmap_client/internal/mail/submission_param
+import jmap_client/internal/mail/serde_submission_envelope
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 proc keysOf(j: JsonNode): seq[string] =
   ## Extracts JSON object field names in insertion order. ``JObject.fields``
@@ -52,7 +53,7 @@ proc keysOf(j: JsonNode): seq[string] =
 # §A. Per-variant matrix — one block per SubmissionParamKind
 # ===========================================================================
 
-block submissionParamBodyValidEncodings:
+testCase submissionParamBodyValidEncodings:
   # G2 §8.7 row spkBody. ``BodyEncoding`` is a closed enum
   # (submission_param.nim:33-39) — the param constructor is
   # unconditional (line 168) and there is no value-level invalid path.
@@ -61,16 +62,16 @@ block submissionParamBodyValidEncodings:
   for e in [beSevenBit, beEightBitMime, beBinaryMime]:
     let p = bodyParam(e)
     doAssert p.kind == spkBody
-    doAssert p.bodyEncoding == e
+    doAssert p.asBody.get() == e
 
-block submissionParamSmtpUtf8Nullary:
+testCase submissionParamSmtpUtf8Nullary:
   # G2 §8.7 row spkSmtpUtf8. Nullary variant (case object arm at
   # submission_param.nim:138-139 is ``discard``); the discriminator IS
   # the entire payload. ``smtpUtf8Param()`` is unconditional.
   let p = smtpUtf8Param()
   doAssert p.kind == spkSmtpUtf8
 
-block submissionParamSizeAcceptsZeroAndUpperBound:
+testCase submissionParamSizeAcceptsZeroAndUpperBound:
   # G2 §8.7 row spkSize. ``sizeParam`` is unconditional; payload bounds
   # are enforced by upstream ``parseUnsignedInt`` (primitives.nim:88-91).
   # Boundary literal: ``"must be non-negative"`` at primitives.nim:89
@@ -79,28 +80,28 @@ block submissionParamSizeAcceptsZeroAndUpperBound:
   assertOk zero
   let p0 = sizeParam(zero.get())
   doAssert p0.kind == spkSize
-  assertEq int64(p0.sizeOctets), 0'i64
+  assertEq p0.asSize.get().toInt64, 0'i64
   # 2^53 - 1 — the JSON-safe upper bound enforced at primitives.nim:91.
   let upper = parseUnsignedInt(9007199254740991'i64)
   assertOk upper
   let pHi = sizeParam(upper.get())
   doAssert pHi.kind == spkSize
-  assertEq int64(pHi.sizeOctets), 9007199254740991'i64
+  assertEq pHi.asSize.get().toInt64, 9007199254740991'i64
   let bad = parseUnsignedInt(-1)
   assertErr bad
   assertEq bad.error.typeName, "UnsignedInt"
-  assertEq bad.error.message, "must be non-negative"
+  assertEq bad.error.reason, "must be non-negative"
 
-block submissionParamEnvidStoresInputBytesUnchanged:
+testCase submissionParamEnvidStoresInputBytesUnchanged:
   # G2 §8.7 row spkEnvid. ``envidParam`` is unconditional and stores
   # decoded bytes verbatim (submission_param.nim:176-180 — xtext wire
   # encoding belongs to serde, design §7.2 / G27). No value-level
   # validation at L1; emptiness and xtext shape are owned by Step 12.
   let p = envidParam("envid-1")
   doAssert p.kind == spkEnvid
-  assertEq p.envid, "envid-1"
+  assertEq p.asEnvid.get(), "envid-1"
 
-block submissionParamRetFullAndHdrs:
+testCase submissionParamRetFullAndHdrs:
   # G2 §8.7 row spkRet. ``DsnRetType`` is a closed enum
   # (submission_param.nim:41-46) — ``retParam`` is unconditional. No
   # value-level invalid path; wire-side rejection of unknown tokens
@@ -108,9 +109,9 @@ block submissionParamRetFullAndHdrs:
   for t in [retFull, retHdrs]:
     let p = retParam(t)
     doAssert p.kind == spkRet
-    doAssert p.retType == t
+    doAssert p.asRet.get() == t
 
-block submissionParamNotifyValidShapes:
+testCase submissionParamNotifyValidShapes:
   # G2 §8.7 row spkNotify (valid representatives only — mutex and
   # empty-set rejection live in §B). Three RFC 3461 §4.1 wire-legal
   # combinations: any non-empty subset of SUCCESS/FAILURE/DELAY, and
@@ -118,15 +119,15 @@ block submissionParamNotifyValidShapes:
   let r1 = notifyParam({dnfSuccess})
   assertOk r1
   doAssert r1.get().kind == spkNotify
-  doAssert r1.get().notifyFlags == {dnfSuccess}
+  doAssert r1.get().asNotify.get().flags == {dnfSuccess}
   let r2 = notifyParam({dnfFailure, dnfDelay})
   assertOk r2
-  doAssert r2.get().notifyFlags == {dnfFailure, dnfDelay}
+  doAssert r2.get().asNotify.get().flags == {dnfFailure, dnfDelay}
   let r3 = notifyParam({dnfNever})
   assertOk r3
-  doAssert r3.get().notifyFlags == {dnfNever}
+  doAssert r3.get().asNotify.get().flags == {dnfNever}
 
-block submissionParamOrcptParserPath:
+testCase submissionParamOrcptParserPath:
   # G2 §8.7 row spkOrcpt. ``orcptParam`` is unconditional; the
   # addr-type atom is gated by upstream ``parseOrcptAddrType``
   # (submission_atoms.nim:149-153). Boundary literal: ``"must not be
@@ -135,14 +136,15 @@ block submissionParamOrcptParserPath:
   assertOk at
   let p = orcptParam(at.get(), "alice@example.com")
   doAssert p.kind == spkOrcpt
-  assertEq $p.orcptAddrType, "rfc822"
-  assertEq p.orcptOrigRecipient, "alice@example.com"
+  let orcpt = p.asOrcpt.get()
+  assertEq $orcpt[0], "rfc822"
+  assertEq orcpt[1], "alice@example.com"
   let bad = parseOrcptAddrType("")
   assertErr bad
   assertEq bad.error.typeName, "OrcptAddrType"
-  assertEq bad.error.message, "must not be empty"
+  assertEq bad.error.reason, "must not be empty"
 
-block submissionParamHoldForInfallibleWrap:
+testCase submissionParamHoldForInfallibleWrap:
   # G2 §8.7 row spkHoldFor. ``parseHoldForSeconds`` is infallible by
   # design (submission_param.nim:78-84 docstring) — ``UnsignedInt``
   # already enforces the JSON-safe bound at its own constructor, so
@@ -152,9 +154,9 @@ block submissionParamHoldForInfallibleWrap:
   assertOk secs
   let p = holdForParam(secs.get())
   doAssert p.kind == spkHoldFor
-  assertEq int64(UnsignedInt(p.holdFor)), 600'i64
+  assertEq p.asHoldFor.get().toInt64, 600'i64
 
-block submissionParamHoldUntilParserPath:
+testCase submissionParamHoldUntilParserPath:
   # G2 §8.7 row spkHoldUntil. ``holdUntilParam`` is unconditional;
   # the absolute-time payload is gated by upstream ``parseUtcDate``
   # (primitives.nim:271-278). Empty input triggers ``dvTooShort``
@@ -164,13 +166,13 @@ block submissionParamHoldUntilParserPath:
   assertOk d
   let p = holdUntilParam(d.get())
   doAssert p.kind == spkHoldUntil
-  assertEq $p.holdUntil, "2026-01-15T09:00:00Z"
+  assertEq $p.asHoldUntil.get(), "2026-01-15T09:00:00Z"
   let bad = parseUtcDate("")
   assertErr bad
   assertEq bad.error.typeName, "UTCDate"
-  assertEq bad.error.message, "too short for RFC 3339 date-time"
+  assertEq bad.error.reason, "too short for RFC 3339 date-time"
 
-block submissionParamByDeadlineAndMode:
+testCase submissionParamByDeadlineAndMode:
   # G2 §8.7 row spkBy. ``byParam`` is unconditional. ``DeliveryByMode``
   # (submission_param.nim:57-64) is a closed enum — wire-side rejection
   # of unknown mode suffixes is owned by Step 12. Cover all four valid
@@ -180,10 +182,11 @@ block submissionParamByDeadlineAndMode:
   for m in [dbmReturn, dbmNotify, dbmReturnTrace, dbmNotifyTrace]:
     let p = byParam(deadline.get(), m)
     doAssert p.kind == spkBy
-    doAssert p.byMode == m
-    assertEq int64(p.byDeadline), 123'i64
+    let by = p.asBy.get()
+    doAssert by[1] == m
+    assertEq by[0].toInt64, 123'i64
 
-block submissionParamMtPriorityRangeBoundary:
+testCase submissionParamMtPriorityRangeBoundary:
   # G2 §8.7 row spkMtPriority. Validation lives in upstream
   # ``parseMtPriority`` (submission_param.nim:99-103); the param
   # constructor ``mtPriorityParam`` is unconditional. Boundary literal:
@@ -193,81 +196,83 @@ block submissionParamMtPriorityRangeBoundary:
     assertOk mp
     let p = mtPriorityParam(mp.get())
     doAssert p.kind == spkMtPriority
-    assertEq int(p.mtPriority), raw
+    assertEq p.asMtPriority.get().toInt, raw
   for raw in [-10, 10]:
     let res = parseMtPriority(raw)
     assertErr res
     assertEq res.error.typeName, "MtPriority"
-    assertEq res.error.message, "must be in range -9..9"
+    assertEq res.error.reason, "must be in range -9..9"
     assertEq res.error.value, $raw
 
-block submissionParamExtensionWithKeywordAndOptValue:
+testCase submissionParamExtensionWithKeywordAndOptValue:
   # G2 §8.7 row spkExtension. ``extensionParam`` is unconditional; the
   # keyword name is gated by upstream ``parseRFC5321Keyword``
   # (submission_atoms.nim:95-101). Empty input triggers
   # ``kvLengthOutOfRange`` (length 0 < 1 at submission_atoms.nim:87);
   # boundary literal: ``"length must be 1-64 octets"`` at
   # submission_atoms.nim:78.
-  let kw = parseRFC5321Keyword("X-VENDOR-FOO")
-  assertOk kw
-  let pWith = extensionParam(kw.get(), Opt.some("bar"))
+  let kwRes = parseRFC5321Keyword("X-VENDOR-FOO")
+  assertOk kwRes
+  let kw = kwRes.get()
+  let pWith = extensionParam(kw, Opt.some("bar"))
   doAssert pWith.kind == spkExtension
-  assertEq $pWith.extName, "X-VENDOR-FOO"
-  doAssert pWith.extValue.isSome
-  assertEq pWith.extValue.get(), "bar"
-  let pNone = extensionParam(kw.get(), Opt.none(string))
+  let extWith = pWith.asExtension.get()
+  assertEq $extWith[0], "X-VENDOR-FOO"
+  doAssert extWith[1].isSome
+  assertEq extWith[1].get(), "bar"
+  let pNone = extensionParam(kw, Opt.none(string))
   doAssert pNone.kind == spkExtension
-  doAssert pNone.extValue.isNone
+  doAssert pNone.asExtension.get()[1].isNone
   let bad = parseRFC5321Keyword("")
   assertErr bad
   assertEq bad.error.typeName, "RFC5321Keyword"
-  assertEq bad.error.message, "length must be 1-64 octets"
+  assertEq bad.error.reason, "length must be 1-64 octets"
 
 # ===========================================================================
 # §B. NOTIFY mutual-exclusion and empty-set rejection
 # ===========================================================================
 
-block submissionParamNotifyMutualExclusionAndEmptyRejection:
-  # Grep-locked literals from submission_param.nim:201-214 (notifyParam):
-  #   typeName = "SubmissionParam"
-  #   emptyMsg = "NOTIFY flags must not be empty"   (line 206)
+testCase submissionParamNotifyMutualExclusionAndEmptyRejection:
+  # The RFC 3461 §4.1 invariant now lives in ``parseNotifySet`` (A30b), so
+  # ``notifyParam`` surfaces a ``NotifySet`` validation error verbatim:
+  #   typeName = "NotifySet"
+  #   emptyMsg = "NOTIFY flags must not be empty"
   #   mutexMsg = "NOTIFY=NEVER is mutually exclusive with SUCCESS/FAILURE/DELAY"
-  #              (line 211)
   block:
     let res = notifyParam({})
     assertErr res
-    assertEq res.error.typeName, "SubmissionParam"
-    assertEq res.error.message, "NOTIFY flags must not be empty"
+    assertEq res.error.typeName, "NotifySet"
+    assertEq res.error.reason, "NOTIFY flags must not be empty"
   block:
     let res = notifyParam({dnfNever, dnfSuccess})
     assertErr res
-    assertEq res.error.typeName, "SubmissionParam"
-    assertEq res.error.message,
+    assertEq res.error.typeName, "NotifySet"
+    assertEq res.error.reason,
       "NOTIFY=NEVER is mutually exclusive with SUCCESS/FAILURE/DELAY"
   block:
     let res = notifyParam({dnfNever, dnfFailure})
     assertErr res
-    assertEq res.error.message,
+    assertEq res.error.reason,
       "NOTIFY=NEVER is mutually exclusive with SUCCESS/FAILURE/DELAY"
   block:
     let res = notifyParam({dnfNever, dnfDelay})
     assertErr res
-    assertEq res.error.message,
+    assertEq res.error.reason,
       "NOTIFY=NEVER is mutually exclusive with SUCCESS/FAILURE/DELAY"
   block:
     let res = notifyParam({dnfNever, dnfSuccess, dnfFailure, dnfDelay})
     assertErr res
-    assertEq res.error.message,
+    assertEq res.error.reason,
       "NOTIFY=NEVER is mutually exclusive with SUCCESS/FAILURE/DELAY"
 
 # ===========================================================================
 # §C. SubmissionParamKey identity enumeration
 # ===========================================================================
 
-block submissionParamKeyIdentityDiscriminatorMatrix:
+testCase submissionParamKeyIdentityDiscriminatorMatrix:
   # 144-cell enumeration of SubmissionParamKind × SubmissionParamKind.
   # Native enum fold per G2 §8.8 mandatory note (precedent
-  # tests/unit/terrors.nim — ``for kind in SetErrorType:``). paramKey
+  # tests/unit/terrors.nim — ``for kind in SetErrorKind:``). paramKey
   # collapses 11 nullary arms to a kind-only key; spkExtension carries
   # an RFC5321Keyword name. With makeSubmissionParam returning a fixed
   # default extension name ("X-TEST" per mfixtures.nim:2049) for
@@ -284,7 +289,7 @@ block submissionParamKeyIdentityDiscriminatorMatrix:
         doAssert key1 != key2,
           "expected distinct keys for distinct kinds: " & $k1 & " vs " & $k2
 
-block submissionParamKeyExtensionNamePartitions:
+testCase submissionParamKeyExtensionNamePartitions:
   # Within spkExtension, distinct keyword names ⇒ distinct keys; the
   # case-folded equality on RFC5321Keyword (submission_atoms.nim:51-54)
   # ⇒ "X-FOO" and "x-foo" yield the same key. The carried Opt[string]
@@ -306,7 +311,7 @@ block submissionParamKeyExtensionNamePartitions:
 # §D. paramKey derivation totality
 # ===========================================================================
 
-block paramKeyDerivationTotality:
+testCase paramKeyDerivationTotality:
   # For every SubmissionParamKind, paramKey returns a key whose
   # discriminator matches the input. Pattern 6 derived-not-stored:
   # paramKey is the single source of truth for parameter identity
@@ -321,7 +326,7 @@ block paramKeyDerivationTotality:
 # §E. SubmissionParams.toJson preserves insertion order
 # ===========================================================================
 
-block submissionParamsToJsonPreservesDeclarationOrder:
+testCase submissionParamsToJsonPreservesDeclarationOrder:
   # Sequence 1: all 11 well-known variants in SubmissionParamKind
   # declaration order (BODY → MT-PRIORITY).
   # toJson(SubmissionParams) iterates the underlying OrderedTable
@@ -341,7 +346,7 @@ block submissionParamsToJsonPreservesDeclarationOrder:
       "HOLDUNTIL", "BY", "MT-PRIORITY",
     ]
 
-block submissionParamsToJsonPreservesReverseOrder:
+testCase submissionParamsToJsonPreservesReverseOrder:
   # Sequence 2: reverse declaration order (MT-PRIORITY → BODY).
   # Build forward via the native enum iterator (avoids the
   # ``SubmissionParamKind(int)`` round-trip that --warningAsError:
@@ -360,18 +365,19 @@ block submissionParamsToJsonPreservesReverseOrder:
       "SIZE", "SMTPUTF8", "BODY",
     ]
 
-block submissionParamsToJsonPreservesShuffledOrderWithExtension:
+testCase submissionParamsToJsonPreservesShuffledOrderWithExtension:
   # Sequence 3: interleaved with the open-world variant at a known
   # position. Verifies that spkExtension renders as its keyword name
   # ("X-VENDOR-FOO") rather than the discriminator label "EXTENSION"
   # — the case branch at serde_submission_envelope.nim:377 takes
   # ``$key.extName`` for spkExtension.
-  let extName = parseRFC5321Keyword("X-VENDOR-FOO")
-  assertOk extName
+  let extNameRes = parseRFC5321Keyword("X-VENDOR-FOO")
+  assertOk extNameRes
+  let extName = extNameRes.get()
   let items = @[
     makeSubmissionParam(spkSize),
     makeSubmissionParam(spkBody),
-    extensionParam(extName.get(), Opt.some("bar")),
+    extensionParam(extName, Opt.some("bar")),
     makeSubmissionParam(spkRet),
     makeSubmissionParam(spkNotify),
   ]

@@ -54,12 +54,13 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
+import jmap_client/internal/mail/mail_entities
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tcombinedChangesLive:
+testCase tcombinedChangesLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises the dispatch-layer demux of three
     # heterogeneous typed handles in one Request envelope. Convergence
@@ -69,12 +70,7 @@ block tcombinedChangesLive:
     # convergence loop is best-effort; the universal client-library
     # contract is the wire-shape demux of three distinct
     # ResponseHandle[T] arms.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -101,9 +97,11 @@ block tcombinedChangesLive:
 
     # --- Mutate: destroy the step-47 mailbox + seed an email ------------
     let (bDestroy, destroyHandle) = addMailboxSet(
-      initRequestBuilder(), mailAccountId, destroy = directIds(@[tempMailboxId])
+      initRequestBuilder(makeBuilderId()),
+      mailAccountId,
+      destroy = directIds(@[tempMailboxId]),
     )
-    let respDestroy = client.send(bDestroy).expect(
+    let respDestroy = client.send(bDestroy.freeze()).expect(
         "send Mailbox/set destroy step-47 child[" & $target.kind & "]"
       )
     let destroyResp = respDestroy.get(destroyHandle).expect(
@@ -133,14 +131,16 @@ block tcombinedChangesLive:
     var capturedEmailCr: ChangesResponse[Email]
     for attempt in 0 ..< 5:
       let (b1, mailboxH) = addMailboxChanges(
-        initRequestBuilder(), mailAccountId, sinceState = baselineMailboxState
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        sinceState = baselineMailboxState,
       )
-      let (b2, threadH) = addChanges[jmap_client.Thread](
-        b1, mailAccountId, sinceState = baselineThreadState
-      )
+      let (b2, threadH) =
+        addThreadChanges(b1, mailAccountId, sinceState = baselineThreadState)
       let (b3, emailH) =
-        addChanges[Email](b2, mailAccountId, sinceState = baselineEmailState)
-      let resp = client.send(b3).expect("send combined */changes[" & $target.kind & "]")
+        addEmailChanges(b2, mailAccountId, sinceState = baselineEmailState)
+      let resp =
+        client.send(b3.freeze()).expect("send combined */changes[" & $target.kind & "]")
       # Cat-B: any extract may surface a typed error
       # (``cannotCalculateChanges`` on a state-history-windowed server
       # like Cyrus 3.12.2). Skip the iteration on extract failure;
@@ -156,7 +156,8 @@ block tcombinedChangesLive:
       let emailCr = emailExtract.unsafeValue
       if threadCr.created.len + threadCr.updated.len >= 1:
         captureIfRequested(
-          client, "combined-changes-mailbox-thread-email-" & $target.kind
+          recorder.lastResponseBody,
+          "combined-changes-mailbox-thread-email-" & $target.kind,
         )
           .expect("captureIfRequested[" & $target.kind & "]")
         capturedMailboxCr = mailboxCr
@@ -169,13 +170,13 @@ block tcombinedChangesLive:
       # Strict path — runs on configured targets that propagate the
       # Email/set cascade through Thread/changes.
       assertOn target,
-        string(capturedMailboxCr.oldState) == string(baselineMailboxState),
+        $capturedMailboxCr.oldState == $baselineMailboxState,
         "Mailbox/changes oldState must echo baseline"
       assertOn target,
-        string(capturedThreadCr.oldState) == string(baselineThreadState),
+        $capturedThreadCr.oldState == $baselineThreadState,
         "Thread/changes oldState must echo baseline"
       assertOn target,
-        string(capturedEmailCr.oldState) == string(baselineEmailState),
+        $capturedEmailCr.oldState == $baselineEmailState,
         "Email/changes oldState must echo baseline"
       assertOn target,
         tempMailboxId in capturedMailboxCr.destroyed,
@@ -199,7 +200,7 @@ block tcombinedChangesLive:
       # whichever non-converged response we have so the captured-
       # replay corpus preserves the naive-Thread/changes wire shape.
       captureIfRequested(
-        client, "combined-changes-mailbox-thread-email-" & $target.kind
+        recorder.lastResponseBody,
+        "combined-changes-mailbox-thread-email-" & $target.kind,
       )
         .expect("captureIfRequested[" & $target.kind & "]")
-    client.close()

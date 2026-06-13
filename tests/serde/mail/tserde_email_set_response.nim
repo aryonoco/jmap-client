@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Serde tests for the Email/set response (now ``SetResponse[EmailCreatedItem]``
+## Serde tests for the Email/set response (now ``SetResponse[EmailCreatedItem, PartialEmail]``
 ## after the generic-typed createResults promotion) and ``EmailCreatedItem``.
 ## Pins the merged ``createResults`` / ``updateResults`` / ``destroyResults``
 ## shape, RFC 8620 §5.3 ``Foo|null`` three-state semantics now encoded as
@@ -13,21 +13,23 @@
 import std/json
 import std/tables
 
-import jmap_client/mail/email
-import jmap_client/mail/serde_email
-import jmap_client/methods
-import jmap_client/errors
-import jmap_client/identifiers
-import jmap_client/primitives
-import jmap_client/serde
-import jmap_client/validation
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/serde_email
+import jmap_client/internal/protocol/methods
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/field_echo
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
-# ============= A. SetResponse[EmailCreatedItem].fromJson envelope shape =====
+# ============= A. SetResponse[EmailCreatedItem, PartialEmail].fromJson envelope shape =====
 
-block setResponseEmailEnvelopeShape:
+testCase setResponseEmailEnvelopeShape:
   ## Wire envelope merges to a six-field record: accountId, oldState,
   ## newState, createResults, updateResults, destroyResults.
   let node = %*{
@@ -41,7 +43,7 @@ block setResponseEmailEnvelopeShape:
     "notUpdated": {"e4": {"type": "serverFail"}},
     "notDestroyed": {"e5": {"type": "serverFail"}},
   }
-  let res = SetResponse[EmailCreatedItem].fromJson(node)
+  let res = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node)
   assertOk res
   let r = res.get()
   assertEq r.accountId, makeAccountId("acct1")
@@ -57,7 +59,7 @@ block setResponseEmailEnvelopeShape:
   doAssert r.destroyResults[makeId("e3")].isOk
   doAssert r.destroyResults[makeId("e5")].isErr
 
-block setResponseEmailMergeCreateResults:
+testCase setResponseEmailMergeCreateResults:
   ## ``mergeCreateResults[EmailCreatedItem]`` (methods.nim) fans the wire's
   ## separate ``created`` and ``notCreated`` maps into a single
   ## ``Table[CreationId, Result[EmailCreatedItem, SetError]]``: one Ok per
@@ -69,7 +71,7 @@ block setResponseEmailMergeCreateResults:
     "created": {"k0": {"id": "e1", "blobId": "b1", "threadId": "t1", "size": 100}},
     "notCreated": {"k1": {"type": "invalidProperties"}},
   }
-  let r = SetResponse[EmailCreatedItem].fromJson(node).get()
+  let r = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node).get()
   assertLen r.createResults, 2
   let kOk = makeCreationId("k0")
   let kErr = makeCreationId("k1")
@@ -81,7 +83,7 @@ block setResponseEmailMergeCreateResults:
 
 # ============= B. EmailCreatedItem.fromJson =================================
 
-block emailCreatedItemMinimalConstruction:
+testCase emailCreatedItemMinimalConstruction:
   let node = %*{"id": "e1", "blobId": "b1", "threadId": "t1", "size": 42}
   let res = EmailCreatedItem.fromJson(node)
   assertOk res
@@ -91,7 +93,7 @@ block emailCreatedItemMinimalConstruction:
   assertEq item.threadId, makeId("t1")
   assertEq item.size, parseUnsignedInt(42).get()
 
-block emailCreatedItemMissingSizeRejected:
+testCase emailCreatedItemMissingSizeRejected:
   ## Per RFC 8621 §§4.6/4.7/4.8 the server MUST emit all four fields on a
   ## successful create; a server omitting ``size`` has produced a malformed
   ## response and we reject at the parser rather than defaulting silently.
@@ -100,61 +102,64 @@ block emailCreatedItemMissingSizeRejected:
 
 # ============= C. ``updated`` three-state inside the merged map =============
 
-block updatedTopLevelAbsentProducesEmpty:
+testCase updatedTopLevelAbsentProducesEmpty:
   ## Wire ``updated`` absent → empty ``updateResults`` table.
   let node = %*{"accountId": "acct1", "newState": "s1"}
-  let r = SetResponse[EmailCreatedItem].fromJson(node).get()
+  let r = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node).get()
   assertLen r.updateResults, 0
 
-block updatedTopLevelEmptyObjectProducesEmpty:
+testCase updatedTopLevelEmptyObjectProducesEmpty:
   ## Wire ``updated: {}`` → empty ``updateResults`` table; the merged
   ## representation does not distinguish absent from empty-object at the
   ## map level (RFC 8620 §5.3 ``Id[Foo|null]|null`` outer Opt).
   let node = %*{"accountId": "acct1", "newState": "s1", "updated": {}}
-  let r = SetResponse[EmailCreatedItem].fromJson(node).get()
+  let r = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node).get()
   assertLen r.updateResults, 0
 
-block updatedEntryNullVsEmptyObjectDistinct:
+testCase updatedEntryNullVsEmptyObjectDistinct:
   ## RFC 8620 §5.3 ``Foo|null`` inner split survives the merge:
   ## wire ``{id: null}`` → ``ok(Opt.none(JsonNode))`` (server made no
   ## changes the client doesn't already know);
-  ## wire ``{id: {}}`` → ``ok(Opt.some(empty JObject))`` (server altered
-  ## something, the changed-property map is just empty). The two encodings
-  ## stay distinct on the Ok rail.
+  ## wire ``{id: {}}`` → ``ok(Opt.some(empty PartialEmail))`` (server
+  ## altered something, but the partial echo elided every property). The
+  ## two encodings stay distinct on the Ok rail (A4 D2).
   let nullNode = %*{"accountId": "acct1", "newState": "s1", "updated": {"e2": nil}}
   let emptyNode = %*{"accountId": "acct1", "newState": "s1", "updated": {"e2": {}}}
-  let rNull = SetResponse[EmailCreatedItem].fromJson(nullNode).get()
-  let rEmpty = SetResponse[EmailCreatedItem].fromJson(emptyNode).get()
+  let rNull = SetResponse[EmailCreatedItem, PartialEmail].fromJson(nullNode).get()
+  let rEmpty = SetResponse[EmailCreatedItem, PartialEmail].fromJson(emptyNode).get()
   let id = makeId("e2")
   doAssert rNull.updateResults[id].isOk
   doAssert rNull.updateResults[id].get().isNone
   doAssert rEmpty.updateResults[id].isOk
   doAssert rEmpty.updateResults[id].get().isSome
-  doAssert rEmpty.updateResults[id].get().get().kind == JObject
-  doAssert rEmpty.updateResults[id].get().get().len == 0
+  # Every PartialEmail field absent — both ``Opt`` fields and ``FieldEcho``
+  # fields uniformly project to "no echo" when the wire object is empty.
+  let partial = rEmpty.updateResults[id].get().get()
+  doAssert partial.id.isNone
+  doAssert partial.subject.kind == fekAbsent
 
 # ============= D. ``destroyed`` three-state inside the merged map ===========
 
-block destroyedAbsentProducesEmpty:
+testCase destroyedAbsentProducesEmpty:
   let node = %*{"accountId": "acct1", "newState": "s1"}
-  let r = SetResponse[EmailCreatedItem].fromJson(node).get()
+  let r = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node).get()
   assertLen r.destroyResults, 0
 
-block destroyedEmptyArrayProducesEmpty:
+testCase destroyedEmptyArrayProducesEmpty:
   let node = %*{"accountId": "acct1", "newState": "s1", "destroyed": []}
-  let r = SetResponse[EmailCreatedItem].fromJson(node).get()
+  let r = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node).get()
   assertLen r.destroyResults, 0
 
-block destroyedTwoElementProducesTwoOks:
+testCase destroyedTwoElementProducesTwoOks:
   let node = %*{"accountId": "acct1", "newState": "s1", "destroyed": ["id1", "id2"]}
-  let r = SetResponse[EmailCreatedItem].fromJson(node).get()
+  let r = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node).get()
   assertLen r.destroyResults, 2
   doAssert r.destroyResults[makeId("id1")].isOk
   doAssert r.destroyResults[makeId("id2")].isOk
 
 # ============= E. Round-trip =================================================
 
-block setResponseEmailRoundTrip:
+testCase setResponseEmailRoundTrip:
   var cr = initTable[CreationId, Result[EmailCreatedItem, SetError]]()
   let item = EmailCreatedItem(
     id: makeId("e1"), blobId: makeBlobId("b1"), threadId: makeId("t1"), size: zeroUint()
@@ -169,7 +174,7 @@ block setResponseEmailRoundTrip:
     createResults = cr,
   )
   let node = original.toJson()
-  let reparsed = SetResponse[EmailCreatedItem].fromJson(node).get()
+  let reparsed = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node).get()
   assertEq reparsed.accountId, original.accountId
   assertEq reparsed.newState, original.newState
   assertEq reparsed.oldState, original.oldState

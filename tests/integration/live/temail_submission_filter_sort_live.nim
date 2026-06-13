@@ -52,28 +52,27 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
-import jmap_client/mail/identity as jidentity
+import jmap_client/internal/mail/identity as jidentity
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 proc resolveOrCreateSecondaryAliceIdentity(
-    client: var JmapClient, submissionAccountId: AccountId, displayName: string
+    client: JmapClient, submissionAccountId: AccountId, displayName: string
 ): Result[Id, string] =
   ## Sibling of ``resolveOrCreateAliceIdentity`` that targets a
   ## distinct display name on the same email address — the corpus
   ## needs two identities to make the ``identityIds`` filter
   ## discriminating.  Idempotent across runs: the lookup precedes
   ## every create.
-  let (b1, getHandle) = addIdentityGet(initRequestBuilder(), submissionAccountId)
-  let resp1 = client.send(b1).valueOr:
+  let (b1, getHandle) =
+    addIdentityGet(initRequestBuilder(makeBuilderId()), submissionAccountId)
+  let resp1 = client.send(b1.freeze()).valueOr:
     return err("Identity/get send failed: " & error.message)
   let getResp = resp1.get(getHandle).valueOr:
-    return err("Identity/get extract failed: " & error.rawType)
-  for node in getResp.list:
-    let ident = jidentity.Identity.fromJson(node).valueOr:
-      return err("Identity parse failed during secondary lookup")
+    return err("Identity/get extract failed: " & error.message)
+  for ident in getResp.list:
     if ident.email == "alice@example.com" and ident.name == displayName:
       return ok(ident.id)
   let createIdent = parseIdentityCreate(email = "alice@example.com", name = displayName).valueOr:
@@ -83,12 +82,14 @@ proc resolveOrCreateSecondaryAliceIdentity(
   var createTbl = initTable[CreationId, IdentityCreate]()
   createTbl[cid] = createIdent
   let (b2, setHandle) = addIdentitySet(
-    initRequestBuilder(), submissionAccountId, create = Opt.some(createTbl)
+    initRequestBuilder(makeBuilderId()),
+    submissionAccountId,
+    create = Opt.some(createTbl),
   )
-  let resp2 = client.send(b2).valueOr:
+  let resp2 = client.send(b2.freeze()).valueOr:
     return err("Identity/set send failed: " & error.message)
   let setResp = resp2.get(setHandle).valueOr:
-    return err("Identity/set extract failed: " & error.rawType)
+    return err("Identity/set extract failed: " & error.message)
   var createdId: Id
   var found = false
   setResp.createResults.withValue(cid, outcome):
@@ -101,7 +102,7 @@ proc resolveOrCreateSecondaryAliceIdentity(
   doAssert found
   ok(createdId)
 
-block temailSubmissionFilterSortLive:
+testCase temailSubmissionFilterSortLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises EmailSubmission/{query,queryChanges}
     # filter + sort. Stalwart 0.15.5 and Cyrus 3.12.2 implement both;
@@ -109,12 +110,7 @@ block temailSubmissionFilterSortLive:
     # typed errors. Each extract uses ``assertSuccessOrTypedError``;
     # dependent steps skip when an upstream extract surfaces a typed
     # error.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -137,19 +133,17 @@ block temailSubmissionFilterSortLive:
       client, submissionAccountId, "phase-i 60 secondary"
     )
     if secondaryRes.isErr:
-      client.close()
       continue
     let secondaryId = secondaryRes.unsafeValue
 
     # Baseline EmailSubmission/query queryState (no filter).
     let (bBase, baseHandle) =
-      addEmailSubmissionQuery(initRequestBuilder(), submissionAccountId)
-    let respBase = client.send(bBase).expect(
+      addEmailSubmissionQuery(initRequestBuilder(makeBuilderId()), submissionAccountId)
+    let respBase = client.send(bBase.freeze()).expect(
         "send baseline EmailSubmission/query[" & $target.kind & "]"
       )
     let baseExtract = respBase.get(baseHandle)
     if baseExtract.isErr:
-      client.close()
       continue
     let qrBase = baseExtract.unsafeValue
     let baselineQueryState = qrBase.queryState
@@ -177,7 +171,6 @@ block temailSubmissionFilterSortLive:
       creationLabelPrefix = "phase-i-60",
     )
     if submissionIdsRes.isErr:
-      client.close()
       continue
     let submissionIds = submissionIdsRes.unsafeValue
     assertOn target,
@@ -194,9 +187,11 @@ block temailSubmissionFilterSortLive:
       EmailSubmissionFilterCondition(identityIds: Opt.some(primaryIdSeq))
     )
     let (bA, hA) = addEmailSubmissionQuery(
-      initRequestBuilder(), submissionAccountId, filter = Opt.some(identityFilter)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      filter = Opt.some(identityFilter),
     )
-    let respA = client.send(bA).expect(
+    let respA = client.send(bA.freeze()).expect(
         "send Email Submission/query identity filter[" & $target.kind & "]"
       )
     let qrA = respA.get(hA).expect("identity filter extract[" & $target.kind & "]")
@@ -208,27 +203,31 @@ block temailSubmissionFilterSortLive:
           break
       assertOn target,
         found,
-        "primary-identity submission " & string(primSub) &
+        "primary-identity submission " & $primSub &
           " must surface under identityIds=[primary] filter"
     for secSub in secondarySubmissions:
       for id in qrA.ids:
         assertOn target,
           id != secSub,
-          "secondary-identity submission " & string(secSub) &
+          "secondary-identity submission " & $secSub &
             " must NOT surface under identityIds=[primary] filter"
 
     # Sub-test B: sort by sentAt ascending.
     let comparator = parseEmailSubmissionComparator(
-        rawProperty = "sentAt", isAscending = true
+        rawProperty = "sentAt", direction = sdAscending
       )
       .expect("parseEmailSubmissionComparator sentAt[" & $target.kind & "]")
     let (bB, hB) = addEmailSubmissionQuery(
-      initRequestBuilder(), submissionAccountId, sort = Opt.some(@[comparator])
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      sort = Opt.some(@[comparator]),
     )
-    let respB = client.send(bB).expect(
+    let respB = client.send(bB.freeze()).expect(
         "send EmailSubmission/query sort sentAt asc[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-submission-query-filter-sort-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-query-filter-sort-" & $target.kind
+    )
       .expect("captureIfRequested filter+sort")
     let qrB = respB.get(hB).expect("sort sentAt extract[" & $target.kind & "]")
     for sId in submissionIds:
@@ -239,30 +238,30 @@ block temailSubmissionFilterSortLive:
           break
       assertOn target,
         found,
-        "every seeded submission must surface under sentAt-asc sort (missing " &
-          string(sId) & ")"
+        "every seeded submission must surface under sentAt-asc sort (missing " & $sId &
+          ")"
 
     # Sub-test C: EmailSubmission/queryChanges with calculateTotal.
     let (bC, hC) = addEmailSubmissionQueryChanges(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       submissionAccountId,
       sinceQueryState = baselineQueryState,
       calculateTotal = true,
     )
-    let respC =
-      client.send(bC).expect("send EmailSubmission/queryChanges[" & $target.kind & "]")
+    let respC = client.send(bC.freeze()).expect(
+        "send EmailSubmission/queryChanges[" & $target.kind & "]"
+      )
     captureIfRequested(
-      client, "email-submission-query-changes-with-filter-" & $target.kind
+      recorder.lastResponseBody,
+      "email-submission-query-changes-with-filter-" & $target.kind,
     )
       .expect("captureIfRequested queryChanges[" & $target.kind & "]")
     let qcr = respC.get(hC).expect("queryChanges extract[" & $target.kind & "]")
     assertOn target,
-      string(qcr.oldQueryState) == string(baselineQueryState),
+      $qcr.oldQueryState == $baselineQueryState,
       "oldQueryState must echo the supplied baseline"
     assertOn target, qcr.total.isSome, "calculateTotal=true must surface total"
     assertOn target,
-      int64(qcr.total.unsafeGet) >= 2,
+      qcr.total.unsafeGet.toInt64 >= 2,
       "total must reflect at least the two new submissions (got " & $qcr.total.unsafeGet &
         ")"
-
-    client.close()

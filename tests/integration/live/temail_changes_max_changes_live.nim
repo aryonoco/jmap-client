@@ -35,23 +35,19 @@ import std/sets
 
 import results
 import jmap_client
-import jmap_client/client
+import jmap_client/internal/mail/mail_entities
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 const SeedCount = 10
 const MaxChangesCap = 2
 const MaxIters = 20
 
-block temailChangesMaxChangesLive:
+testCase temailChangesMaxChangesLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -72,24 +68,26 @@ block temailChangesMaxChangesLive:
       seededIds.len == SeedCount, "ten seeded ids expected (got " & $seededIds.len & ")"
 
     let maxChangesCap = Opt.some(
-      parseMaxChanges(UnsignedInt(MaxChangesCap)).expect(
+      parseMaxChanges(parseUnsignedInt(MaxChangesCap).get()).expect(
         "parseMaxChanges[" & $target.kind & "]"
       )
     )
 
     # First page — capture against a fresh seed surface so
     # hasMoreChanges is forced true.
-    let (b1, h1) = addChanges[Email](
-      initRequestBuilder(),
+    let (b1, h1) = addEmailChanges(
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       sinceState = baselineState,
       maxChanges = maxChangesCap,
     )
-    let resp1 =
-      client.send(b1).expect("send Email/changes first page[" & $target.kind & "]")
-    captureIfRequested(client, "email-changes-max-changes-" & $target.kind).expect(
-      "captureIfRequested"
+    let resp1 = client.send(b1.freeze()).expect(
+        "send Email/changes first page[" & $target.kind & "]"
+      )
+    captureIfRequested(
+      recorder.lastResponseBody, "email-changes-max-changes-" & $target.kind
     )
+      .expect("captureIfRequested")
     let cr1 =
       resp1.get(h1).expect("Email/changes first page extract[" & $target.kind & "]")
     assertOn target,
@@ -110,14 +108,15 @@ block temailChangesMaxChangesLive:
     var hasMore = cr1.hasMoreChanges
     var iter = 0
     while hasMore and iter < MaxIters:
-      let (bN, hN) = addChanges[Email](
-        initRequestBuilder(),
+      let (bN, hN) = addEmailChanges(
+        initRequestBuilder(makeBuilderId()),
         mailAccountId,
         sinceState = nextState,
         maxChanges = maxChangesCap,
       )
-      let respN =
-        client.send(bN).expect("send Email/changes window-roll[" & $target.kind & "]")
+      let respN = client.send(bN.freeze()).expect(
+          "send Email/changes window-roll[" & $target.kind & "]"
+        )
       let crN =
         respN.get(hN).expect("Email/changes window-roll extract[" & $target.kind & "]")
       for id in crN.created:
@@ -131,10 +130,7 @@ block temailChangesMaxChangesLive:
       not hasMore, "window-roll loop must converge within " & $MaxIters & " iterations"
     for sid in seededIds:
       assertOn target,
-        sid in seenIds,
-        "seeded id " & string(sid) & " must appear across paginated changes"
+        sid in seenIds, "seeded id " & $sid & " must appear across paginated changes"
     assertOn target,
-      string(nextState) != string(baselineState),
+      $nextState != $baselineState,
       "final newState must differ from the original baseline"
-
-    client.close()

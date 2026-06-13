@@ -1,0 +1,200 @@
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2026 Aryan Ameri
+
+## Compile-time registration framework for JMAP entity types (RFC 8620 §5).
+##
+## JMAP uses a "Foo/get", "Foo/set" naming convention where each entity type
+## declares its method family (the "Foo" prefix) and capability URI (for
+## the ``Request.using`` array). This module provides two registration
+## templates that verify entity types supply these required overloads at
+## definition time, producing domain-specific compile errors instead of
+## cryptic failures at distant generic call sites.
+##
+## **Required overloads** (§4.1). Every entity type must provide:
+##
+## - ``func methodEntity*(T: typedesc[Entity]): MethodEntity`` — returns the
+##   typed entity tag (e.g. ``meMailbox``). Per-verb method-name resolvers
+##   (``getMethodName(T)`` / ``setMethodName(T)`` / ...) live alongside this
+##   overload; invalid verbs (e.g. ``setMethodName(typedesc[Thread])``)
+##   fail at the call site with an undeclared-identifier compile error.
+## - ``func capabilityUri*(T: typedesc[Entity]): CapabilityUri`` — returns
+##   the capability URI for the ``using`` array (e.g.
+##   "urn:ietf:params:jmap:mail").
+##
+## **No concept constraint** (Decision D3.4). Generic ``add*`` functions leave
+## ``T`` unconstrained. Concepts are rejected due to experimental status,
+## known compiler bugs (byref #16897, block scope, implicit generic breakage),
+## and generic type checking being unimplemented. Plain overloads with
+## registration templates provide earlier error detection (definition time vs
+## instantiation time) and domain-specific messages.
+##
+## **``mixin`` resolution** (§4.4). Generic ``add*`` functions in
+## ``builder.nim`` declare ``mixin`` for the per-verb resolvers and
+## ``capabilityUri`` to force overload resolution at the **caller's scope**
+## (instantiation time), not at ``builder.nim``'s scope (definition time).
+## This allows entity modules to be added independently without modifying
+## the import DAG.
+##
+## **Associated type templates** (§4.5). Queryable entities additionally
+## provide ``template filterType*(T: typedesc[Entity]): typedesc`` mapping the
+## entity to its filter condition type. A ``template`` returning ``typedesc``
+## works in generic object field type positions (e.g.
+## ``Filter[filterType(T)]``). ``mixin filterType`` in ``addQuery`` /
+## ``addQueryChanges`` ensures the caller's overload is found.
+##
+## **Entity module checklist.** Every entity module must provide:
+##
+## 1. Entity type definition (e.g. ``type Mailbox* = object``).
+## 2. ``func methodEntity*(T: typedesc[Entity]): MethodEntity``.
+## 3. Per-verb method-name resolvers for every supported verb — e.g.
+##    ``func getMethodName*(T: typedesc[Entity]): MethodName``.
+## 4. ``func capabilityUri*(T: typedesc[Entity]): CapabilityUri``.
+## 5. ``template filterType*(T: typedesc[Entity]): typedesc`` (if supports
+##    ``/query``).
+## 6. ``func toJson*(c: filterType(Entity)): JsonNode`` (if supports
+##    ``/query``). Resolved via ``mixin`` at the builder's call site.
+## 7. ``registerJmapEntity(Entity)`` at module scope.
+## 8. ``registerExtractableEntity(Entity)`` at module scope (if supports
+##    ``/get`` — verifies the ``fromJson`` parser ``dispatch.get`` relies on).
+## 9. ``registerQueryableEntity(Entity)`` at module scope (if supports
+##    ``/query``).
+## 10. ``toJson``/``fromJson`` for the entity type itself (entity-specific,
+##     not Layer 3 Core).
+##
+## 11. ``func setMethodName*(T: typedesc[Entity]): MethodName`` (if supports
+##     ``/set``).
+## 12. ``template createType*(T: typedesc[Entity]): typedesc``,
+##     ``template updateType*(T: typedesc[Entity]): typedesc``, and
+##     ``template setResponseType*(T: typedesc[Entity]): typedesc`` (if
+##     supports ``/set``). These map the entity to its typed create-value,
+##     whole-container update algebra, and /set response type respectively.
+## 13. ``registerSettableEntity(Entity)`` at module scope (if supports
+##     ``/set``).
+##
+## Items 1–9, 11–13 are Layer 3 concerns. Item 10 is entity-specific.
+
+{.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
+
+template registerJmapEntity*(T: typedesc) =
+  ## Compile-time check: verifies T provides the required framework
+  ## overloads (``methodEntity`` and ``capabilityUri``). Call this
+  ## once per entity type at module scope. Missing framework overloads
+  ## produce domain-specific compile errors HERE, not cryptic
+  ## "undeclared identifier" errors at distant add* call sites.
+  ## Does not check conditional overloads (``filterType``) — use
+  ## ``registerQueryableEntity`` for entity types that support /query
+  ## (§4.6). Does not check per-verb method-name resolvers — those fail
+  ## at their call site with an undeclared-identifier error that names
+  ## the offending ``(entity, verb)`` pair, which is more precise than a
+  ## generic registration check could be.
+  ##
+  ## Uses ``when not compiles()`` + ``{.error.}`` rather than bare
+  ## ``discard`` calls to produce actionable error messages that name
+  ## the entity type and the missing overload signature.
+  static:
+    when not compiles(methodEntity(T)):
+      {.
+        error:
+          "registerJmapEntity: " & $T & " is missing `func methodEntity*(T: typedesc[" &
+          $T & "]): MethodEntity`"
+      .}
+    when not compiles(capabilityUri(T)):
+      {.
+        error:
+          "registerJmapEntity: " & $T & " is missing `func capabilityUri*(T: typedesc[" &
+          $T & "]): CapabilityUri`"
+      .}
+
+template registerQueryableEntity*(T: typedesc) =
+  ## Compile-time check: verifies T provides ``filterType`` and a
+  ## ``toJson`` overload on its filter condition type, in addition to
+  ## the base framework overloads. Call after ``registerJmapEntity`` for
+  ## entity types that support /query and /queryChanges.
+  ##
+  ## The filter condition's ``toJson`` is resolved via ``mixin`` at the
+  ## builder's instantiation site (``addQuery`` / ``addQueryChanges``).
+  static:
+    when not compiles(filterType(T)):
+      {.
+        error:
+          "registerQueryableEntity: " & $T &
+          " is missing `template filterType*(T: typedesc[" & $T & "]): typedesc`"
+      .}
+    when not compiles(toJson(default(filterType(T)))):
+      {.
+        error:
+          "registerQueryableEntity: " & $T & " is missing `func toJson*(c: " &
+          $filterType(T) & "): JsonNode`"
+      .}
+
+template registerSettableEntity*(T: typedesc) =
+  ## Compile-time check: verifies T provides the four /set-related
+  ## overloads (``setMethodName``, ``createType``, ``updateType``,
+  ## ``setResponseType``) consumed by the generic ``addSet[T, C, U, R]``.
+  ## Call after ``registerJmapEntity`` for entity types that support /set.
+  ##
+  ## ``createType`` and ``updateType`` return ``typedesc``; the generic
+  ## ``addSet`` and ``SetRequest[T, C, U].toJson`` resolve the chosen
+  ## ``C.toJson`` and ``U.toJson`` via ``mixin`` at the caller's
+  ## instantiation site.
+  static:
+    when not compiles(setMethodName(T)):
+      {.
+        error:
+          "registerSettableEntity: " & $T &
+          " is missing `func setMethodName*(T: typedesc[" & $T & "]): MethodName`"
+      .}
+    when not compiles(createType(T)):
+      {.
+        error:
+          "registerSettableEntity: " & $T &
+          " is missing `template createType*(T: typedesc[" & $T & "]): typedesc`"
+      .}
+    when not compiles(updateType(T)):
+      {.
+        error:
+          "registerSettableEntity: " & $T &
+          " is missing `template updateType*(T: typedesc[" & $T & "]): typedesc`"
+      .}
+    when not compiles(setResponseType(T)):
+      {.
+        error:
+          "registerSettableEntity: " & $T &
+          " is missing `template setResponseType*(T: typedesc[" & $T & "]): typedesc`"
+      .}
+
+template registerExtractableEntity*(T: typedesc) =
+  ## Compile-time check: verifies the full read-model entity ``T`` provides the
+  ## ``fromJson`` parser that the ``/get`` extraction path ultimately relies on.
+  ## Call after ``registerJmapEntity`` for every readable entity (the ``/get``
+  ## full-record path).
+  ##
+  ## Post-A1c, ``dispatch.get`` invokes the resolver closure captured on the
+  ## handle by ``initResponseHandle`` (``dispatch.nim``); the resolver body is
+  ## ``T.fromJson(args)``. So ``fromJson`` is still the checkpoint — this
+  ## template moves the resolution failure from the builder's
+  ## ``initResponseHandle[GetResponse[T]]`` expansion (a distant
+  ## generic-instantiation site inside ``addGet``) to the registration call,
+  ## with a domain-specific message naming the entity.
+  ##
+  ## Mirrors ``registerQueryableEntity``'s ``toJson(default(filterType(T)))``
+  ## probe: ``fromJson`` and ``JsonNode`` are left open and resolve at the
+  ## caller's scope.
+  ##
+  ## **Scope — full read-model entities only.** The getter-only ``Partial*``
+  ## projections (A3.6) are deliberately *not* gated here: their ``fromJson``
+  ## carries ``FieldEcho``/``Opt`` fields, and the ``compiles`` probe spuriously
+  ## drags in the generic ``FieldEcho.fromJson`` candidate, yielding a
+  ## false-negative for a parser that demonstrably resolves at the real
+  ## ``GetResponse[Partial*]`` builder instantiation. The same reasoning excludes
+  ## bespoke non-entity responses (``EmailParse``, ``SearchSnippet/get``) and the
+  ## singleton ``VacationResponse`` — all checked locally where their builders
+  ## live.
+  static:
+    when not compiles(fromJson(T, default(JsonNode))):
+      {.
+        error:
+          "registerExtractableEntity: " & $T & " is missing `func fromJson*(_: typedesc[" &
+          $T & "], JsonNode): Result[" & $T & ", SerdeViolation]`"
+      .}

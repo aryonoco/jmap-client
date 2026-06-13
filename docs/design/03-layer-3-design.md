@@ -728,19 +728,22 @@ RFC fields are positional; optional fields are keyword-defaulted with
 func directIds*(ids: openArray[Id]): Opt[Referencable[seq[Id]]] =
   ## Wraps: Opt.some(direct(@ids))
   Opt.some(direct(@ids))
-
-func initCreates*(
-    pairs: openArray[(CreationId, JsonNode)]
-): Opt[Table[CreationId, JsonNode]] =
-  ## Builds an Opt-wrapped raw create table. Used by callers passing
-  ## ``JsonNode`` to the four-parameter ``addSet[T, JsonNode, ...]``;
-  ## typed-create entities pass ``Opt[Table[CreationId, MailboxCreate]]``
-  ## (etc.) directly without this helper.
 ```
 
-There is no `initUpdates` helper because `update` is a typed
-whole-container algebra (`U` in `SetRequest[T, C, U]`), not a
-`Table[Id, PatchObject]`.
+`directIds` is the sole argument-construction helper. It earns its
+keep by absorbing the `Referencable` sum-type's `direct(...)` arm — a
+library-specific construction the consumer would otherwise have to
+name explicitly. Equivalent helpers for `create` and `update` do not
+exist: per-entity create payloads are typed (`MailboxCreate`,
+`EmailBlueprint`, `IdentityCreate`, `EmailSubmissionBlueprint`) and
+the typed `addSet[T, C, U, R]` takes `Opt[Table[CreationId, C]]`
+directly, so the natural Nim idiom `Opt.some({cid: c}.toTable)` is
+the construction path; update is a typed whole-container algebra (`U`
+in `SetRequest[T, C, U]`), constructed by per-entity smart
+constructors (`NonEmptyEmailUpdates`, `NonEmptyMailboxUpdates`,
+`NonEmptyIdentityUpdates`, `NonEmptyEmailSubmissionUpdates`). A
+JsonNode-keyed `initCreates` predated A5's typed surface and was
+removed under A15.
 
 **Module:** `builder.nim`
 
@@ -806,15 +809,21 @@ method-name simultaneously, so `resp.get(h)` needs no filter argument.
 ### 4.3 Two-Level Railway Composition
 
 ```
-Track 1 (Outer): JmapResult[Response] = Result[Response, ClientError]
+Track 1 (Outer): JmapResult[DispatchedResponse]
+                 = Result[DispatchedResponse, ClientError]
                  (transport/request errors — Layer 4)
                    ↓
-Track 2 (Inner): Result[T, MethodError]
-                 (per-invocation errors — dispatch boundary)
+Track 2 (Inner): Result[T, GetError]
+                 (per-extraction errors — dispatch boundary)
 ```
 
-These railways are **intentionally separate** — transport failures and
-method errors require fundamentally different recovery actions.
+These railways are **intentionally separate** — transport failures
+and method errors require fundamentally different recovery actions.
+The two arms of `GetError` are `gekMethod` (server method-level
+failure, wrapping the underlying `MethodError`) and
+`gekHandleMismatch` (handle from a different builder — a
+programming bug; the brand carried by the handle did not match the
+brand carried by the `DispatchedResponse`).
 
 ### 4.4 Track 0a → Track 2 Bridge
 
@@ -938,10 +947,10 @@ template registerCompoundMethod*(Primary, Implicit: typedesc) =
 Canonical participants (registered in `mail/mail_entities.nim`):
 
 - `CopyResponse[EmailCreatedItem]` (primary) +
-  `SetResponse[EmailCreatedItem]` (implicit) — `Email/copy` with
+  `SetResponse[EmailCreatedItem, PartialEmail]` (implicit) — `Email/copy` with
   `onSuccessDestroyOriginal=true`.
 - `EmailSubmissionSetResponse` (primary) +
-  `SetResponse[EmailCreatedItem]` (implicit) — `EmailSubmission/set`
+  `SetResponse[EmailCreatedItem, PartialEmail]` (implicit) — `EmailSubmission/set`
   with `onSuccessUpdateEmail` / `onSuccessDestroyEmail`.
 
 ### 4.7 Chained Method Dispatch (RFC 8620 §3.7)
@@ -998,7 +1007,7 @@ let b0 = initRequestBuilder()
 let (b1, gh) = b0.addGet[Widget](accountId)              # Widget/get
 let (b2, sh) = b1.addSet[Widget](accountId,              # Widget/set
     destroy = directIds(@[parseId("id7").get()]))
-let req = b2.build()
+let req = b2.freeze()
 ## req.using == @["urn:ietf:params:jmap:core", "urn:example:widgets"]
 ## req.methodCalls.len == 2
 
@@ -1387,16 +1396,45 @@ canonical result-reference targets: `/ids` from a preceding query and
 other fields are direct values. Wrapping all fields in `Referencable`
 is verbose and rarely used.
 
-**Decision D3.6: Typed create/update/copy values, JsonNode for raw
-slots.** Create entries (`SetRequest.create`, `CopyRequest.create`)
-are typed: `MailboxCreate`, `EmailBlueprint`, `EmailCopyItem`, etc.
-Each provides its own `toJson`. The whole-container update algebra
-`U` is typed similarly. Response list slots remain `seq[JsonNode]` in
-`GetResponse`, where entity-specific parsing happens at the caller.
-The wire `"updated"[id]` server-set delta in `SetResponse.updateResults`
-remains `Opt[JsonNode]` because update payloads are open-ended partial
-entities — the entity-specific partial type is out of scope at this
-layer; consumers parse it themselves.
+**Decision D3.6 (post-A3 + A4 + A3.6): Typed create/update/copy values;
+typed `GetResponse[T].list` via mixin `T.fromJson`; typed
+`SetResponse[T, U].updateResults` via per-entity `PartialT`; typed
+sparse `/get` via getter-only `PartialT` entity registration.** Create
+entries (`SetRequest.create`, `CopyRequest.create`) are typed:
+`MailboxCreate`, `EmailBlueprint`, `EmailCopyItem`, etc. Each provides
+its own `toJson`. The whole-container update algebra `U` is typed
+similarly. `GetResponse[T].list: seq[T]` parses each wire entry through
+the entity's lenient `T.fromJson` at the dispatch site (A3).
+
+`SetResponse[T]` widens to `SetResponse[T, U]` post-A4: `T` is the
+typed `created[cid]` payload (e.g. `EmailCreatedItem`); `U` is the
+typed `updated[id]` payload, a per-entity `PartialT`
+(`PartialEmail`, `PartialMailbox`, `PartialIdentity`,
+`PartialEmailSubmission`, `PartialVacationResponse`,
+`PartialThread`). Each `PartialT` mirrors the full read model with
+wire-nullable fields typed as `FieldEcho[T]` (three states: absent
+/ null / value) and wire-non-nullable fields typed as `Opt[T]`
+(two states: absent / value). `updateResults` is now
+`Table[Id, Result[Opt[U], SetError]]`: wire `updated[id] = null`
+→ `ok(Opt.none(U))` (server confirmed without echo); wire
+`updated[id] = {...}` → `ok(Opt.some(?U.fromJson(v, path)))`;
+wire `notUpdated[id]` → `err(setError)`.
+
+Sparse `/get` is now consumable on the typed public surface (A3.6
+post-D7): each `PartialT` registers as a getter-only JMAP entity
+(reusing the full record's `MethodEntity` tag, capability URI, and
+`getMethodName`; no setter/queryer/changes/copy/import overloads —
+those fail at the call site with an undeclared-identifier compile
+error). The generic `addGet[PartialT]` works for every partial via
+this registration; Email gets two wrappers (`addPartialEmailGet`,
+`addPartialEmailGetByRef`) carrying the `EmailBodyFetchOptions`
+parameter parallel to `addEmailGet` / `addEmailGetByRef`.
+
+`NoCreate` marker fills the `T` slot of `SetResponse[T, U]` for
+entities whose `/set` has no create rail — currently
+`VacationResponse` only (D6). `NoCreate.fromJson` is lenient — a
+server emitting a `created[cid]` entry on the singleton-only `/set`
+parses to `ok(NoCreate())` rather than failing.
 
 **Module:** `methods.nim`
 
@@ -1410,10 +1448,12 @@ own type-specific patterns.
 **Decision D3.7:** Unidirectional serialisation: request types receive
 `toJson` only; response types receive `fromJson` only. The client
 builds requests (serialises) and parses responses (deserialises) —
-never the reverse. `SetResponse[T]` and `CopyResponse[T]` additionally
-expose `toJson` for round-trip testing of the wire-shape projection
-(splitting merged Result tables back to parallel maps); production
-code does not call these.
+never the reverse. `SetResponse[T, U]` and `CopyResponse[T]`
+additionally expose `toJson` for round-trip testing of the wire-shape
+projection (splitting merged Result tables back to parallel maps);
+production code does not call these. Every `PartialT` also receives a
+`toJson` (alongside its receive-only `fromJson`) for the same round-
+trip symmetry — the library never produces a `PartialT` on the wire.
 
 ### 7.1 Pattern L3-A: Request `toJson` (Object Construction)
 
@@ -1542,7 +1582,7 @@ distinct validation mechanisms are used:
 |---------------|------|--------------------------|
 | `GetResponse[T]` | `JObject` | `accountId`, `state`: `JString` (smart-ctor); `list`: `JArray` (strict); `notFound`: lenient |
 | `ChangesResponse[T]` | `JObject` | `accountId`, `oldState`, `newState`: `JString` (smart-ctor); `hasMoreChanges`: `JBool` (strict); `created`/`updated`/`destroyed`: `JArray` (strict) |
-| `SetResponse[T]` | `JObject` | `accountId`: `JString` (smart-ctor); `oldState`/`newState`: lenient `Opt[JmapState]`; parallel maps: lenient (null/absent treated as empty) |
+| `SetResponse[T, U]` | `JObject` | `accountId`: `JString` (smart-ctor); `oldState`/`newState`: lenient `Opt[JmapState]`; parallel maps: lenient (null/absent treated as empty); `updateResults` typed via mixin `U.fromJson` (per-entity `PartialT`) |
 | `CopyResponse[T]` | `JObject` | Same shape as `SetResponse` for `created`/`notCreated` |
 | `QueryResponse[T]` | `JObject` | `accountId`, `queryState`: smart-ctor; `canCalculateChanges`: `JBool`; `position`: `JInt` (smart-ctor); `ids`: `JArray`; `total`/`limit`: lenient |
 | `QueryChangesResponse[T]` | `JObject` | `accountId`, `oldQueryState`/`newQueryState`: smart-ctor; `removed`: `JArray`; `added`: `JArray` (each elem via `AddedItem.fromJson`); `total`: lenient |
@@ -1565,10 +1605,10 @@ state fall back to `oldState` or to a fresh `Foo/get`. Same applies
 to `CopyResponse.newState`.
 
 **Exception — structurally critical required fields:** Required
-fields that are structurally critical (e.g. `list: seq[JsonNode]` in
-`GetResponse`) use strict `fieldJArray` — wrong kind returns
-`err(svkWrongKind)`. A response without a `list` array is not a valid
-`/get` response.
+fields that are structurally critical (e.g. `list: seq[T]` in
+`GetResponse`, parsed per-entry via `T.fromJson`) use strict
+`fieldJArray` — wrong kind returns `err(svkWrongKind)`. A
+response without a `list` array is not a valid `/get` response.
 
 ### 7.7 Layer 2 Infrastructure Imports
 
@@ -1706,7 +1746,7 @@ recorded per-operation and processing continues.
 
 **§5.4 /copy.** `destroyMode = destroyAfterSuccess(...)` triggers an
 implicit `Foo/set` after successful copies. Dispatch via
-`CompoundHandles[CopyResponse[T], SetResponse[T]]` (§4.6). `/copy` is
+`CompoundHandles[CopyResponse[T], SetResponse[T, U]]` (§4.6). `/copy` is
 NOT atomic with the implicit `/set`. `alreadyExists` `SetError`
 carries `existingId`.
 
@@ -1740,9 +1780,11 @@ returning `Result[T, SerdeViolation]`.
 type GetResponse*[T] = object
   accountId*: AccountId
   state*: JmapState
-  list*: seq[JsonNode]
-    ## Raw JsonNode entities; entity-specific parsing is the caller's
-    ## responsibility (Decision D3.6).
+  list*: seq[T]
+    ## Per-entry typed via T.fromJson at the dispatch site (A3).
+    ## Sparse-property responses surface MethodError on this entry
+    ## point until A3.6 ships PartialT types; raw arguments are
+    ## sealed inside ``internal/`` per A2.
   notFound*: seq[Id]
 ```
 
@@ -1766,18 +1808,18 @@ type ChangesResponse*[T] = object
 `updatedProperties` field. The two-parameter `addChanges[T, RespT]`
 dispatches by entity through `changesResponseType(T)`.
 
-### 9.3 SetResponse[T]
+### 9.3 SetResponse[T, U]
 
 **RFC reference:** §5.3 (lines 2009–2082)
 
 ```nim
-type SetResponse*[T] = object
+type SetResponse*[T, U] = object
   ## Wire format uses parallel maps; internal representation merges
   ## into unified Result maps (Decision 3.9B).
   ##
-  ## ``T`` is the typed ``created`` entry payload. ``T.fromJson``
-  ## resolves at instantiation via mixin to parse wire ``created[cid]``
-  ## into ``T``.
+  ## ``T`` is the typed ``created[cid]`` payload (e.g. ``EmailCreatedItem``);
+  ## ``U`` is the typed ``updated[id]`` payload (per-entity ``PartialT``).
+  ## Both resolve at instantiation via mixin.
   accountId*: AccountId
   oldState*: Opt[JmapState]
   newState*: Opt[JmapState]
@@ -1788,21 +1830,28 @@ type SetResponse*[T] = object
     ## Wire ``created`` entries become ``Result.ok(entity)`` via
     ## ``T.fromJson``; wire ``notCreated`` entries become
     ## ``Result.err(setError)``. Last-writer-wins on duplicate keys.
-  updateResults*: Table[Id, Result[Opt[JsonNode], SetError]]
-    ## Wire ``updated`` entries with null value become
-    ## ``ok(Opt.none(JsonNode))``; non-null become ``ok(Opt.some(...))``.
-    ## Wire ``notUpdated`` become ``err(setError)``. Update payloads
-    ## are open-ended partial entities — the entity-specific PatchObject
-    ## shape is unknown at this layer; consumers parse it themselves.
+  updateResults*: Table[Id, Result[Opt[U], SetError]]
+    ## Wire ``updated[id] = null`` → ``ok(Opt.none(U))`` (server confirmed
+    ## without echo); wire ``updated[id] = {...}`` →
+    ## ``ok(Opt.some(?U.fromJson(v, path)))``. Wire ``notUpdated[id]`` →
+    ## ``err(setError)``. ``U`` is the per-entity ``PartialT`` —
+    ## wire-nullable fields typed as ``FieldEcho[T]``, wire-non-nullable
+    ## fields typed as ``Opt[T]`` (A4 D2).
   destroyResults*: Table[Id, Result[void, SetError]]
 ```
 
-The typed-`T` semantics is materialised by entity modules: e.g.
-`SetResponse[MailboxCreatedItem]`, `SetResponse[EmailCreatedItem]`,
-`SetResponse[IdentityCreatedItem]`. Each `*CreatedItem` type carries
-the RFC 8620 §5.3 server-set subset (`id` plus server-set fields like
-`mayDelete`, `myRights`, count fields) and provides its own
-`fromJson` resolved through `mixin` inside `mergeCreateResults`.
+The typed-`T`/`U` semantics is materialised by entity modules: e.g.
+`SetResponse[MailboxCreatedItem, PartialMailbox]`,
+`SetResponse[EmailCreatedItem, PartialEmail]`,
+`SetResponse[IdentityCreatedItem, PartialIdentity]`,
+`SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]`,
+`SetResponse[NoCreate, PartialVacationResponse]` (VacationResponse is
+singleton-only — `NoCreate` fills the unused create slot per D6).
+Each `*CreatedItem` type carries the RFC 8620 §5.3 server-set subset
+(`id` plus server-set fields like `mayDelete`, `myRights`, count
+fields); each `PartialT` mirrors the full read model with every field
+optional. Both `fromJson`s resolve through `mixin` inside
+`mergeCreateResults[T]` / `mergeUpdateResults[U]`.
 
 **Decision 3.9B: Unified Result maps.** The wire's parallel maps are
 merged into unified `Table[K, Result[V, SetError]]`. Each key maps to
@@ -1822,7 +1871,8 @@ type CopyResponse*[T] = object
   createResults*: Table[CreationId, Result[T, SetError]]
 ```
 
-Shares the typed-`T` semantics of `SetResponse[T]`.
+Shares the typed-`T` semantics of `SetResponse[T, U]`'s create rail
+(`/copy` has no update branch per RFC 8620 §5.4).
 `CopyResponse[EmailCreatedItem]` is the canonical instantiation.
 
 ### 9.5 QueryResponse[T]
@@ -1872,7 +1922,7 @@ func mergeCreateResults*[T](
 ): Result[Table[CreationId, Result[T, SetError]], SerdeViolation] =
   ## Used by both SetResponse and CopyResponse. ``T.fromJson`` resolves
   ## at instantiation via mixin — every T appearing in
-  ## SetResponse[T]/CopyResponse[T] MUST define
+  ## SetResponse[T, U]/CopyResponse[T] MUST define
   ## ``fromJson(_: typedesc[T], JsonNode, JsonPath): Result[T, SerdeViolation]``.
   mixin fromJson
   var tbl = initTable[CreationId, Result[T, SetError]]()
@@ -1894,17 +1944,18 @@ func mergeCreateResults*[T](
 ### 10.2 Update Merging
 
 ```nim
-func mergeUpdateResults(
+func mergeUpdateResults[U](
     node: JsonNode, path: JsonPath
-): Result[Table[Id, Result[Opt[JsonNode], SetError]], SerdeViolation]
+): Result[Table[Id, Result[Opt[U], SetError]], SerdeViolation]
 ```
 
-Null value in `updated` maps to `ok(Opt.none(JsonNode))` (server made
-no changes the client doesn't already know); non-null maps to
-`ok(Opt.some(v))` verbatim. The library passes the raw node through
-because the entity-specific `PatchObject` shape is unknown at this
-layer; consumers parse it themselves. `notUpdated` entries go through
-`SetError.fromJson` and are strict.
+Wire `updated[id] = null` maps to `ok(Opt.none(U))` (server confirmed
+without echo); wire `updated[id] = {...}` maps to
+`ok(Opt.some(?U.fromJson(v, path)))` — `U.fromJson` resolves at
+instantiation via `mixin`. `U` is the per-entity `PartialT`, whose
+parser is lenient on missing fields and strict on wrong-kind-present
+fields (A4 D4). `notUpdated` entries go through `SetError.fromJson`
+and are strict.
 
 ### 10.3 Destroy Merging
 
@@ -1918,11 +1969,11 @@ func mergeDestroyResults(
 
 ### 10.4 Wire Round-Trip Helpers
 
-`SetResponse[T]` and `CopyResponse[T]` additionally expose `toJson`
+`SetResponse[T, U]` and `CopyResponse[T]` additionally expose `toJson`
 that splits the merged Result tables back to the parallel wire shape:
 
 ```nim
-func toJson*[T](resp: SetResponse[T]): JsonNode
+func toJson*[T, U](resp: SetResponse[T, U]): JsonNode
 func toJson*[T](resp: CopyResponse[T]): JsonNode
 ```
 
@@ -1930,8 +1981,10 @@ Internal helpers:
 
 - `emitSplitCreateResults` — splits `createResults` into `created` and
   `notCreated`. `T.toJson` resolves via mixin.
-- `emitSplitUpdateResults` — splits `updateResults` into `updated` and
-  `notUpdated`. `Opt.none` projects to JSON null.
+- `emitSplitUpdateResults[U]` — splits `updateResults` into `updated`
+  and `notUpdated`. `Opt.none(U)` projects to JSON null;
+  `Opt.some(u)` projects to `u.toJson()` (`U.toJson` resolves via
+  mixin).
 - `emitSplitDestroyResults` — splits `destroyResults` into `destroyed`
   and `notDestroyed`. Empty buckets omit their key.
 
@@ -2015,41 +2068,23 @@ func reference*[T](
   initResultReference(resultOf = callId(handle), name = name, path = path)
 ```
 
-### 12.3 Type-Safe Reference Convenience Functions
+### 12.3 Back-Reference Construction — Decision D3.10
 
-These constrain the `ResponseHandle` type parameter to specific
-response types, making illegal states unrepresentable. Each auto-
-derives the response method name from the per-verb resolver via
-`mixin`.
+`reference(handle, name, path)` is the sole back-reference primitive.
+It takes an explicit `MethodName` and `RefPath`: it is non-`mixin`,
+drags no entity-registration scaffolding into the caller's scope, and
+makes no assumption about which method produced the referenced
+response. Common chains (query-then-get, changes-then-get) are
+expressed through the per-entity wrappers in `convenience.nim` (§13);
+bespoke chains call `reference` directly.
 
-```nim
-func idsRef*[T](handle: ResponseHandle[QueryResponse[T]]): Referencable[seq[Id]]
-  ## /ids from a /query response. Resolves queryMethodName(T) via mixin.
-
-func listIdsRef*[T](handle: ResponseHandle[GetResponse[T]]): Referencable[seq[Id]]
-  ## /list/*/id from a /get response.
-
-func addedIdsRef*[T](
-    handle: ResponseHandle[QueryChangesResponse[T]]
-): Referencable[seq[Id]]
-  ## /added/*/id from a /queryChanges response.
-
-func createdRef*[T](
-    handle: ResponseHandle[ChangesResponse[T]]
-): Referencable[seq[Id]]
-  ## /created from a /changes response.
-
-func updatedRef*[T](
-    handle: ResponseHandle[ChangesResponse[T]]
-): Referencable[seq[Id]]
-  ## /updated from a /changes response.
-```
-
-**Decision D3.10:** The generic `reference()` takes an explicit `name`
-parameter. Convenience functions auto-derive the name from the per-
-verb resolver because each is constrained to a specific response type
-where the verb is known. Different methods produce different response
-names — the generic function does not assume.
+**Decision D3.10:** `reference()` takes an explicit `name` rather than
+auto-deriving it from the handle's response type. Auto-derivation would
+require a `mixin`-resolved per-verb resolver (`queryMethodName(T)`,
+`changesMethodName(T)`, …) at the *caller's* instantiation scope —
+dragging the entity-registration overloads into user code (the libdbus
+shape A1d retired). The explicit-`name` primitive keeps the single
+public layer (P5) honest: no hidden type-class glue at the call site.
 
 **Module:** `dispatch.nim`
 
@@ -2057,11 +2092,16 @@ names — the generic function does not assume.
 
 ## 13. Pipeline Combinators (`convenience.nim`)
 
-**Module:** `convenience.nim` — **NOT** re-exported by `protocol.nim`.
+**Module:** `convenience.nim` — **NOT** re-exported by `jmap_client`.
 Users who want pipeline combinators must explicitly
 `import jmap_client/convenience`. This physical separation keeps the
-core API surface in `builder.nim` and `dispatch.nim` frozen while
-providing opt-in ergonomics.
+typed per-entity builder surface the sole always-on API while these
+combinators stay opt-in.
+
+`convenience.nim` imports only `jmap_client` — no `internal/` reach
+(C10). Each combinator is a non-generic `func` over the public typed
+per-entity builders; the back-reference is wired internally with the
+public `reference` primitive.
 
 ### 13.1 Query-then-Get Pipeline
 
@@ -2070,20 +2110,21 @@ type QueryGetHandles*[T] = object
   query*: ResponseHandle[QueryResponse[T]]
   get*: ResponseHandle[GetResponse[T]]
 
-template addQueryThenGet*[T](b: RequestBuilder, accountId: AccountId
-): (RequestBuilder, QueryGetHandles[T]) =
-  ## Adds Foo/query + Foo/get with automatic /ids result reference wiring.
-  ##
-  ## Implicit decisions:
-  ## - Reference path is always /ids (rpIds)
-  ## - Both calls use the same accountId
-  ## - No filter, sort, or properties constraints applied
-  ## - Response method name derived from queryMethodName(T)
-  block:
-    let (b1, qh) = addQuery[T](b, accountId)
-    let (b2, gh) = addGet[T](b1, accountId, ids = Opt.some(qh.idsRef()))
-    (b2, QueryGetHandles[T](query: qh, get: gh))
+func addEmailQueryThenGet*(
+    b: sink RequestBuilder, accountId: AccountId, ...
+): (RequestBuilder, QueryGetHandles[Email]) =
+  ## Email/query + Email/get; the get's `ids` back-references the
+  ## query's `/ids` path via `reference(qh, mnEmailQuery, rpIds)`.
+  let (b1, qh) = addEmailQuery(b, accountId, ...)
+  let idsR = referenceTo[seq[Id]](reference(qh, mnEmailQuery, rpIds))
+  let (b2, gh) = addEmailGet(b1, accountId, ids = Opt.some(idsR), ...)
+  (b2, QueryGetHandles[Email](query: qh, get: gh))
 ```
+
+Three query-then-get wrappers — `addEmailQueryThenGet`,
+`addMailboxQueryThenGet`, `addEmailSubmissionQueryThenGet` — each
+mirrors the underlying `add<Entity>Query` parameters then the
+`add<Entity>Get` extras.
 
 ### 13.2 Changes-then-Get Pipeline
 
@@ -2092,29 +2133,19 @@ type ChangesGetHandles*[T] = object
   changes*: ResponseHandle[ChangesResponse[T]]
   get*: ResponseHandle[GetResponse[T]]
 
-func addChangesToGet*[T](
-    b: RequestBuilder,
-    accountId: AccountId,
-    sinceState: JmapState,
-    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
-): (RequestBuilder, ChangesGetHandles[T]) =
-  ## Adds Foo/changes + Foo/get with automatic /created result reference.
-  ## Uses the standard ChangesResponse[T] directly rather than
-  ## changesResponseType(T) because createdRef is defined only over
-  ## ResponseHandle[ChangesResponse[T]] — its contract is the RFC 8620
-  ## §5.2 /created field, not any entity-specific extension.
-  ##
-  ## Implicit decisions:
-  ## - Reference path is /created (rpCreated) — fetches newly created IDs
-  ##   only. For updated IDs, use the core API with updatedRef.
-  ## - Both calls use the same accountId
-  let (b1, ch) = addChanges[T, ChangesResponse[T]](
-    b, accountId, sinceState, maxChanges)
-  let (b2, gh) = addGet[T](
-    b1, accountId, ids = Opt.some(ch.createdRef()), properties = properties)
-  (b2, ChangesGetHandles[T](changes: ch, get: gh))
+type MailboxChangesGetHandles* = object
+  changes*: ResponseHandle[MailboxChangesResponse]
+  get*: ResponseHandle[GetResponse[Mailbox]]
 ```
+
+Five changes-to-get wrappers — `addEmailChangesToGet`,
+`addIdentityChangesToGet`, `addThreadChangesToGet`,
+`addEmailSubmissionChangesToGet`, `addMailboxChangesToGet`. Each emits
+`<Entity>/changes` + `<Entity>/get` and back-references the changes
+response's `/created` path. `addMailboxChangesToGet` returns the
+bespoke `MailboxChangesGetHandles` because Mailbox/changes yields the
+extended `MailboxChangesResponse`, which `ChangesGetHandles[Mailbox]`
+cannot type.
 
 ### 13.3 Paired Extraction
 
@@ -2123,16 +2154,21 @@ type QueryGetResults*[T] = object
   query*: QueryResponse[T]
   get*: GetResponse[T]
 
-func getBoth*[T](resp: Response, handles: QueryGetHandles[T]
-): Result[QueryGetResults[T], MethodError]
-  ## Extracts both query and get responses, failing on the first error.
-
 type ChangesGetResults*[T] = object
   changes*: ChangesResponse[T]
   get*: GetResponse[T]
 
-func getBoth*[T](resp: Response, handles: ChangesGetHandles[T]
-): Result[ChangesGetResults[T], MethodError]
+type MailboxChangesGetResults* = object
+  changes*: MailboxChangesResponse
+  get*: GetResponse[Mailbox]
+
+func getBoth*[T](dr: DispatchedResponse, handles: QueryGetHandles[T]
+): Result[QueryGetResults[T], GetError]
+func getBoth*[T](dr: DispatchedResponse, handles: ChangesGetHandles[T]
+): Result[ChangesGetResults[T], GetError]
+func getBoth*(dr: DispatchedResponse, handles: MailboxChangesGetHandles
+): Result[MailboxChangesGetResults, GetError]
+  ## Extracts both responses, failing on the first error.
 ```
 
 These `getBoth` overloads are distinct from the `dispatch.nim`
@@ -2149,7 +2185,7 @@ bidirectional for the merged-Result response types (`SetResponse`,
 `QueryChangesResponse` are `fromJson`-only. The following invariants
 hold:
 
-1. **Builder identity.** `builder.build().toJson()` produces valid
+1. **Builder identity.** `builder.freeze().toJson()` produces valid
    JMAP request JSON. Parsing it back via `Request.fromJson` (Layer
    2) recovers the envelope structure — method calls, capabilities,
    and creation IDs all round-trip.
@@ -2159,7 +2195,7 @@ hold:
    match the JSON content. Invalid JSON returns `err(SerdeViolation)`.
    Same applies to all six response types.
 
-3. **SetResponse round-trip.** `SetResponse[T].toJson(SetResponse[T].fromJson(j).get())`
+3. **SetResponse round-trip.** `SetResponse[T, U].toJson(SetResponse[T, U].fromJson(j).get())`
    produces JSON structurally equal to the original wire shape after
    merging-and-splitting. Same for `CopyResponse[T]`.
 
@@ -2210,7 +2246,7 @@ src/jmap_client/
                      object + ``keepOriginals`` / ``destroyAfterSuccess``
                      smart constructors;
                      6 response types (GetResponse[T]/ChangesResponse[T]/
-                     SetResponse[T]/CopyResponse[T]/QueryResponse[T]/
+                     SetResponse[T, U]/CopyResponse[T]/QueryResponse[T]/
                      QueryChangesResponse[T]);
                      SerializedSort/SerializedFilter pre-serialised
                      distinct wrappers + ``toJsonNode`` accessors;
@@ -2235,7 +2271,7 @@ src/jmap_client/
                      (proc + template), addSet (proc + template),
                      addCopy (proc + template), addQuery (proc + template),
                      addQueryChanges (proc + template),
-                     directIds, initCreates
+                     directIds
   dispatch.nim     — ResponseHandle[T] + (==, $, hash, callId);
                      NameBoundHandle[T] + (==, $, hash);
                      serdeToMethodError closure factory;
@@ -2246,15 +2282,17 @@ src/jmap_client/
                      getBoth + registerCompoundMethod;
                      ChainedHandles[A,B] + ChainedResults[A,B] +
                      getBoth + registerChainableMethod;
-                     reference; idsRef, listIdsRef, addedIdsRef,
-                     createdRef, updatedRef
+                     reference (the sole back-reference primitive)
   protocol.nim     — Re-export hub: imports and re-exports entity,
                      methods, dispatch, builder. methods_enum is
                      transitively exported via types.nim.
-  convenience.nim  — Optional pipeline combinators (NOT re-exported
-                     by protocol.nim): QueryGetHandles, addQueryThenGet,
-                     ChangesGetHandles, addChangesToGet, QueryGetResults,
-                     ChangesGetResults, getBoth (two overloads)
+  convenience.nim  — Optional per-entity pipeline combinators (NOT
+                     re-exported by jmap_client): QueryGetHandles,
+                     ChangesGetHandles, MailboxChangesGetHandles;
+                     QueryGetResults, ChangesGetResults,
+                     MailboxChangesGetResults; the eight
+                     add<Entity>QueryThenGet / add<Entity>ChangesToGet
+                     wrappers; getBoth (three overloads)
 ```
 
 ### 16.2 Import DAG
@@ -2318,9 +2356,10 @@ tests/protocol/
                      mixin and callback get[T] overloads;
                      CompoundHandles + ChainedHandles getBoth;
                      error detection; serdeToMethodError; reference
-                     construction; type-safe convenience functions
-  tconvenience.nim — Pipeline combinator tests: addQueryThenGet,
-                     addChangesToGet, getBoth extraction
+                     construction
+  tconvenience.nim — Pipeline combinator tests: the per-entity
+                     query-then-get / changes-to-get wrappers,
+                     getBoth extraction
 ```
 
 ### 16.4 Module Boilerplate
@@ -2417,7 +2456,7 @@ The wire-key order matches `SetRequest[T, C, U].toJson`: `accountId`,
 ### 17.3 Golden Test 3: SetResponse Merging
 
 Wire-format JSON with mixed success and failure entries, parsed as
-`SetResponse[MailboxCreatedItem]`:
+`SetResponse[MailboxCreatedItem, PartialMailbox]`:
 
 ```json
 {
@@ -2448,8 +2487,10 @@ Wire-format JSON with mixed success and failure entries, parsed as
 
 - `createResults[k1]` is `Result.ok(MailboxCreatedItem(...))`,
   `createResults[k2]` is `Result.err(SetError(setForbidden, ...))`.
-- `updateResults[id1]` is `Result.ok(Opt.none(JsonNode))`,
-  `updateResults[id2]` is `Result.ok(Opt.some(JsonNode))`,
+- `updateResults[id1]` is `Result.ok(Opt.none(PartialMailbox))` (server
+  confirmed without echo), `updateResults[id2]` is
+  `Result.ok(Opt.some(PartialMailbox(...)))` (server echoed partial
+  state — typed `PartialMailbox` parsed via `PartialMailbox.fromJson`),
   `updateResults[id3]` is `Result.err(SetError(setNotFound, ...))`.
 - `destroyResults[id4]` is `Result.ok()`,
   `destroyResults[id5]` is `Result.err(SetError(setForbidden, ...))`.
@@ -2500,7 +2541,7 @@ rails), `newState.isNone`.
 | D3.3 | Response dispatch returns `Result[T, MethodError]` | Unified `ClientError` for all failures | Method errors are data within a successful HTTP 200 response. Per-invocation, not per-request. |
 | D3.4 | No concepts; plain overloaded `typedesc` `func`s + `registerJmapEntity` / `registerQueryableEntity` / `registerSettableEntity` compile-time checks; per-verb resolver overloads (`getMethodName`, `setMethodName`, …) | Concepts | Plain overloads + static registration give earlier error detection than concepts with zero compiler risk. Per-verb resolvers make invalid `(entity, verb)` combinations a compile error. |
 | D3.5 | Only `GetRequest.ids` and `SetRequest.destroy` get `Referencable[T]` | All fields `Referencable` | Wrapping all fields is verbose and rarely used. Two wrapped fields cover canonical patterns. |
-| D3.6 | Typed `C`, `U`, `CopyItem` create/update/copy values; `seq[JsonNode]` for `GetResponse.list`; `Opt[JsonNode]` for `SetResponse.updateResults` | Either fully typed or fully `JsonNode` | Typed creates close the illegal-state hole at the boundary; raw `JsonNode` for response lists preserves entity-agnostic layering; raw `JsonNode` for update payloads matches RFC's open-ended PatchObject shape. |
+| D3.6 | Typed `C`, `U`, `CopyItem` create/update/copy values; `seq[T]` for `GetResponse.list` via mixin `T.fromJson` (A3); `Opt[U]` for `SetResponse[T, U].updateResults` via mixin `U.fromJson` where `U` = per-entity `PartialT` (A4); sparse `/get` typed via getter-only `PartialT` entity registration (A3.6 D7). | Either fully typed or fully `JsonNode` | Typed creates close the illegal-state hole at the boundary; typed `GetResponse[T].list` removes the wrapper-trigger glue (P7); typed update echo + sparse `/get` close the last `JsonNode`-on-the-public-rail gaps (A4 + A3.6). |
 | D3.7 | Unidirectional serde for request types (`toJson` only) and response types (`fromJson` only); bidirectional for `SetResponse`/`CopyResponse` to support round-trip serde tests | Full bidirectional serde for all types | Client builds requests and parses responses — never the reverse. The `SetResponse`/`CopyResponse` `toJson` exists exclusively for fixture round-trip. |
 | D3.8 | Immutable `RequestBuilder`; each `add*` returns `(RequestBuilder, ResponseHandle[T])` | `var RequestBuilder` mutation | Pure functional composition; no observable side effects; trivially threads through `for`-comprehensions and pipelines. |
 | D3.9 | `nextId` uses `MethodCallId(s)` directly (bypassing validation); `initInvocation` is the typed (infallible) constructor | Validating constructors at every step | The builder controls the format entirely; typed `MethodName` makes empty wire names unrepresentable. |

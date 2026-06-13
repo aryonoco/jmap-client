@@ -11,9 +11,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailQueryAdvancedSort:
+testCase tcapturedEmailQueryAdvancedSort:
   let j = loadCapturedFixture("email-query-advanced-sort-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -27,4 +29,4 @@ block tcapturedEmailQueryAdvancedSort:
     "phase-i 56 keyword-sort capture must surface at least three seeded emails (got " &
       $qr.ids.len & ")"
   for id in qr.ids:
-    doAssert string(id).len > 0, "every returned id must be non-empty"
+    doAssert ($id).len > 0, "every returned id must be non-empty"

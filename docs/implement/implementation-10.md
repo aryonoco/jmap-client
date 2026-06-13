@@ -262,10 +262,10 @@ Run `just ci` before committing.
   - From `vacation.nim` (extended): `VacationResponseUpdate`,
     `VacationResponseUpdateVariantKind`, the six smart constructors,
     `VacationResponseUpdateSet`, `initVacationResponseUpdateSet`.
-- **Step 18:** Update `src/jmap_client/mail/serialisation.nim` to
-  re-export new serde modules and additions per design §1.7:
-  `serde_email_update` (new) plus the new `toJson`/`fromJson` symbols
-  added to `serde_email`, `serde_mailbox`, `serde_vacation`.
+- **Step 18:** Add `src/jmap_client/mail/serde_email_update.nim` (new)
+  plus the new `toJson`/`fromJson` symbols on `serde_email`,
+  `serde_mailbox`, `serde_vacation` per design §1.7. The serde modules
+  are imported directly by the Part F builder modules.
 - **Step 19:** Verify Part F public symbols are accessible via
   `import jmap_client` end-to-end. A compile-time smoke reference to
   each new symbol (see Step 17 enumeration) catches any omission in

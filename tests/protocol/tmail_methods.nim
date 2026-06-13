@@ -8,20 +8,21 @@
 
 import std/json
 
-import jmap_client/types
-import jmap_client/serialisation
-import jmap_client/methods
-import jmap_client/dispatch
-import jmap_client/builder
-import jmap_client/mail/thread
-import jmap_client/mail/email
-import jmap_client/mail/mail_entities
-import jmap_client/mail/mail_builders
-import jmap_client/mail/mail_methods
-import jmap_client/mail/vacation
+import jmap_client
+import jmap_client/internal/protocol/methods
+import jmap_client/internal/protocol/dispatch
+import jmap_client/internal/protocol/builder
+import jmap_client/internal/mail/thread
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/mail_entities
+import jmap_client/internal/mail/mail_builders
+import jmap_client/internal/mail/mail_methods
+import jmap_client/internal/mail/vacation
+import jmap_client/internal/types/envelope
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # Minimal non-empty VacationResponseUpdateSet used wherever the test is
 # exercising builder mechanics (invocation name, capability, envelope
@@ -34,55 +35,58 @@ let minimalVacUpdate = initVacationResponseUpdateSet(@[setIsEnabled(true)]).get(
 # A. VacationResponse/get
 # ===========================================================================
 
-block vacationGetInvocationName:
+testCase vacationGetInvocationName:
   ## Scenario 72: invocation name is "VacationResponse/get".
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addVacationResponseGet(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnVacationResponseGet
 
-block vacationGetCapability:
+testCase vacationGetCapability:
   ## Scenario 73: capability is "urn:ietf:params:jmap:vacationresponse".
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addVacationResponseGet(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.`using`, 2
   doAssert "urn:ietf:params:jmap:core" in req.`using`
   doAssert "urn:ietf:params:jmap:vacationresponse" in req.`using`
 
-block vacationGetAccountId:
+testCase vacationGetAccountId:
   ## accountId is present in arguments.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addVacationResponseGet(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertEq req.methodCalls[0].arguments{"accountId"}.getStr(""), "a1"
 
-block vacationGetOmitsIds:
+testCase vacationGetOmitsIds:
   ## Singleton: no ids or #ids key in arguments.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addVacationResponseGet(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"ids"}.isNil
   doAssert args{"#ids"}.isNil
 
-block vacationGetWithProperties:
-  ## properties array emitted when specified.
-  let b0 = initRequestBuilder()
-  let (b1, _) = b0.addVacationResponseGet(
-    makeAccountId("a1"), properties = Opt.some(@["isEnabled", "subject"])
+testCase vacationGetWithProperties:
+  ## Typed sparse VacationResponse/get emits a ``properties`` array of wire
+  ## names and returns ``PartialVacationResponse`` (A3.6).
+  let b0 = initRequestBuilder(makeBuilderId())
+  let (b1, _) = b0.addPartialVacationResponseGet(
+    makeAccountId("a1"), parseNonEmptySeq(@[vrgpIsEnabled, vrgpSubject]).get()
   )
-  let req = b1.build()
+  let req = b1.freeze().request
   let props = req.methodCalls[0].arguments{"properties"}
   doAssert props.kind == JArray
   assertLen props.getElems(@[]), 2
+  assertEq props.getElems(@[])[0].getStr(""), "isEnabled"
+  assertEq props.getElems(@[])[1].getStr(""), "subject"
 
-block vacationGetMinimal:
+testCase vacationGetMinimal:
   ## Minimal call: just accountId, no ids, no properties.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addVacationResponseGet(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   assertEq args{"accountId"}.getStr(""), "a1"
   doAssert args{"ids"}.isNil
@@ -92,64 +96,64 @@ block vacationGetMinimal:
 # B. VacationResponse/set
 # ===========================================================================
 
-block vacationSetInvocationName:
+testCase vacationSetInvocationName:
   ## Invocation name is "VacationResponse/set".
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), minimalVacUpdate)
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnVacationResponseSet
 
-block vacationSetCapability:
+testCase vacationSetCapability:
   ## Capability is "urn:ietf:params:jmap:vacationresponse".
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), minimalVacUpdate)
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.`using`, 2
   doAssert "urn:ietf:params:jmap:core" in req.`using`
   doAssert "urn:ietf:params:jmap:vacationresponse" in req.`using`
 
-block vacationSetSingletonInUpdate:
+testCase vacationSetSingletonInUpdate:
   ## Scenario 74: update map has key "singleton" with typed-algebra JSON.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), minimalVacUpdate)
-  let req = b1.build()
+  let req = b1.freeze().request
   let updateMap = req.methodCalls[0].arguments{"update"}
   doAssert updateMap.kind == JObject
   doAssert updateMap{"singleton"}.kind == JObject
 
-block vacationSetOmitsCreateDestroy:
+testCase vacationSetOmitsCreateDestroy:
   ## Scenario 75: no create or destroy keys in arguments.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), minimalVacUpdate)
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"create"}.isNil
   doAssert args{"destroy"}.isNil
 
-block vacationSetWithIfInState:
+testCase vacationSetWithIfInState:
   ## ifInState emitted when specified.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addVacationResponseSet(
     makeAccountId("a1"), minimalVacUpdate, ifInState = Opt.some(makeState("s0"))
   )
-  let req = b1.build()
+  let req = b1.freeze().request
   assertEq req.methodCalls[0].arguments{"ifInState"}.getStr(""), "s0"
 
-block vacationSetOmitsIfInStateWhenNone:
+testCase vacationSetOmitsIfInStateWhenNone:
   ## ifInState key absent when Opt.none (default).
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), minimalVacUpdate)
-  let req = b1.build()
+  let req = b1.freeze().request
   doAssert req.methodCalls[0].arguments{"ifInState"}.isNil
 
-block vacationSetPatchValues:
+testCase vacationSetPatchValues:
   ## Typed VacationResponseUpdateSet values correctly serialised inside
   ## update.singleton — matches the RFC 8620 §5.3 wire patch shape.
   let updateSet = initVacationResponseUpdateSet(@[setIsEnabled(true)]).get()
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), updateSet)
-  let req = b1.build()
+  let req = b1.freeze().request
   let singleton = req.methodCalls[0].arguments{"update"}{"singleton"}
   doAssert singleton{"isEnabled"}.getBool(false) == true
 
@@ -157,12 +161,12 @@ block vacationSetPatchValues:
 # C. Multi-operation and capability dedup
 # ===========================================================================
 
-block vacationGetAndSetInOneRequest:
+testCase vacationGetAndSetInOneRequest:
   ## Both get and set in one builder: two invocations, capability once.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addVacationResponseGet(makeAccountId("a1"))
   let (b2, _) = b1.addVacationResponseSet(makeAccountId("a1"), minimalVacUpdate)
-  let req = b2.build()
+  let req = b2.freeze().request
   assertLen req.methodCalls, 2
   assertEq req.methodCalls[0].name, mnVacationResponseGet
   assertEq req.methodCalls[1].name, mnVacationResponseSet
@@ -172,10 +176,10 @@ block vacationGetAndSetInOneRequest:
   doAssert "urn:ietf:params:jmap:core" in req.`using`
   doAssert "urn:ietf:params:jmap:vacationresponse" in req.`using`
 
-block vacationAndThreadMixedCapabilities:
+testCase vacationAndThreadMixedCapabilities:
   ## VacationResponse + Thread produces both entity URIs alongside the
   ## pre-declared core URI.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addVacationResponseGet(makeAccountId("a1"))
   let (b2, _) = addGet[thread.Thread](b1, makeAccountId("a1"))
   let caps = b2.capabilities
@@ -188,59 +192,59 @@ block vacationAndThreadMixedCapabilities:
 # D. Email/parse and SearchSnippet/get
 # ===========================================================================
 
-block addEmailParseInvocationName:
+testCase addEmailParseInvocationName:
   ## Scenario 84: invocation name is "Email/parse", capability is mail.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailParse(makeAccountId("a1"), @[makeBlobId("blob1")])
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailParse
   assertLen req.`using`, 2
   doAssert "urn:ietf:params:jmap:core" in req.`using`
   doAssert "urn:ietf:params:jmap:mail" in req.`using`
 
-block addEmailParseWithBodyFetchOptions:
+testCase addEmailParseWithBodyFetchOptions:
   ## Scenario 85: bvsText emits fetchTextBodyValues = true.
   let opts = EmailBodyFetchOptions(fetchBodyValues: bvsText)
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailParse(
     makeAccountId("a1"), @[makeBlobId("blob1")], bodyFetchOptions = opts
   )
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   doAssert args{"fetchTextBodyValues"}.getBool(false) == true
 
-block addSearchSnippetGetInvocationName:
+testCase addSearchSnippetGetInvocationName:
   ## Scenario 86: invocation name is "SearchSnippet/get", capability is mail.
   let cond = filterCondition(makeEmailFilterCondition())
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addSearchSnippetGet(makeAccountId("a1"), cond, makeId("e1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnSearchSnippetGet
   assertLen req.`using`, 2
   doAssert "urn:ietf:params:jmap:core" in req.`using`
   doAssert "urn:ietf:params:jmap:mail" in req.`using`
 
-block addSearchSnippetGetSingleId:
+testCase addSearchSnippetGetSingleId:
   ## Scenario 87: emailIds contains exactly the head ID when no tail.
   let cond = filterCondition(makeEmailFilterCondition())
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addSearchSnippetGet(makeAccountId("a1"), cond, makeId("e1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   let ids = req.methodCalls[0].arguments{"emailIds"}
   doAssert ids.kind == JArray
   assertLen ids.getElems(@[]), 1
   assertEq ids.getElems(@[])[0].getStr(""), "e1"
 
-block addSearchSnippetGetConsIds:
+testCase addSearchSnippetGetConsIds:
   ## Scenario 88: emailIds from head + tail produces ["e1","e2","e3"].
   let cond = filterCondition(makeEmailFilterCondition())
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addSearchSnippetGet(
     makeAccountId("a1"), cond, makeId("e1"), @[makeId("e2"), makeId("e3")]
   )
-  let req = b1.build()
+  let req = b1.freeze().request
   let ids = req.methodCalls[0].arguments{"emailIds"}
   doAssert ids.kind == JArray
   assertLen ids.getElems(@[]), 3
@@ -248,18 +252,18 @@ block addSearchSnippetGetConsIds:
   assertEq ids.getElems(@[])[1].getStr(""), "e2"
   assertEq ids.getElems(@[])[2].getStr(""), "e3"
 
-block addSearchSnippetGetFilterRequired:
+testCase addSearchSnippetGetFilterRequired:
   ## Scenario 89: omitting the filter parameter is a compile error.
   assertNotCompiles:
-    let b0 = initRequestBuilder()
+    let b0 = initRequestBuilder(makeBuilderId())
     discard b0.addSearchSnippetGet(makeAccountId("a1"), makeId("e1"))
 
-block addSearchSnippetGetFilterInArgs:
+testCase addSearchSnippetGetFilterInArgs:
   ## Scenario 90: filter JSON object is present in arguments.
   let cond = filterCondition(makeEmailFilterCondition())
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addSearchSnippetGet(makeAccountId("a1"), cond, makeId("e1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   let filterNode = req.methodCalls[0].arguments{"filter"}
   doAssert filterNode.kind == JObject
 
@@ -267,7 +271,7 @@ block addSearchSnippetGetFilterInArgs:
 # E. addEmailImport — Email/import (RFC 8621 §4.8)
 # ===========================================================================
 
-block addEmailImportInvocationName:
+testCase addEmailImportInvocationName:
   ## E.1: invocation name is "Email/import" and the mail capability URI
   ## is added. The returned handle is phantom-typed to
   ## ``EmailImportResponse`` — binding it to a mismatched
@@ -275,9 +279,9 @@ block addEmailImportInvocationName:
   let emails = makeNonEmptyEmailImportMap(
     @[(makeCreationId("k1"), makeEmailImportItem(blobId = makeBlobId("b1")))]
   )
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, handle) = b0.addEmailImport(makeAccountId("a1"), emails)
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailImport
   assertLen req.`using`, 2
@@ -286,53 +290,53 @@ block addEmailImportInvocationName:
   assertNotCompiles:
     let badHandle: ResponseHandle[EmailSetResponse] = handle
 
-block addEmailImportEmailsPassthrough:
+testCase addEmailImportEmailsPassthrough:
   ## E.2: the typed ``NonEmptyEmailImportMap`` flattens to the wire via
   ## ``toJson(NonEmptyEmailImportMap)`` at the builder boundary — the
   ## per-creation-id blobId survives unchanged into ``args.emails``.
   let emails = makeNonEmptyEmailImportMap(
     @[(makeCreationId("k1"), makeEmailImportItem(blobId = makeBlobId("b1")))]
   )
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailImport(makeAccountId("a1"), emails)
-  let req = b1.build()
+  let req = b1.freeze().request
   let emailsNode = req.methodCalls[0].arguments{"emails"}
   doAssert emailsNode.kind == JObject
   assertEq emailsNode{"k1"}{"blobId"}.getStr(""), "b1"
 
-block addEmailImportIfInStateSomePassthrough:
+testCase addEmailImportIfInStateSomePassthrough:
   ## E.3: ``ifInState: Opt.some`` → key emitted with exact state string.
   let emails =
     makeNonEmptyEmailImportMap(@[(makeCreationId("k1"), makeEmailImportItem())])
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailImport(
     makeAccountId("a1"), emails, ifInState = Opt.some(makeState("s0"))
   )
-  let req = b1.build()
+  let req = b1.freeze().request
   assertEq req.methodCalls[0].arguments{"ifInState"}.getStr(""), "s0"
 
-block addEmailImportIfInStateNoneOmitted:
+testCase addEmailImportIfInStateNoneOmitted:
   ## E.4: default (``Opt.none``) ``ifInState`` → omit the key, never
   ## emit JSON ``null``.
   let emails =
     makeNonEmptyEmailImportMap(@[(makeCreationId("k1"), makeEmailImportItem())])
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailImport(makeAccountId("a1"), emails)
-  let req = b1.build()
+  let req = b1.freeze().request
   doAssert req.methodCalls[0].arguments{"ifInState"}.isNil
 
 # ===========================================================================
 # F. addEmailQueryWithThreads — RFC 8621 §4.10 first-login workflow
 # ===========================================================================
 
-block addEmailQueryWithThreadsFirstLogin:
+testCase addEmailQueryWithThreadsFirstLogin:
   ## RFC 8621 §4.10 first-login workflow — 4-invocation back-reference
   ## chain wired through ``EmailQueryThreadChain``. Pins the byte-identical
   ## invariant against silent regression.
   let cond = filterCondition(makeEmailFilterCondition())
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, chain) = b0.addEmailQueryWithThreads(makeAccountId("a1"), filter = cond)
-  let req = b1.build()
+  let req = b1.freeze().request
 
   assertLen req.methodCalls, 4
   assertEq req.methodCalls[0].name, mnEmailQuery

@@ -21,31 +21,36 @@ import std/json
 
 {.push ruleOff: "hasDoc".}
 
-import jmap_client/validation
-import jmap_client/primitives
-import jmap_client/identifiers
-import jmap_client/capabilities
-import jmap_client/session
-import jmap_client/framework
-import jmap_client/envelope
-import jmap_client/methods_enum
-import jmap_client/errors
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/account_capability_schemas
+import jmap_client/internal/types/session
+import jmap_client/internal/types/framework
+import jmap_client/internal/types/envelope
+import jmap_client/internal/types/methods_enum
+import jmap_client/internal/types/errors
 
-import jmap_client/mail/types
-import jmap_client/mail/email
-import jmap_client/mail/snippet
-import jmap_client/mail/serde_email
-import jmap_client/mail/serde_snippet
-import jmap_client/mail/email_blueprint
-import jmap_client/mail/mail_builders
-import jmap_client/mail/submission_atoms
-import jmap_client/mail/submission_mailbox
-import jmap_client/mail/submission_param
-import jmap_client/mail/submission_envelope
-import jmap_client/mail/submission_status
-import jmap_client/mail/email_submission
-import jmap_client/methods
-import jmap_client/dispatch
+import jmap_client/internal/mail/types
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/snippet
+import jmap_client/internal/mail/serde_email
+import jmap_client/internal/mail/serde_snippet
+import jmap_client/internal/mail/email_blueprint
+import jmap_client/internal/mail/mail_builders
+import jmap_client/internal/types/submission_atoms
+import jmap_client/internal/mail/submission_mailbox
+import jmap_client/internal/mail/submission_param
+import jmap_client/internal/mail/submission_envelope
+import jmap_client/internal/mail/submission_status
+import jmap_client/internal/mail/email_submission
+import jmap_client/internal/protocol/methods
+import jmap_client/internal/protocol/dispatch
+import jmap_client/internal/protocol/builder
+import jmap_client/internal/protocol/call_meta
+import ./m_l2_serde
+export m_l2_serde
 
 proc zeroUint*(): UnsignedInt =
   parseUnsignedInt(0).get()
@@ -77,50 +82,82 @@ proc makePropertyName*(s = "subject"): PropertyName =
 proc makeUriTemplate*(s = "https://example.com/{accountId}"): UriTemplate =
   parseUriTemplate(s).get()
 
+proc makeBuilderId*(clientBrand: uint64 = 0'u64, serial: uint64 = 0'u64): BuilderId =
+  initBuilderId(clientBrand, serial)
+
+template makeResponseHandle*[T](
+    callId: MethodCallId, builderId: BuilderId
+): ResponseHandle[T] =
+  ## Template so the ``initResponseHandle`` mixin chain resolves at the
+  ## test's call site rather than inside this helper module.
+  initResponseHandle[T](callId, builderId)
+
+template makeResponseHandle*[T](callId: MethodCallId): ResponseHandle[T] =
+  ## Default-builderId overload — equivalent to the original ``proc``
+  ## signature with the default ``builderId = makeBuilderId()``.
+  initResponseHandle[T](callId, makeBuilderId())
+
+template makeNameBoundHandle*[T](
+    callId: MethodCallId, methodName: MethodName, builderId: BuilderId
+): NameBoundHandle[T] =
+  ## Template so the ``initNameBoundHandle`` mixin chain resolves at
+  ## the test's call site rather than inside this helper module.
+  initNameBoundHandle[T](callId, methodName, builderId)
+
+template makeNameBoundHandle*[T](
+    callId: MethodCallId, methodName: MethodName
+): NameBoundHandle[T] =
+  ## Default-builderId overload.
+  initNameBoundHandle[T](callId, methodName, makeBuilderId())
+
+proc makeDispatchedResponse*(
+    response: Response, builderId: BuilderId = makeBuilderId()
+): DispatchedResponse =
+  initDispatchedResponse(response, builderId)
+
 proc zeroCoreCaps*(): CoreCapabilities =
   let z = zeroUint()
-  CoreCapabilities(
-    maxSizeUpload: z,
-    maxConcurrentUpload: z,
-    maxSizeRequest: z,
-    maxConcurrentRequests: z,
-    maxCallsInRequest: z,
-    maxObjectsInGet: z,
-    maxObjectsInSet: z,
-    collationAlgorithms: initHashSet[CollationAlgorithm](),
-  )
+  parseCoreCapabilities(z, z, z, z, z, z, z, initHashSet[CollationAlgorithm]()).get()
 
 proc realisticCoreCaps*(): CoreCapabilities =
-  CoreCapabilities(
-    maxSizeUpload: parseUnsignedInt(50_000_000).get(),
-    maxConcurrentUpload: parseUnsignedInt(4).get(),
-    maxSizeRequest: parseUnsignedInt(10_000_000).get(),
-    maxConcurrentRequests: parseUnsignedInt(8).get(),
-    maxCallsInRequest: parseUnsignedInt(32).get(),
-    maxObjectsInGet: parseUnsignedInt(1000).get(),
-    maxObjectsInSet: parseUnsignedInt(500).get(),
-    collationAlgorithms: toHashSet([CollationAsciiCasemap, CollationUnicodeCasemap]),
+  parseCoreCapabilities(
+    parseUnsignedInt(50_000_000).get(),
+    parseUnsignedInt(4).get(),
+    parseUnsignedInt(10_000_000).get(),
+    parseUnsignedInt(8).get(),
+    parseUnsignedInt(32).get(),
+    parseUnsignedInt(1000).get(),
+    parseUnsignedInt(500).get(),
+    toHashSet([CollationAsciiCasemap, CollationUnicodeCasemap]),
   )
+    .get()
 
 proc makeCoreCapsWithLimits*(
     maxCallsInRequest: int64 = 32,
     maxObjectsInGet: int64 = 1000,
     maxObjectsInSet: int64 = 500,
+    maxSizeRequest: int64 = 10_000_000,
 ): CoreCapabilities =
-  ## CoreCapabilities with caller-specified limit fields; zeroes elsewhere.
-  CoreCapabilities(
-    maxSizeUpload: zeroUint(),
-    maxConcurrentUpload: zeroUint(),
-    maxSizeRequest: zeroUint(),
-    maxConcurrentRequests: zeroUint(),
-    maxCallsInRequest: parseUnsignedInt(maxCallsInRequest).get(),
-    maxObjectsInGet: parseUnsignedInt(maxObjectsInGet).get(),
-    maxObjectsInSet: parseUnsignedInt(maxObjectsInSet).get(),
-    collationAlgorithms: initHashSet[CollationAlgorithm](),
+  ## CoreCapabilities with caller-specified count limits and a generous
+  ## ``maxSizeRequest`` default (10 MB) so the post-serialisation size
+  ## check in ``client.send`` doesn't fire for the typical small
+  ## fixtures these tests build. Caller can override
+  ## ``maxSizeRequest`` to exercise that specific cap.
+  parseCoreCapabilities(
+    zeroUint(),
+    zeroUint(),
+    parseUnsignedInt(maxSizeRequest).get(),
+    zeroUint(),
+    parseUnsignedInt(maxCallsInRequest).get(),
+    parseUnsignedInt(maxObjectsInGet).get(),
+    parseUnsignedInt(maxObjectsInSet).get(),
+    initHashSet[CollationAlgorithm](),
   )
+    .get()
 
 proc makeCoreServerCap*(caps = zeroCoreCaps()): ServerCapability =
-  ServerCapability(rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: caps)
+  parseServerCapability("urn:ietf:params:jmap:core", Opt.some(caps), Opt.none(JsonNode))
+    .get()
 
 proc makeGoldenDownloadUrl*(): UriTemplate =
   parseUriTemplate(
@@ -161,10 +198,85 @@ proc parseSessionFromArgs*(args: SessionArgs): Session =
   ## Convenience wrapper around the 9-argument parseSession.
   tryParseSessionFromArgs(args).get()
 
+proc makeMailAccountCapabilities*(
+    maxMailboxesPerEmail: Opt[UnsignedInt] = Opt.some(parseUnsignedInt(100).get()),
+    maxMailboxDepth: Opt[UnsignedInt] = Opt.none(UnsignedInt),
+    maxSizeMailboxName: Opt[UnsignedInt] = Opt.some(parseUnsignedInt(490).get()),
+    maxSizeAttachmentsPerEmail: UnsignedInt = parseUnsignedInt(50_000_000).get(),
+    emailQuerySortOptions: HashSet[string] = toHashSet(["receivedAt", "from"]),
+    mayCreateTopLevelMailbox: bool = true,
+): MailAccountCapabilities =
+  parseMailAccountCapabilities(
+    maxMailboxesPerEmail, maxMailboxDepth, maxSizeMailboxName,
+    maxSizeAttachmentsPerEmail, emailQuerySortOptions, mayCreateTopLevelMailbox,
+  )
+    .get()
+
+proc makeSubmissionAccountCapabilities*(
+    maxDelayedSend: UnsignedInt = parseUnsignedInt(0).get(),
+    submissionExtensions: SubmissionExtensionMap =
+      initSubmissionExtensionMap(initOrderedTable[RFC5321Keyword, seq[string]]()),
+): SubmissionAccountCapabilities =
+  parseSubmissionAccountCapabilities(maxDelayedSend, submissionExtensions).get()
+
+proc makeMailAccountEntry*(
+    caps: MailAccountCapabilities = makeMailAccountCapabilities()
+): AccountCapabilityEntry =
+  parseAccountCapabilityEntry(
+    "urn:ietf:params:jmap:mail",
+    Opt.some(caps),
+    Opt.none(SubmissionAccountCapabilities),
+    Opt.none(JsonNode),
+  )
+    .get()
+
+proc makeSubmissionAccountEntry*(
+    caps: SubmissionAccountCapabilities = makeSubmissionAccountCapabilities()
+): AccountCapabilityEntry =
+  parseAccountCapabilityEntry(
+    "urn:ietf:params:jmap:submission",
+    Opt.none(MailAccountCapabilities),
+    Opt.some(caps),
+    Opt.none(JsonNode),
+  )
+    .get()
+
+proc makeVacationAccountEntry*(): AccountCapabilityEntry =
+  parseAccountCapabilityEntry(
+    "urn:ietf:params:jmap:vacationresponse",
+    Opt.none(MailAccountCapabilities),
+    Opt.none(SubmissionAccountCapabilities),
+    Opt.none(JsonNode),
+  )
+    .get()
+
+proc makeRawAccountEntry*(
+    uri: string, data: JsonNode = newJObject()
+): AccountCapabilityEntry =
+  parseAccountCapabilityEntry(
+    uri,
+    Opt.none(MailAccountCapabilities),
+    Opt.none(SubmissionAccountCapabilities),
+    Opt.some(data),
+  )
+    .get()
+
+proc makeAccount*(
+    name: string = "test",
+    policy: AccountPolicy = apOwned,
+    accountCapabilities: seq[AccountCapabilityEntry] = @[],
+): Account =
+  parseAccount(
+    name,
+    isPersonal = policy in {apOwned, apOwnedReadOnly},
+    isReadOnly = policy in {apOwnedReadOnly, apSharedReadOnly},
+    accountCapabilities,
+  )
+    .get()
+
 proc makeSessionArgs*(): SessionArgs =
   var accounts = initTable[AccountId, Account]()
-  accounts[makeAccountId("A1")] =
-    Account(name: "test", isPersonal: true, isReadOnly: false, accountCapabilities: @[])
+  accounts[makeAccountId("A1")] = makeAccount()
   var primaryAccounts = initTable[string, AccountId]()
   primaryAccounts["urn:ietf:params:jmap:mail"] = makeAccountId("A1")
   result = (
@@ -178,6 +290,12 @@ proc makeSessionArgs*(): SessionArgs =
     eventSourceUrl: makeGoldenEventSourceUrl(),
     state: makeState("s1"),
   )
+
+proc makeSessionArgsWithCoreCaps*(caps: CoreCapabilities): SessionArgs =
+  ## Like ``makeSessionArgs`` but the lone server capability advertises
+  ## ``caps`` for the core URN instead of the zero defaults.
+  result = makeSessionArgs()
+  result.capabilities = @[makeCoreServerCap(caps)]
 
 # ---------------------------------------------------------------------------
 # Envelope factories
@@ -197,16 +315,29 @@ proc makeRequest*(
     methodCalls: seq[Invocation] = @[makeInvocation()],
     createdIds = Opt.none(Table[CreationId, Id]),
 ): Request =
-  Request(`using`: `using`, methodCalls: methodCalls, createdIds: createdIds)
+  initRequest(`using`, methodCalls, createdIds)
+
+proc makeBuiltRequest*(
+    `using`: seq[string] = @["urn:ietf:params:jmap:core"],
+    methodCalls: seq[Invocation] = @[makeInvocation()],
+    createdIds = Opt.none(Table[CreationId, Id]),
+    builderId: BuilderId = makeBuilderId(),
+    callLimits: seq[CallLimitMeta] = @[],
+): BuiltRequest =
+  ## Test-only factory for ``BuiltRequest``. Wraps ``makeRequest`` then
+  ## routes through ``builtRequestFromParts`` (the whitebox-only factory
+  ## in ``internal/protocol/builder.nim``). Use when a test needs a
+  ## frozen, branded carrier without driving the full builder pipeline.
+  let req =
+    makeRequest(`using` = `using`, methodCalls = methodCalls, createdIds = createdIds)
+  builtRequestFromParts(req, builderId, callLimits)
 
 proc makeResponse*(
     methodResponses: seq[Invocation] = @[makeInvocation()],
     state = makeState("rs1"),
     createdIds = Opt.none(Table[CreationId, Id]),
 ): Response =
-  Response(
-    methodResponses: methodResponses, createdIds: createdIds, sessionState: state
-  )
+  initResponse(methodResponses, createdIds, state)
 
 proc makeResultReference*(
     mcid = makeMcid("c0"), name = mnMailboxGet, path = rpIds
@@ -233,26 +364,17 @@ proc makeFastmailSession*(): SessionArgs =
   ## Realistic Fastmail-style session with vendor extensions.
   var accounts = initTable[AccountId, Account]()
   let acctId = makeAccountId("u1f5a6e2c")
-  accounts[acctId] = Account(
-    name: "user@fastmail.com",
-    isPersonal: true,
-    isReadOnly: false,
-    accountCapabilities: @[
-      AccountCapabilityEntry(
-        kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: newJObject()
-      ),
-      AccountCapabilityEntry(
-        kind: ckSubmission,
-        rawUri: "urn:ietf:params:jmap:submission",
-        data: newJObject(),
-      ),
-      AccountCapabilityEntry(
-        kind: ckUnknown,
-        rawUri: "https://www.fastmail.com/dev/contacts",
-        data: newJObject(),
-      ),
-    ],
-  )
+  accounts[acctId] = parseAccount(
+      "user@fastmail.com",
+      isPersonal = true,
+      isReadOnly = false,
+      @[
+        makeMailAccountEntry(makeMailAccountCapabilities()),
+        makeSubmissionAccountEntry(makeSubmissionAccountCapabilities()),
+        makeRawAccountEntry("https://www.fastmail.com/dev/contacts"),
+      ],
+    )
+    .get()
   var primaryAccounts = initTable[string, AccountId]()
   primaryAccounts["urn:ietf:params:jmap:mail"] = acctId
   primaryAccounts["urn:ietf:params:jmap:submission"] = acctId
@@ -260,29 +382,34 @@ proc makeFastmailSession*(): SessionArgs =
   result = (
     capabilities: @[
       makeCoreServerCap(realisticCoreCaps()),
-      ServerCapability(
-        rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJObject()
-      ),
-      ServerCapability(
-        rawUri: "urn:ietf:params:jmap:submission",
-        kind: ckSubmission,
-        rawData: newJObject(),
-      ),
-      ServerCapability(
-        rawUri: "urn:ietf:params:jmap:vacationresponse",
-        kind: ckVacationResponse,
-        rawData: newJObject(),
-      ),
-      ServerCapability(
-        rawUri: "https://www.fastmail.com/dev/contacts",
-        kind: ckUnknown,
-        rawData: newJObject(),
-      ),
-      ServerCapability(
-        rawUri: "https://www.fastmail.com/dev/blob",
-        kind: ckUnknown,
-        rawData: newJObject(),
-      ),
+      parseServerCapability(
+        "urn:ietf:params:jmap:mail", Opt.none(CoreCapabilities), Opt.none(JsonNode)
+      )
+        .get(),
+      parseServerCapability(
+        "urn:ietf:params:jmap:submission",
+        Opt.none(CoreCapabilities),
+        Opt.none(JsonNode),
+      )
+        .get(),
+      parseServerCapability(
+        "urn:ietf:params:jmap:vacationresponse",
+        Opt.none(CoreCapabilities),
+        Opt.none(JsonNode),
+      )
+        .get(),
+      parseServerCapability(
+        "https://www.fastmail.com/dev/contacts",
+        Opt.none(CoreCapabilities),
+        Opt.none(JsonNode),
+      )
+        .get(),
+      parseServerCapability(
+        "https://www.fastmail.com/dev/blob",
+        Opt.none(CoreCapabilities),
+        Opt.none(JsonNode),
+      )
+        .get(),
     ],
     accounts: accounts,
     primaryAccounts: primaryAccounts,
@@ -328,16 +455,16 @@ proc makeSetErrorAlreadyExists*(
 # ---------------------------------------------------------------------------
 
 proc makeComparator*(
-    property: PropertyName = makePropertyName("subject"), isAscending = true
+    property: PropertyName = makePropertyName("subject"), direction = sdAscending
 ): Comparator =
-  parseComparator(property, isAscending)
+  parseComparator(property, direction)
 
 proc makeComparatorWithCollation*(
     property: PropertyName = makePropertyName("subject"),
-    isAscending = true,
+    direction = sdAscending,
     collation: CollationAlgorithm = CollationUnicodeCasemap,
 ): Comparator =
-  parseComparator(property, isAscending, Opt.some(collation))
+  parseComparator(property, direction, Opt.some(collation))
 
 proc makeAddedItem*(id: Id = makeId("item1"), index: int64 = 0): AddedItem =
   initAddedItem(id, parseUnsignedInt(index).get())
@@ -350,10 +477,16 @@ proc makeFilterCondition*(condition = 42): Filter[int] =
   filterCondition(condition)
 
 proc makeFilterAnd*(children: seq[Filter[int]]): Filter[int] =
-  filterOperator[int](foAnd, children)
+  ## Test fixture: callers pass a non-empty child list, so ``filterAnd`` is Ok.
+  filterAnd(children).get()
 
 proc makeFilterOr*(children: seq[Filter[int]]): Filter[int] =
-  filterOperator[int](foOr, children)
+  ## Test fixture: callers pass a non-empty child list, so ``filterOr`` is Ok.
+  filterOr(children).get()
+
+proc makeFilterNot*(child: Filter[int]): Filter[int] =
+  ## Test fixture for a single-child NOT (RFC 8620 §5.5).
+  filterNot(child)
 
 # ---------------------------------------------------------------------------
 # Additional session fixture
@@ -363,24 +496,22 @@ proc makeCyrusSession*(): SessionArgs =
   ## Cyrus IMAP style session with lenient account IDs.
   var accounts = initTable[AccountId, Account]()
   let acctId = makeAccountId("uid=12345")
-  accounts[acctId] = Account(
-    name: "admin@cyrus.example.com",
-    isPersonal: true,
-    isReadOnly: false,
-    accountCapabilities: @[
-      AccountCapabilityEntry(
-        kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: newJObject()
-      )
-    ],
-  )
+  accounts[acctId] = parseAccount(
+      "admin@cyrus.example.com",
+      isPersonal = true,
+      isReadOnly = false,
+      @[makeMailAccountEntry(makeMailAccountCapabilities())],
+    )
+    .get()
   var primaryAccounts = initTable[string, AccountId]()
   primaryAccounts["urn:ietf:params:jmap:mail"] = acctId
   result = (
     capabilities: @[
       makeCoreServerCap(realisticCoreCaps()),
-      ServerCapability(
-        rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJObject()
-      ),
+      parseServerCapability(
+        "urn:ietf:params:jmap:mail", Opt.none(CoreCapabilities), Opt.none(JsonNode)
+      )
+        .get(),
     ],
     accounts: accounts,
     primaryAccounts: primaryAccounts,
@@ -550,7 +681,11 @@ proc validResponseJson*(): JsonNode =
   %*{"methodResponses": [["Mailbox/get", {}, "c0"]], "sessionState": "s1"}
 
 proc goldenSessionJson*(): JsonNode =
-  ## RFC 8620 section 2.1 golden Session JSON.
+  ## RFC 8620 section 2.1 golden Session JSON. ckMail at account scope
+  ## carries the full RFC 8621 §1.3.1 typed payload — at session scope
+  ## it's the discard empty object.
+  let mailAccountCaps =
+    %*{"maxSizeAttachmentsPerEmail": 50_000_000, "mayCreateTopLevelMailbox": true}
   %*{
     "capabilities": {
       "urn:ietf:params:jmap:core": {
@@ -573,14 +708,16 @@ proc goldenSessionJson*(): JsonNode =
         "name": "john@example.com",
         "isPersonal": true,
         "isReadOnly": false,
-        "accountCapabilities":
-          {"urn:ietf:params:jmap:mail": {}, "urn:ietf:params:jmap:contacts": {}},
+        "accountCapabilities": {
+          "urn:ietf:params:jmap:mail": mailAccountCaps,
+          "urn:ietf:params:jmap:contacts": {},
+        },
       },
       "A97813": {
         "name": "jane@example.com",
         "isPersonal": false,
         "isReadOnly": true,
-        "accountCapabilities": {"urn:ietf:params:jmap:mail": {}},
+        "accountCapabilities": {"urn:ietf:params:jmap:mail": mailAccountCaps},
       },
     },
     "primaryAccounts":
@@ -638,14 +775,9 @@ proc coreCapEq*(a, b: CoreCapabilities): bool =
     a.collationAlgorithms <= b.collationAlgorithms
 
 proc capEq*(a, b: ServerCapability): bool =
-  ## Deep value equality for ServerCapability (case object).
-  if a.kind != b.kind or a.rawUri != b.rawUri:
-    return false
-  case a.kind
-  of ckCore:
-    coreCapEq(a.core, b.core)
-  else:
-    a.rawData == b.rawData
+  ## Deep value equality for ServerCapability (case object). Uses the
+  ## public accessors so it works against the sealed type.
+  a == b
 
 proc capsEq*(a, b: seq[ServerCapability]): bool =
   ## Compares two sequences of ServerCapability by value.
@@ -707,19 +839,19 @@ proc filterEq*(a, b: Filter[int]): bool =
   of fkOperator:
     if a.operator != b.operator:
       return false
-    if a.conditions.len != b.conditions.len:
+    if a.operands.len != b.operands.len:
       return false
-    for i in 0 ..< a.conditions.len:
-      if not filterEq(a.conditions[i], b.conditions[i]):
+    for i in 0 ..< a.operands.len:
+      if not filterEq(a.operands[i], b.operands[i]):
         return false
     true
 
 proc setErrorEq*(a, b: SetError): bool =
   ## Deep value equality for SetError (case object), including extras.
-  if a.rawType != b.rawType or a.errorType != b.errorType or
-      a.description != b.description or a.extras != b.extras:
+  if a.rawType != b.rawType or a.kind != b.kind or a.description != b.description or
+      a.extras != b.extras:
     return false
-  case a.errorType
+  case a.kind
   of setInvalidProperties:
     a.properties == b.properties
   of setAlreadyExists:
@@ -844,16 +976,16 @@ proc bodyFieldsEq[T](a, b: T): bool =
     a.preview == b.preview
 
 proc optMailboxIdSetEq(a, b: Opt[MailboxIdSet]): bool =
-  ## Distinct ``MailboxIdSet`` excludes ``==`` (from ``defineHashSetDistinctOps``);
-  ## unwrap to ``HashSet[Id]`` for comparison when both sides are some.
+  ## Sealed ``MailboxIdSet`` excludes ``==`` (from ``defineSealedHashSetOps``);
+  ## project to ``HashSet[Id]`` for comparison when both sides are some.
   if a.isSome and b.isSome:
-    return HashSet[Id](a.unsafeGet) == HashSet[Id](b.unsafeGet)
+    return a.unsafeGet.toHashSet == b.unsafeGet.toHashSet
   return a.isSome == b.isSome
 
 proc optKeywordSetEq(a, b: Opt[KeywordSet]): bool =
   ## Same shape as ``optMailboxIdSetEq`` for ``KeywordSet``.
   if a.isSome and b.isSome:
-    return HashSet[Keyword](a.unsafeGet) == HashSet[Keyword](b.unsafeGet)
+    return a.unsafeGet.toHashSet == b.unsafeGet.toHashSet
   return a.isSome == b.isSome
 
 proc emailMetadataEq(a, b: Email): bool =
@@ -887,7 +1019,7 @@ proc parsedEmailEq*(a, b: ParsedEmail): bool =
 proc emailComparatorEq*(a, b: EmailComparator): bool =
   ## Deep value equality for EmailComparator (case object). Follows
   ## ``setErrorEq`` pattern: shared fields then branch comparison.
-  if a.kind != b.kind or a.isAscending != b.isAscending or a.collation != b.collation:
+  if a.kind != b.kind or a.direction != b.direction or a.collation != b.collation:
     return false
   case a.kind
   of eckPlain:
@@ -949,11 +1081,7 @@ proc makeTypedResponse*(
   ## Takes the method name as a string so fixtures can target forward-compat
   ## or unknown methods alongside those in the MethodName enum.
   let inv = parseInvocation(methodName, args, mcid).get()
-  Response(
-    methodResponses: @[inv],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: state,
-  )
+  initResponse(@[inv], Opt.none(Table[CreationId, Id]), state)
 
 proc makeErrorResponse*(
     errorType: string,
@@ -962,11 +1090,7 @@ proc makeErrorResponse*(
 ): Response =
   ## Builds a Response with a single error invocation.
   let inv = makeErrorInvocation(mcid, errorType)
-  Response(
-    methodResponses: @[inv],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: state,
-  )
+  initResponse(@[inv], Opt.none(Table[CreationId, Id]), state)
 
 # ---------------------------------------------------------------------------
 # Mail Part D JSON fixtures (derived from type factories via toJson)
@@ -1302,7 +1426,7 @@ proc makeBodyPartLocationBlobRef*(blobId = makeBlobId("blob1")): BodyPartLocatio
   BodyPartLocation(kind: bplBlobRef, blobId: blobId)
 
 proc makeBodyPartLocationMultipart*(
-    path: BodyPartPath = BodyPartPath(@[])
+    path: BodyPartPath = initBodyPartPath(@[])
 ): BodyPartLocation =
   BodyPartLocation(kind: bplMultipart, path: path)
 
@@ -1325,7 +1449,7 @@ proc makeBlueprintBodyHeaderMap*(
 
 # I-16 -----------------------------------------------------------------------
 proc makeBodyPartPath*(s: seq[int] = @[]): BodyPartPath =
-  BodyPartPath(s)
+  initBodyPartPath(s)
 
 # I-17 -----------------------------------------------------------------------
 proc makeSpineBodyPart*(
@@ -1415,9 +1539,10 @@ proc blueprintHeaderMultiValueEq*(a, b: BlueprintHeaderMultiValue): bool =
 
 # K-8 ------------------------------------------------------------------------
 proc nonEmptyMailboxIdSetEq*(a, b: NonEmptyMailboxIdSet): bool =
-  ## Unwraps the distinct ``HashSet[Id]`` — ``==`` is intentionally not
-  ## borrowed at the type level (``defineHashSetDistinctOps`` omits it).
-  HashSet[Id](a) == HashSet[Id](b)
+  ## Compares via the value-projection accessor — ``==`` IS defined for
+  ## ``NonEmptyMailboxIdSet`` (sealed creation context), but ``toHashSet``
+  ## projection makes the legacy comparison call site explicit.
+  a.toHashSet == b.toHashSet
 
 # K-3 ------------------------------------------------------------------------
 proc bodyPartLocationEq*(a, b: BodyPartLocation): bool =
@@ -1642,9 +1767,8 @@ proc emailBlueprintMetadataEq(a, b: EmailBlueprint): bool =
   ## are module-private to ``email_blueprint.nim``. Keywords compared
   ## via HashSet-unwrap since ``KeywordSet`` has no ``==`` by design.
   nonEmptyMailboxIdSetEq(a.mailboxIds, b.mailboxIds) and
-    HashSet[Keyword](a.keywords) == HashSet[Keyword](b.keywords) and
-    a.receivedAt == b.receivedAt and blueprintAddrFieldsEq(a, b) and
-    blueprintScalarFieldsEq(a, b)
+    a.keywords.toHashSet == b.keywords.toHashSet and a.receivedAt == b.receivedAt and
+    blueprintAddrFieldsEq(a, b) and blueprintScalarFieldsEq(a, b)
 
 # K-7 ------------------------------------------------------------------------
 proc emailBlueprintEq*(a, b: EmailBlueprint): bool =
@@ -1834,17 +1958,17 @@ proc makeEmailSetResponse*(
     newState: Opt[JmapState] = Opt.some(makeState("s1")),
     createResults: Table[CreationId, Result[EmailCreatedItem, SetError]] =
       initTable[CreationId, Result[EmailCreatedItem, SetError]](),
-    updateResults: Table[Id, Result[Opt[JsonNode], SetError]] =
-      initTable[Id, Result[Opt[JsonNode], SetError]](),
+    updateResults: Table[Id, Result[Opt[PartialEmail], SetError]] =
+      initTable[Id, Result[Opt[PartialEmail], SetError]](),
     destroyResults: Table[Id, Result[void, SetError]] =
       initTable[Id, Result[void, SetError]](),
-): SetResponse[EmailCreatedItem] =
+): SetResponse[EmailCreatedItem, PartialEmail] =
   ## Email/set response fixture — the bespoke ``EmailSetResponse`` was
-  ## deleted; ``SetResponse[EmailCreatedItem]`` is the generic instantiation.
+  ## deleted; ``SetResponse[EmailCreatedItem, PartialEmail]`` is the generic instantiation.
   ## The split ``updated``/``notUpdated`` and ``destroyed``/``notDestroyed``
   ## fields collapse into the unified ``updateResults`` / ``destroyResults``
   ## tables (RFC 8620 §5.3 Decision 3.9B).
-  SetResponse[EmailCreatedItem](
+  SetResponse[EmailCreatedItem, PartialEmail](
     accountId: accountId,
     oldState: oldState,
     newState: newState,
@@ -1891,16 +2015,16 @@ proc makeEmailImportResponse*(
 # ---------------------------------------------------------------------------
 
 proc makeEmailCopyHandles*(
-    sharedCallId: MethodCallId = makeMcid("c0")
+    sharedCallId: MethodCallId = makeMcid("c0"), builderId: BuilderId = makeBuilderId()
 ): EmailCopyHandles =
   ## Both handles share one ``MethodCallId`` per RFC 8620 §5.4 — the
   ## implicit Email/set destroy response shares its call-id with the
   ## parent Email/copy invocation. Phase 4 protocol tests may add a
   ## distinct-MCID overload later if the mismatch case needs exercising.
   EmailCopyHandles(
-    primary: ResponseHandle[CopyResponse[EmailCreatedItem]](sharedCallId),
-    implicit: NameBoundHandle[SetResponse[EmailCreatedItem]](
-      callId: sharedCallId, methodName: mnEmailSet
+    primary: makeResponseHandle[CopyResponse[EmailCreatedItem]](sharedCallId, builderId),
+    implicit: makeNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
+      sharedCallId, mnEmailSet, builderId
     ),
   )
 
@@ -1981,7 +2105,7 @@ proc keywordSetEq*(a, b: KeywordSet): bool =
   ## domain). Cast through the underlying ``HashSet`` so its stdlib ``==``
   ## dispatches via the borrowed ``Keyword.==``. Required by
   ## ``emailUpdateEq`` for the ``euSetKeywords`` arm.
-  HashSet[Keyword](a) == HashSet[Keyword](b)
+  a.toHashSet == b.toHashSet
 
 proc emailUpdateEq*(a, b: EmailUpdate): bool =
   ## Arm-dispatched structural equality for the ``EmailUpdate`` case
@@ -2006,8 +2130,8 @@ proc emailUpdateSetEq*(a, b: EmailUpdateSet): bool =
   ## borrowed ``==``; the underlying ``seq[EmailUpdate]`` ``==`` would in
   ## turn require ``EmailUpdate.==``, which the source also omits.
   ## Manual element-wise comparison through ``emailUpdateEq``.
-  let xs = seq[EmailUpdate](a)
-  let ys = seq[EmailUpdate](b)
+  let xs = a.toSeq
+  let ys = b.toSeq
   if xs.len != ys.len:
     return false
   for i in 0 ..< xs.len:
@@ -2023,8 +2147,8 @@ proc nonEmptyOnSuccessUpdateEmailEq*(a, b: NonEmptyOnSuccessUpdateEmail): bool =
   ## ourselves: source-defined ``IdOrCreationRef.==`` /
   ## ``IdOrCreationRef.hash`` (``email_submission.nim:407``) drive key
   ## lookup, ``emailUpdateSetEq`` drives value equality.
-  let aTable = Table[IdOrCreationRef, EmailUpdateSet](a)
-  let bTable = Table[IdOrCreationRef, EmailUpdateSet](b)
+  let aTable = a.toTable
+  let bTable = b.toTable
   if aTable.len != bTable.len:
     return false
   for k, av in aTable:
@@ -2185,7 +2309,7 @@ proc makeDeliveryStatusMap*(
   var t = initTable[RFC5321Mailbox, DeliveryStatus](entries.len)
   for (k, v) in entries:
     t[k] = v
-  DeliveryStatusMap(t)
+  initDeliveryStatusMap(t)
 
 # Group 5 — IdOrCreationRef variant factories
 
@@ -2258,6 +2382,7 @@ proc makeFullEmailSubmissionBlueprint*(): EmailSubmissionBlueprint =
 proc makeEmailSubmissionHandles*(
     submissionMcid: MethodCallId = makeMcid("c0"),
     emailSetMcid: MethodCallId = makeMcid("c0"),
+    builderId: BuilderId = makeBuilderId(),
 ): EmailSubmissionHandles =
   ## Both handles share one ``MethodCallId`` by default per RFC 8620 §5.4 —
   ## the implicit ``Email/set`` triggered by ``onSuccessUpdateEmail`` /
@@ -2266,8 +2391,8 @@ proc makeEmailSubmissionHandles*(
   ## adversarial tests (§8.2.3 Block 6 ``getBothInnerMcIdMismatch``) can
   ## pass divergent ids to exercise the dispatch mismatch branch.
   EmailSubmissionHandles(
-    primary: ResponseHandle[EmailSubmissionSetResponse](submissionMcid),
-    implicit: NameBoundHandle[SetResponse[EmailCreatedItem]](
-      callId: emailSetMcid, methodName: mnEmailSet
+    primary: makeResponseHandle[EmailSubmissionSetResponse](submissionMcid, builderId),
+    implicit: makeNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
+      emailSetMcid, mnEmailSet, builderId
     ),
   )

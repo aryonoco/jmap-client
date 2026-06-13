@@ -369,6 +369,127 @@ lint-style:
         ' --
     echo "Style check passed (vendor/ diagnostics tolerated)"
 
+# Enforce the public/internal boundary (A1, P5). Fails CI on any
+# `import jmap_client/internal/...` outside src/jmap_client/** or
+# tests/**.
+lint-internal-boundary:
+    @echo "Running H10 internal-boundary lint..."
+    nim r --hints:off --warnings:off tests/lint/th10_internal_boundary.nim
+    @echo "H10 internal-boundary lint passed"
+
+# Enforce the typed-builder JsonNode prohibition (A5, P19). Fails CI
+# on any `add<Entity><Method>*` proc that acquires a JsonNode
+# parameter outside the documented allowlist (addEcho,
+# addCapabilityInvocation, addInvocation).
+lint-typed-builder-jsonnode:
+    @echo "Running H11 typed-builder JsonNode lint..."
+    nim r --hints:off --warnings:off tests/lint/h11_typed_builder_no_jsonnode.nim
+    @echo "H11 typed-builder JsonNode lint passed"
+
+# Enforce the post-A8 invariant: zero public `distinct` types under
+# src/. Sealed Pattern-A objects are the only permitted value-carrier
+# shape (P15). Catches regression on the seal that binds external
+# consumers.
+lint-sealed-distinct:
+    @echo "Running H1 sealed-distinct lint..."
+    nim r --hints:off --warnings:off tests/lint/h1_sealed_distinct_construction.nim
+    @echo "H1 sealed-distinct lint passed"
+
+# H1b fallible-ctor ∩ public-arm lint. Backs the closed-A8 invariant
+# (P15, P16): a public case object built by a fallible smart constructor
+# must not expose a public arm over a raw, externally-constructible
+# payload (the empty-NOTIFY hole A30b sealed on SubmissionParam).
+lint-fallible-ctor-public-arm:
+    @echo "Running H1b fallible-ctor public-arm lint..."
+    nim r --hints:off --warnings:off tests/lint/h1b_fallible_ctor_public_arm.nim
+    @echo "H1b fallible-ctor public-arm lint passed"
+
+# Enforce the A9 + A13 + A19 outcome: no exported symbol on
+# src/jmap_client/** carries a *ForTest* / *ForTesting* / setSessionFor* /
+# lastRaw* / last*Response* / last*Request* shape (P5, P8, P14).
+lint-h12-no-test-backdoors:
+    @echo "Running H12 test-backdoor-symbol lint..."
+    nim r --hints:off --warnings:off tests/lint/h12_no_test_backdoor_symbols.nim
+    @echo "H12 test-backdoor-symbol lint passed"
+
+# Regenerate the closed-set module-paths snapshot from the
+# filesystem. Developer convenience for legitimate path changes —
+# review the diff before committing and tag the PR
+# [MODULE-PATH-CHANGE]. CI does not run this recipe.
+freeze-module-paths:
+    @echo "Regenerating tests/wire_contract/module-paths.txt..."
+    @mkdir -p tests/wire_contract
+    @{ echo jmap_client; \
+       ls src/jmap_client/*.nim 2>/dev/null \
+         | sed 's|^src/||; s|\.nim$||'; \
+     } | sort -u > tests/wire_contract/module-paths.txt
+    @echo "Snapshot regenerated. Review the diff before committing."
+
+# H13 module-path lock lint. Backs A10a/A10b (P1, P5, P6, P20,
+# P23). Bidirectional comparison: top-level .nim files under
+# src/jmap_client/ must match tests/wire_contract/module-paths.txt
+# exactly.
+lint-module-paths:
+    @echo "Running H13 module-path lock lint..."
+    nim r --hints:off --warnings:off tests/lint/h13_module_path_lock.nim
+    @echo "H13 module-path lock lint passed"
+
+# Regenerate the H15 error-message snapshot. Developer convenience for
+# legitimate format changes — review the diff before committing and
+# tag the PR [ERR-MSG-CHANGE]. CI does not run this recipe.
+freeze-error-messages:
+    @echo "Regenerating tests/wire_contract/error-messages.txt..."
+    @mkdir -p tests/wire_contract
+    nim r --hints:off --warnings:off scripts/freeze_error_messages.nim \
+      > tests/wire_contract/error-messages.txt.new
+    @mv tests/wire_contract/error-messages.txt.new tests/wire_contract/error-messages.txt
+    @echo "Snapshot regenerated. Review the diff before committing."
+
+# H15 error-message snapshot lock lint. Backs A12 (P1, P5, P13, P18,
+# P20). Bidirectional comparison: live message() projections must
+# match tests/wire_contract/error-messages.txt exactly.
+lint-error-messages:
+    @echo "Running H15 error-message snapshot lint..."
+    nim r --hints:off --warnings:off tests/lint/h15_error_message_snapshot.nim
+    @echo "H15 error-message snapshot lint passed"
+
+# Regenerate the public-API surface snapshot (A26/F6). Developer convenience
+# for legitimate surface changes — review the diff before committing and tag
+# the PR [API-CHANGE]. CI does not run this recipe.
+freeze-api:
+    @echo "Regenerating tests/wire_contract/public-api.txt..."
+    @mkdir -p tests/wire_contract
+    nim r --hints:off --warnings:off scripts/freeze_public_api.nim \
+      > tests/wire_contract/public-api.txt.new
+    @mv tests/wire_contract/public-api.txt.new tests/wire_contract/public-api.txt
+    @echo "Snapshot regenerated. Review the diff before committing."
+
+# H16 public-API snapshot lock lint. Backs A26/F6 (P1, P5, P2). The symbols
+# reachable through `import jmap_client` / `import jmap_client/convenience`
+# must match tests/wire_contract/public-api.txt exactly.
+lint-public-api:
+    @echo "Running H16 public-API snapshot lint..."
+    nim r --hints:off --warnings:off tests/lint/h16_public_api_snapshot.nim
+    @echo "H16 public-API snapshot lint passed"
+
+# Regenerate the public-type-shape snapshot (A25/A25b). Developer convenience
+# for legitimate type-shape changes — review the diff before committing and tag
+# the PR [TYPE-SHAPE-CHANGE]. CI does not run this recipe.
+freeze-type-shapes:
+    @echo "Regenerating tests/wire_contract/type-shapes.txt..."
+    @mkdir -p tests/wire_contract
+    nim r --hints:off --warnings:off scripts/freeze_type_shapes.nim \
+      > tests/wire_contract/type-shapes.txt.new
+    @mv tests/wire_contract/type-shapes.txt.new tests/wire_contract/type-shapes.txt
+    @echo "Snapshot regenerated. Review the diff before committing."
+
+# H17 type-shape snapshot lock lint. Backs A25 (P1, P2). The public-field
+# signature of every public type must match tests/wire_contract/type-shapes.txt.
+lint-type-shapes:
+    @echo "Running H17 type-shape snapshot lint..."
+    nim r --hints:off --warnings:off tests/lint/h17_type_shape_snapshot.nim
+    @echo "H17 type-shape snapshot lint passed"
+
 # Static analysis with nimalyzer
 analyse:
     @echo "Running static analysis..."
@@ -379,7 +500,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated lint-style analyse
+check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -393,7 +514,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style analyse test
+ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"
@@ -538,8 +659,12 @@ jmap-up: stalwart-up james-up cyrus-up
 # Stop every configured JMAP target
 jmap-down: stalwart-down james-down cyrus-down
 
-# Tear down and recreate every configured target with fresh data
-jmap-reset: jmap-down jmap-up
+# Tear down and recreate every configured target with fresh data.
+# Delegates to the per-server `*-reset` recipes so Stalwart's persistent
+# data volume is wiped (`stalwart-reset`) rather than preserved across the
+# restart — otherwise account state (e.g. Identity records created by live
+# tests) accumulates between runs and eventually trips server quotas.
+jmap-reset: stalwart-reset james-reset cyrus-reset
 
 # Show status of every configured target
 jmap-status:

@@ -5,7 +5,7 @@
 ## response covering all three new update arms (``setHtmlBody``,
 ## ``setFromDate``, ``setToDate``) plus the three from Phase B9
 ## (``tests/testdata/captured/vacation-set-all-arms-stalwart.json``).
-## Verifies that ``SetResponse[VacationResponse]`` parses the
+## Verifies that ``SetResponse[NoCreate, PartialVacationResponse]`` parses the
 ## ``updated`` table where the singleton key maps to ``null``
 ## (RFC 8620 §5.3 — server-defined fields unchanged from the
 ## client's submission).
@@ -16,9 +16,11 @@ import std/json
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedVacationSetAllArms:
+testCase tcapturedVacationSetAllArms:
   forEachCapturedServer("vacation-set-all-arms", j):
     # Two server-specific shapes are RFC-conformant here:
     #   * Stalwart and James implement VacationResponse/set and emit
@@ -36,9 +38,9 @@ block tcapturedVacationSetAllArms:
       let inv = resp.methodResponses[0]
       doAssert inv.rawName == "VacationResponse/set"
 
-      let setResp = SetResponse[VacationResponse].fromJson(inv.arguments).expect(
-          "SetResponse[VacationResponse].fromJson"
-        )
+      let setResp = SetResponse[NoCreate, PartialVacationResponse]
+        .fromJson(inv.arguments)
+        .expect("SetResponse[NoCreate, PartialVacationResponse].fromJson")
       doAssert setResp.newState.isSome, "newState must be present in this fixture"
       let singletonId =
         parseIdFromServer("singleton").expect("parseIdFromServer singleton")
@@ -49,5 +51,5 @@ block tcapturedVacationSetAllArms:
         "VacationResponse/set update with all six arms must succeed for the singleton"
     else:
       let re = RequestError.fromJson(j).expect("RequestError.fromJson")
-      doAssert re.errorType == retUnknownCapability,
-        "Cyrus rejection must project as retUnknownCapability; got " & $re.errorType
+      doAssert re.kind == retUnknownCapability,
+        "Cyrus rejection must project as retUnknownCapability; got " & $re.kind

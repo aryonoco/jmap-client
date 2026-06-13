@@ -1,0 +1,848 @@
+# Public-API surface snapshot — every symbol reachable through
+# `import jmap_client` and `import jmap_client/convenience` (A10/A26).
+# Locked by tests/lint/h16_public_api_snapshot.nim (P1/P5).
+# Regenerate with: just freeze-api
+# Update PR label: [API-CHANGE]
+## jmap_client/convenience
+type ChangesGetHandles [T]
+type ChangesGetResults [T]
+type MailboxChangesGetHandles
+type MailboxChangesGetResults
+type QueryGetHandles [T]
+type QueryGetResults [T]
+func addEmailChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges), bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),): (RequestBuilder, ChangesGetHandles[Email])
+func addEmailQueryThenGet (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]), sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]), queryParams: QueryParams = QueryParams(), collapseThreads: bool = false, bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),): (RequestBuilder, QueryGetHandles[Email])
+func addEmailSubmissionChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),): (RequestBuilder, ChangesGetHandles[AnyEmailSubmission])
+func addEmailSubmissionQueryThenGet (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[EmailSubmissionFilterCondition]] = Opt.none(Filter[EmailSubmissionFilterCondition]), sort: Opt[seq[EmailSubmissionComparator]] = Opt.none(seq[EmailSubmissionComparator]), queryParams: QueryParams = QueryParams(),): (RequestBuilder, QueryGetHandles[AnyEmailSubmission])
+func addIdentityChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),): (RequestBuilder, ChangesGetHandles[Identity])
+func addMailboxChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),): (RequestBuilder, MailboxChangesGetHandles)
+func addMailboxQueryThenGet (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]), sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]), queryParams: QueryParams = QueryParams(), sortAsTree: bool = false, filterAsTree: bool = false,): (RequestBuilder, QueryGetHandles[Mailbox])
+func addThreadChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),): (RequestBuilder, ChangesGetHandles[jmap_client.Thread])
+func getBoth (dr: DispatchedResponse, handles: MailboxChangesGetHandles): Result[MailboxChangesGetResults, GetError]
+func getBoth [T](dr: DispatchedResponse, handles: ChangesGetHandles[T]): Result[ChangesGetResults[T], GetError]
+func getBoth [T](dr: DispatchedResponse, handles: QueryGetHandles[T]): Result[QueryGetResults[T], GetError]
+
+## jmap_client/internal/client
+type DebugCallback
+type JmapClient {.ruleOff: "hasDoc".}
+type WireDirection
+proc initJmapClient (endpoint: SessionEndpoint, credential: Credential, transport: Transport): Result[JmapClient, ValidationError]
+
+## jmap_client/internal/mail/addresses
+type EmailAddress {.ruleOff: "objects".}
+type EmailAddressGroup {.ruleOff: "objects".}
+func parseEmailAddress (email: string, name: Opt[string] = Opt.none(string)): Result[EmailAddress, ValidationError]
+
+## jmap_client/internal/mail/body
+type BlueprintBodyPart {.ruleOff: "objects".}
+type BlueprintBodyValue {.ruleOff: "objects".}
+type BlueprintLeafPart {.ruleOff: "objects".}
+type BlueprintPartSource
+type ContentDisposition {.ruleOff: "objects".}
+type ContentDispositionKind
+type EmailBodyPart {.ruleOff: "objects".}
+type EmailBodyValue {.ruleOff: "objects".}
+const MaxBodyPartDepth
+type PartId {.ruleOff: "objects".}
+func hash (d: ContentDisposition): Hash
+func identifier (d: ContentDisposition): string
+func kind (d: ContentDisposition): ContentDispositionKind
+func parseContentDisposition (raw: string): Result[ContentDisposition, ValidationError]
+func parsePartIdFromServer (raw: string): Result[PartId, ValidationError]
+
+## jmap_client/internal/mail/email
+type BodyValueScope
+type Email {.ruleOff: "objects".}
+type EmailBodyFetchOptions {.ruleOff: "objects".}
+type EmailBodyProperty {.ruleOff: "objects".}
+type EmailBodyPropertyKind
+type EmailComparator {.ruleOff: "objects".}
+type EmailComparatorKind
+type EmailCopyItem {.ruleOff: "objects".}
+type EmailCreatedItem {.ruleOff: "objects".}
+type EmailGetProperty {.ruleOff: "objects".}
+type EmailGetPropertyKind
+type EmailImportItem {.ruleOff: "objects".}
+type EmailImportResponse {.ruleOff: "objects".}
+type KeywordSortProperty
+type NonEmptyEmailImportMap {.ruleOff: "objects".}
+type ParsedEmail {.ruleOff: "objects".}
+type PartialEmail {.ruleOff: "objects".}
+type PlainSortProperty
+func emailBodyHeader (key: HeaderPropertyKey): EmailBodyProperty
+func emailGetHeader (key: HeaderPropertyKey): EmailGetProperty
+func hash (p: EmailBodyProperty): Hash
+func hash (p: EmailGetProperty): Hash
+func initEmailCopyItem (id: Id, mailboxIds: Opt[NonEmptyMailboxIdSet] = Opt.none(NonEmptyMailboxIdSet), keywords: Opt[KeywordSet] = Opt.none(KeywordSet), receivedAt: Opt[UTCDate] = Opt.none(UTCDate),): EmailCopyItem
+func initEmailImportItem (blobId: BlobId, mailboxIds: NonEmptyMailboxIdSet, keywords: Opt[KeywordSet] = Opt.none(KeywordSet), receivedAt: Opt[UTCDate] = Opt.none(UTCDate),): EmailImportItem
+func initNonEmptyEmailImportMap (items: openArray[(CreationId, EmailImportItem)]): Result[NonEmptyEmailImportMap, seq[ValidationError]]
+func isLeaf (part: EmailBodyPart): bool
+func keywordComparator (keywordProperty: KeywordSortProperty, keyword: Keyword, direction: SortDirection = sdServerDefault, collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),): EmailComparator
+func kind (p: EmailBodyProperty): EmailBodyPropertyKind
+func kind (p: EmailGetProperty): EmailGetPropertyKind
+func parseEmailBodyProperty (raw: string): Result[EmailBodyProperty, ValidationError]
+func parseEmailGetProperty (raw: string): Result[EmailGetProperty, ValidationError]
+func plainComparator (property: PlainSortProperty, direction: SortDirection = sdServerDefault, collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),): EmailComparator
+func toTable (m: NonEmptyEmailImportMap): Table[CreationId, EmailImportItem] {.inline.}
+func wireName (p: EmailBodyProperty): string
+func wireName (p: EmailGetProperty): string
+
+## jmap_client/internal/mail/email_blueprint
+type BodyPartLocation
+type BodyPartLocationKind
+type BodyPartPath {.ruleOff: "objects".}
+type EmailBlueprint {.ruleOff: "objects".}
+type EmailBlueprintBody
+type EmailBlueprintConstraint
+type EmailBlueprintError
+type EmailBlueprintErrors {.ruleOff: "objects".}
+type EmailBodyKind
+func bcc (bp: EmailBlueprint): Opt[seq[EmailAddress]]
+func body (bp: EmailBlueprint): EmailBlueprintBody
+func bodyKind (bp: EmailBlueprint): EmailBodyKind
+func bodyValues (bp: EmailBlueprint): Table[PartId, BlueprintBodyValue]
+func capacity (e: EmailBlueprintErrors): int {.inline.}
+func cc (bp: EmailBlueprint): Opt[seq[EmailAddress]]
+func extraHeaders (bp: EmailBlueprint): lent Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]
+func flatBody (textBody: Opt[BlueprintBodyPart] = Opt.none(BlueprintBodyPart), htmlBody: Opt[BlueprintBodyPart] = Opt.none(BlueprintBodyPart), attachments: seq[BlueprintBodyPart] = @[],): EmailBlueprintBody
+func fromAddr (bp: EmailBlueprint): Opt[seq[EmailAddress]]
+func hash (a: BodyPartPath): Hash
+func head (e: EmailBlueprintErrors): EmailBlueprintError
+func inReplyTo (bp: EmailBlueprint): Opt[seq[string]]
+func initBodyPartPath (path: seq[int]): BodyPartPath
+iterator items (a: BodyPartPath): int
+iterator items (e: EmailBlueprintErrors): EmailBlueprintError
+func keywords (bp: EmailBlueprint): KeywordSet
+func len (a: BodyPartPath): int
+func len (e: EmailBlueprintErrors): int
+func mailboxIds (bp: EmailBlueprint): NonEmptyMailboxIdSet
+func message (e: EmailBlueprintError): string
+func messageId (bp: EmailBlueprint): Opt[seq[string]]
+iterator pairs (a: BodyPartPath): (int, int)
+iterator pairs (e: EmailBlueprintErrors): (int, EmailBlueprintError)
+func parseEmailBlueprint (mailboxIds: NonEmptyMailboxIdSet, body: EmailBlueprintBody = flatBody(), keywords: KeywordSet = initKeywordSet(@[]), receivedAt: Opt[UTCDate] = Opt.none(UTCDate), fromAddr: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), to: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), cc: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), bcc: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), replyTo: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), sender: Opt[EmailAddress] = Opt.none(EmailAddress), subject: Opt[string] = Opt.none(string), sentAt: Opt[Date] = Opt.none(Date), messageId: Opt[seq[string]] = Opt.none(seq[string]), inReplyTo: Opt[seq[string]] = Opt.none(seq[string]), references: Opt[seq[string]] = Opt.none(seq[string]), extraHeaders: Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue] = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue](),): Result[EmailBlueprint, EmailBlueprintErrors]
+func receivedAt (bp: EmailBlueprint): Opt[UTCDate]
+func references (bp: EmailBlueprint): Opt[seq[string]]
+func replyTo (bp: EmailBlueprint): Opt[seq[EmailAddress]]
+func sender (bp: EmailBlueprint): Opt[EmailAddress]
+func sentAt (bp: EmailBlueprint): Opt[Date]
+func structuredBody (bodyStructure: BlueprintBodyPart): EmailBlueprintBody
+func subject (bp: EmailBlueprint): Opt[string]
+func to (bp: EmailBlueprint): Opt[seq[EmailAddress]]
+
+## jmap_client/internal/mail/email_submission
+type AnyEmailSubmission {.ruleOff: "objects".}
+type EmailSubmission [S: static UndoStatus] {.ruleOff: "objects".}
+type EmailSubmissionBlueprint {.ruleOff: "objects".}
+type EmailSubmissionComparator {.ruleOff: "objects".}
+type EmailSubmissionCreatedItem {.ruleOff: "objects".}
+type EmailSubmissionFilterCondition {.ruleOff: "objects".}
+type EmailSubmissionGetProperty {.ruleOff: "objects".}
+type EmailSubmissionGetPropertyKind
+type EmailSubmissionHandles
+type EmailSubmissionResults
+type EmailSubmissionSetResponse
+type EmailSubmissionSortProperty
+type EmailSubmissionUpdate {.ruleOff: "objects".}
+type EmailSubmissionUpdateVariantKind
+type IdOrCreationRef {.ruleOff: "objects".}
+type IdOrCreationRefKind
+type NonEmptyEmailSubmissionUpdates {.ruleOff: "objects".}
+type NonEmptyIdSeq {.ruleOff: "objects".}
+type NonEmptyOnSuccessDestroyEmail {.ruleOff: "objects".}
+type NonEmptyOnSuccessUpdateEmail {.ruleOff: "objects".}
+type PartialEmailSubmission {.ruleOff: "objects".}
+func asCanceled (s: AnyEmailSubmission): Opt[EmailSubmission[usCanceled]]
+func asCreationRef (x: IdOrCreationRef): Opt[CreationId]
+func asDirectRef (x: IdOrCreationRef): Opt[Id]
+func asFinal (s: AnyEmailSubmission): Opt[EmailSubmission[usFinal]]
+func asPending (s: AnyEmailSubmission): Opt[EmailSubmission[usPending]]
+func cancelUpdate (s: EmailSubmission[usPending]): EmailSubmissionUpdate
+func creationRef (cid: CreationId): IdOrCreationRef
+func directRef (id: Id): IdOrCreationRef
+func emailId (bp: EmailSubmissionBlueprint): Id
+func envelope (bp: EmailSubmissionBlueprint): Opt[Envelope]
+func hash (k: IdOrCreationRef): Hash
+func hash (p: EmailSubmissionGetProperty): Hash
+func head (a: NonEmptyIdSeq): lent Id
+func identityId (bp: EmailSubmissionBlueprint): Id
+iterator items (a: NonEmptyIdSeq): Id
+func kind (p: EmailSubmissionGetProperty): EmailSubmissionGetPropertyKind
+func kind (x: IdOrCreationRef): IdOrCreationRefKind
+func len (a: NonEmptyEmailSubmissionUpdates): int
+func len (a: NonEmptyIdSeq): int
+func parseEmailSubmissionBlueprint (identityId: Id, emailId: Id, envelope: Opt[Envelope] = Opt.none(Envelope)): Result[EmailSubmissionBlueprint, seq[ValidationError]]
+func parseEmailSubmissionComparator (rawProperty: string, direction: SortDirection = sdServerDefault, collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),): Result[EmailSubmissionComparator, ValidationError]
+func parseEmailSubmissionGetProperty (raw: string): Result[EmailSubmissionGetProperty, ValidationError]
+func parseNonEmptyEmailSubmissionUpdates (items: openArray[(Id, EmailSubmissionUpdate)]): Result[NonEmptyEmailSubmissionUpdates, seq[ValidationError]]
+func parseNonEmptyIdSeq (items: openArray[Id]): Result[NonEmptyIdSeq, ValidationError]
+func parseNonEmptyOnSuccessDestroyEmail (items: openArray[IdOrCreationRef]): Result[NonEmptyOnSuccessDestroyEmail, seq[ValidationError]]
+func parseNonEmptyOnSuccessUpdateEmail (items: openArray[(IdOrCreationRef, EmailUpdateSet)]): Result[NonEmptyOnSuccessUpdateEmail, seq[ValidationError]]
+func setUndoStatusToCanceled (): EmailSubmissionUpdate
+func toAny (s: EmailSubmission[usCanceled]): AnyEmailSubmission
+func toAny (s: EmailSubmission[usFinal]): AnyEmailSubmission
+func toAny (s: EmailSubmission[usPending]): AnyEmailSubmission
+func toSeq (a: NonEmptyIdSeq): seq[Id] {.inline.}
+func toSeq (s: NonEmptyOnSuccessDestroyEmail): seq[IdOrCreationRef] {.inline.}
+func toTable (s: NonEmptyEmailSubmissionUpdates): Table[Id, EmailSubmissionUpdate] {.inline.}
+func toTable (s: NonEmptyOnSuccessUpdateEmail): Table[IdOrCreationRef, EmailUpdateSet] {.inline.}
+func wireName (p: EmailSubmissionGetProperty): string
+
+## jmap_client/internal/mail/email_update
+type EmailUpdate {.ruleOff: "objects".}
+type EmailUpdateVariantKind
+func addKeyword (k: Keyword): EmailUpdate
+func addToMailbox (id: Id): EmailUpdate
+func markFlagged (): EmailUpdate
+func markRead (): EmailUpdate
+func markUnflagged (): EmailUpdate
+func markUnread (): EmailUpdate
+func moveToMailbox (id: Id): EmailUpdate
+func removeFromMailbox (id: Id): EmailUpdate
+func removeKeyword (k: Keyword): EmailUpdate
+func setKeywords (ks: KeywordSet): EmailUpdate
+func setMailboxIds (ids: NonEmptyMailboxIdSet): EmailUpdate
+
+## jmap_client/internal/mail/headers
+type EmailHeader {.ruleOff: "objects".}
+type HeaderForm
+type HeaderPropertyKey {.ruleOff: "objects".}
+type HeaderValue {.ruleOff: "objects".}
+func form (k: HeaderPropertyKey): HeaderForm
+func hash (k: HeaderPropertyKey): Hash
+func isAll (k: HeaderPropertyKey): bool
+func name (k: HeaderPropertyKey): string
+func parseEmailHeader (name: string, value: string): Result[EmailHeader, ValidationError]
+func parseHeaderForm (raw: string): Result[HeaderForm, ValidationError]
+func parseHeaderPropertyName (raw: string): Result[HeaderPropertyKey, ValidationError]
+func toPropertyString (k: HeaderPropertyKey): string
+
+## jmap_client/internal/mail/identity
+type DeleteAuthority
+type Identity {.ruleOff: "objects".}
+type IdentityCreate {.ruleOff: "objects".}
+type IdentityCreatedItem {.ruleOff: "objects".}
+type IdentityGetProperty {.ruleOff: "objects".}
+type IdentityGetPropertyKind
+type IdentityUpdate {.ruleOff: "objects".}
+type IdentityUpdateSet {.ruleOff: "objects".}
+type IdentityUpdateVariantKind
+type NonEmptyIdentityUpdates {.ruleOff: "objects".}
+type PartialIdentity {.ruleOff: "objects".}
+func hash (p: IdentityGetProperty): Hash
+func initIdentityUpdateSet (updates: openArray[IdentityUpdate]): Result[IdentityUpdateSet, seq[ValidationError]]
+func kind (p: IdentityGetProperty): IdentityGetPropertyKind
+func len (a: NonEmptyIdentityUpdates): int
+func parseIdentityCreate (email: string, name: string = "", replyTo: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), bcc: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), textSignature: string = "", htmlSignature: string = "",): Result[IdentityCreate, ValidationError]
+func parseIdentityGetProperty (raw: string): Result[IdentityGetProperty, ValidationError]
+func parseNonEmptyIdentityUpdates (items: openArray[(Id, IdentityUpdateSet)]): Result[NonEmptyIdentityUpdates, seq[ValidationError]]
+func setBcc (bcc: Opt[seq[EmailAddress]]): IdentityUpdate
+func setHtmlSignature (htmlSignature: string): IdentityUpdate
+func setName (name: string): IdentityUpdate
+func setReplyTo (replyTo: Opt[seq[EmailAddress]]): IdentityUpdate
+func setTextSignature (textSignature: string): IdentityUpdate
+func toSeq (s: IdentityUpdateSet): seq[IdentityUpdate] {.inline.}
+func toTable (s: NonEmptyIdentityUpdates): Table[Id, IdentityUpdateSet] {.inline.}
+func wireName (p: IdentityGetProperty): string
+
+## jmap_client/internal/mail/identity_builders
+func addIdentityChanges (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),): (RequestBuilder, ResponseHandle[ChangesResponse[Identity]])
+func addIdentityGet (b: sink RequestBuilder, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),): (RequestBuilder, ResponseHandle[GetResponse[Identity]])
+func addIdentitySet (b: sink RequestBuilder, accountId: AccountId, ifInState: Opt[JmapState] = Opt.none(JmapState), create: Opt[Table[CreationId, IdentityCreate]] = Opt.none(Table[CreationId, IdentityCreate]), update: Opt[NonEmptyIdentityUpdates] = Opt.none(NonEmptyIdentityUpdates), destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),): (RequestBuilder, ResponseHandle[SetResponse[IdentityCreatedItem, PartialIdentity]])
+func addPartialIdentityGet (b: sink RequestBuilder, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), properties: NonEmptySeq[IdentityGetProperty],): (RequestBuilder, ResponseHandle[GetResponse[PartialIdentity]])
+
+## jmap_client/internal/mail/keyword
+type Keyword {.ruleOff: "objects".}
+const KeywordForbiddenChars
+type KeywordSet {.ruleOff: "objects".}
+func initKeywordSet (keywords: openArray[Keyword]): KeywordSet
+iterator items (ks: KeywordSet): Keyword
+func parseKeyword (raw: string): Result[Keyword, ValidationError]
+func parseKeywordFromServer (raw: string): Result[Keyword, ValidationError]
+func toHashSet (ks: KeywordSet): HashSet[Keyword] {.inline.}
+
+## jmap_client/internal/mail/mail_builders
+const DefaultDisplayProperties : NonEmptySeq[EmailGetProperty]
+type EmailCopyHandles
+type EmailCopyResults
+type EmailQueryThreadChain {.ruleOff: "objects".}
+type EmailQueryThreadResults {.ruleOff: "objects".}
+func addEmailChanges (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),): (RequestBuilder, ResponseHandle[ChangesResponse[Email]])
+func addEmailCopy (b: sink RequestBuilder, fromAccountId: AccountId, accountId: AccountId, create: Table[CreationId, EmailCopyItem], ifFromInState: Opt[JmapState] = Opt.none(JmapState), ifInState: Opt[JmapState] = Opt.none(JmapState),): (RequestBuilder, ResponseHandle[CopyResponse[EmailCreatedItem]])
+func addEmailCopyAndDestroy (b: sink RequestBuilder, fromAccountId: AccountId, accountId: AccountId, create: Table[CreationId, EmailCopyItem], ifFromInState: Opt[JmapState] = Opt.none(JmapState), ifInState: Opt[JmapState] = Opt.none(JmapState), destroyFromIfInState: Opt[JmapState] = Opt.none(JmapState),): (RequestBuilder, EmailCopyHandles)
+func addEmailGet (b: sink RequestBuilder, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),): (RequestBuilder, ResponseHandle[GetResponse[Email]])
+func addEmailQuery (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]), sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]), queryParams: QueryParams = QueryParams(), collapseThreads: bool = false,): (RequestBuilder, ResponseHandle[QueryResponse[Email]])
+func addEmailQueryChanges (b: sink RequestBuilder, accountId: AccountId, sinceQueryState: JmapState, filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]), sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]), maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges), upToId: Opt[Id] = Opt.none(Id), calculateTotal: bool = false, collapseThreads: bool = false,): (RequestBuilder, ResponseHandle[QueryChangesResponse[Email]])
+func addEmailQueryWithThreads (b: sink RequestBuilder, accountId: AccountId, filter: Filter[EmailFilterCondition], sort: seq[EmailComparator] = @[], queryParams: QueryParams = QueryParams(), collapseThreads: bool = true, displayProperties: NonEmptySeq[EmailGetProperty] = DefaultDisplayProperties, displayBodyFetchOptions: EmailBodyFetchOptions = EmailBodyFetchOptions(fetchBodyValues: bvsAll, maxBodyValueBytes: Opt.some(parseUnsignedInt(256).get())),): (RequestBuilder, EmailQueryThreadChain)
+func addEmailSet (b: sink RequestBuilder, accountId: AccountId, ifInState: Opt[JmapState] = Opt.none(JmapState), create: Opt[Table[CreationId, EmailBlueprint]] = Opt.none(Table[CreationId, EmailBlueprint]), update: Opt[NonEmptyEmailUpdates] = Opt.none(NonEmptyEmailUpdates), destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),): (RequestBuilder, ResponseHandle[SetResponse[EmailCreatedItem, PartialEmail]])
+func addMailboxChanges (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),): (RequestBuilder, ResponseHandle[MailboxChangesResponse])
+func addMailboxGet (b: sink RequestBuilder, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),): (RequestBuilder, ResponseHandle[GetResponse[Mailbox]])
+func addMailboxQuery (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]), sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]), queryParams: QueryParams = QueryParams(), sortAsTree: bool = false, filterAsTree: bool = false,): (RequestBuilder, ResponseHandle[QueryResponse[Mailbox]])
+func addMailboxQueryChanges (b: sink RequestBuilder, accountId: AccountId, sinceQueryState: JmapState, filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]), sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]), maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges), upToId: Opt[Id] = Opt.none(Id), calculateTotal: bool = false,): (RequestBuilder, ResponseHandle[QueryChangesResponse[Mailbox]])
+func addMailboxSet (b: sink RequestBuilder, accountId: AccountId, ifInState: Opt[JmapState] = Opt.none(JmapState), create: Opt[Table[CreationId, MailboxCreate]] = Opt.none(Table[CreationId, MailboxCreate]), update: Opt[NonEmptyMailboxUpdates] = Opt.none(NonEmptyMailboxUpdates), destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), onDestroyRemoveEmails: bool = false,): (RequestBuilder, ResponseHandle[SetResponse[MailboxCreatedItem, PartialMailbox]])
+func addPartialEmailGet (b: sink RequestBuilder, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), properties: NonEmptySeq[EmailGetProperty], bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),): (RequestBuilder, ResponseHandle[GetResponse[PartialEmail]])
+func addPartialMailboxGet (b: sink RequestBuilder, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), properties: NonEmptySeq[MailboxGetProperty],): (RequestBuilder, ResponseHandle[GetResponse[PartialMailbox]])
+func addPartialThreadGet (b: sink RequestBuilder, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), properties: NonEmptySeq[ThreadGetProperty],): (RequestBuilder, ResponseHandle[GetResponse[PartialThread]])
+func addThreadChanges (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),): (RequestBuilder, ResponseHandle[ChangesResponse[thread.Thread]])
+func addThreadGet (b: sink RequestBuilder, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),): (RequestBuilder, ResponseHandle[GetResponse[thread.Thread]])
+func getAll (dr: DispatchedResponse, handles: EmailQueryThreadChain): Result[EmailQueryThreadResults, GetError]
+
+## jmap_client/internal/mail/mail_errors
+func invalidEmailProperties (se: SetError): Opt[seq[string]]
+func invalidRecipientAddresses (se: SetError): Opt[seq[string]]
+func maxRecipients (se: SetError): Opt[UnsignedInt]
+func maxSize (se: SetError): Opt[UnsignedInt]
+func notFoundBlobIds (se: SetError): Opt[seq[BlobId]]
+
+## jmap_client/internal/mail/mail_filters
+type EmailFilterCondition {.ruleOff: "objects".}
+type EmailHeaderFilter {.ruleOff: "objects".}
+type HasAnyRoleFilter
+type HasAttachmentFilter
+type MailboxFilterCondition {.ruleOff: "objects".}
+type SubscriptionFilter
+func name (f: EmailHeaderFilter): string
+func parseEmailHeaderFilter (name: string, value: Opt[string] = Opt.none(string)): Result[EmailHeaderFilter, ValidationError]
+
+## jmap_client/internal/mail/mail_methods
+func addEmailParse (b: sink RequestBuilder, accountId: AccountId, blobIds: seq[BlobId], properties: Opt[NonEmptySeq[EmailGetProperty]] = Opt.none(NonEmptySeq[EmailGetProperty]), bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),): (RequestBuilder, ResponseHandle[EmailParseResponse])
+func addPartialVacationResponseGet (b: sink RequestBuilder, accountId: AccountId, properties: NonEmptySeq[VacationResponseGetProperty],): (RequestBuilder, ResponseHandle[GetResponse[PartialVacationResponse]])
+func addSearchSnippetGet (b: sink RequestBuilder, accountId: AccountId, filter: Filter[EmailFilterCondition], firstEmailId: Id, restEmailIds: seq[Id] = @[],): (RequestBuilder, ResponseHandle[SearchSnippetGetResponse])
+func addSearchSnippetGetByRef (b: sink RequestBuilder, accountId: AccountId, filter: Filter[EmailFilterCondition], emailIds: Referencable[seq[Id]],): (RequestBuilder, ResponseHandle[SearchSnippetGetResponse])
+func addVacationResponseGet (b: sink RequestBuilder, accountId: AccountId): (RequestBuilder, ResponseHandle[GetResponse[VacationResponse]])
+func addVacationResponseSet (b: sink RequestBuilder, accountId: AccountId, update: VacationResponseUpdateSet, ifInState: Opt[JmapState] = Opt.none(JmapState),): (RequestBuilder, ResponseHandle[SetResponse[NoCreate, PartialVacationResponse]])
+
+## jmap_client/internal/mail/mailbox
+type Mailbox {.ruleOff: "objects".}
+type MailboxCreate {.ruleOff: "objects".}
+type MailboxCreatedItem {.ruleOff: "objects".}
+type MailboxGetProperty {.ruleOff: "objects".}
+type MailboxGetPropertyKind
+type MailboxIdSet {.ruleOff: "objects".}
+type MailboxRights {.ruleOff: "objects".}
+type MailboxRole {.ruleOff: "objects".}
+type MailboxRoleKind
+type MailboxUpdate {.ruleOff: "objects".}
+type MailboxUpdateSet {.ruleOff: "objects".}
+type MailboxUpdateVariantKind
+type NonEmptyMailboxIdSet {.ruleOff: "objects".}
+type NonEmptyMailboxUpdates {.ruleOff: "objects".}
+type PartialMailbox {.ruleOff: "objects".}
+func hash (p: MailboxGetProperty): Hash
+func hash (r: MailboxRole): Hash
+func identifier (r: MailboxRole): string
+func initMailboxIdSet (ids: openArray[Id]): MailboxIdSet
+func initMailboxUpdateSet (updates: openArray[MailboxUpdate]): Result[MailboxUpdateSet, seq[ValidationError]]
+iterator items (ms: MailboxIdSet): Id
+func kind (p: MailboxGetProperty): MailboxGetPropertyKind
+func kind (r: MailboxRole): MailboxRoleKind
+func len (a: NonEmptyMailboxUpdates): int
+func parseMailboxCreate (name: string, parentId: Opt[Id] = Opt.none(Id), role: Opt[MailboxRole] = Opt.none(MailboxRole), sortOrder: UnsignedInt = parseUnsignedInt(0).get(), isSubscribed: bool = false,): Result[MailboxCreate, ValidationError]
+func parseMailboxGetProperty (raw: string): Result[MailboxGetProperty, ValidationError]
+func parseMailboxRole (raw: string): Result[MailboxRole, ValidationError]
+func parseNonEmptyMailboxIdSet (ids: openArray[Id]): Result[NonEmptyMailboxIdSet, ValidationError]
+func parseNonEmptyMailboxUpdates (items: openArray[(Id, MailboxUpdateSet)]): Result[NonEmptyMailboxUpdates, seq[ValidationError]]
+func setIsSubscribed (isSubscribed: bool): MailboxUpdate
+func setName (name: string): MailboxUpdate
+func setParentId (parentId: Opt[Id]): MailboxUpdate
+func setRole (role: Opt[MailboxRole]): MailboxUpdate
+func setSortOrder (sortOrder: UnsignedInt): MailboxUpdate
+func toHashSet (ms: MailboxIdSet): HashSet[Id] {.inline.}
+func toHashSet (ms: NonEmptyMailboxIdSet): HashSet[Id] {.inline.}
+func toSeq (s: MailboxUpdateSet): seq[MailboxUpdate] {.inline.}
+func toTable (s: NonEmptyMailboxUpdates): Table[Id, MailboxUpdateSet] {.inline.}
+func wireName (p: MailboxGetProperty): string
+
+## jmap_client/internal/mail/mailbox_changes_response
+type MailboxChangesResponse
+func accountId (r: T): AccountId
+func created (r: T): lent seq[Id]
+func destroyed (r: T): lent seq[Id]
+func fromJson (R: typedesc[MailboxChangesResponse], node: JsonNode, path: JsonPath = emptyJsonPath(),): Result[MailboxChangesResponse, SerdeViolation]
+func hasMoreChanges (r: T): bool
+func newState (r: T): JmapState
+func oldState (r: T): JmapState
+func updated (r: T): lent seq[Id]
+
+## jmap_client/internal/mail/snippet
+type SearchSnippet {.ruleOff: "objects".}
+
+## jmap_client/internal/mail/submission_builders
+func addEmailSubmissionAndEmailSet (b: sink RequestBuilder, accountId: AccountId, create: Opt[Table[CreationId, EmailSubmissionBlueprint]] = Opt.none(Table[CreationId, EmailSubmissionBlueprint]), update: Opt[NonEmptyEmailSubmissionUpdates] = Opt.none(NonEmptyEmailSubmissionUpdates), destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), onSuccessUpdateEmail: Opt[NonEmptyOnSuccessUpdateEmail] = Opt.none(NonEmptyOnSuccessUpdateEmail), onSuccessDestroyEmail: Opt[NonEmptyOnSuccessDestroyEmail] = Opt.none(NonEmptyOnSuccessDestroyEmail), ifInState: Opt[JmapState] = Opt.none(JmapState),): Result[(RequestBuilder, EmailSubmissionHandles), ValidationError]
+func addEmailSubmissionChanges (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),): (RequestBuilder, ResponseHandle[ChangesResponse[AnyEmailSubmission]])
+func addEmailSubmissionGet (b: sink RequestBuilder, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),): (RequestBuilder, ResponseHandle[GetResponse[AnyEmailSubmission]])
+func addEmailSubmissionQuery (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[EmailSubmissionFilterCondition]] = Opt.none(Filter[EmailSubmissionFilterCondition]), sort: Opt[seq[EmailSubmissionComparator]] = Opt.none(seq[EmailSubmissionComparator]), queryParams: QueryParams = QueryParams(),): (RequestBuilder, ResponseHandle[QueryResponse[AnyEmailSubmission]])
+func addEmailSubmissionQueryChanges (b: sink RequestBuilder, accountId: AccountId, sinceQueryState: JmapState, filter: Opt[Filter[EmailSubmissionFilterCondition]] = Opt.none(Filter[EmailSubmissionFilterCondition]), sort: Opt[seq[EmailSubmissionComparator]] = Opt.none(seq[EmailSubmissionComparator]), maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges), upToId: Opt[Id] = Opt.none(Id), calculateTotal: bool = false,): (RequestBuilder, ResponseHandle[QueryChangesResponse[AnyEmailSubmission]])
+func addEmailSubmissionSet (b: sink RequestBuilder, accountId: AccountId, ifInState: Opt[JmapState] = Opt.none(JmapState), create: Opt[Table[CreationId, EmailSubmissionBlueprint]] = Opt.none(Table[CreationId, EmailSubmissionBlueprint]), update: Opt[NonEmptyEmailSubmissionUpdates] = Opt.none(NonEmptyEmailSubmissionUpdates), destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),): (RequestBuilder, ResponseHandle[EmailSubmissionSetResponse])
+func addPartialEmailSubmissionGet (b: sink RequestBuilder, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), properties: NonEmptySeq[EmailSubmissionGetProperty],): (RequestBuilder, ResponseHandle[GetResponse[PartialEmailSubmission]])
+
+## jmap_client/internal/mail/submission_envelope
+iterator items (a: NonEmptyRcptList): SubmissionAddress
+func len (a: NonEmptyRcptList): int
+func nullReversePath (params: Opt[SubmissionParams] = Opt.none(SubmissionParams)): ReversePath
+iterator pairs (a: NonEmptyRcptList): (int, SubmissionAddress)
+func parseNonEmptyRcptList (items: openArray[SubmissionAddress]): Result[NonEmptyRcptList, seq[ValidationError]]
+func parseNonEmptyRcptListFromServer (items: openArray[SubmissionAddress]): Result[NonEmptyRcptList, ValidationError]
+func reversePath (address: SubmissionAddress): ReversePath
+
+## jmap_client/internal/mail/submission_param
+type BodyEncoding
+type DeliveryByMode
+type DsnNotifyFlag
+type DsnRetType
+type HoldForSeconds {.ruleOff: "objects".}
+type MtPriority {.ruleOff: "objects".}
+type NotifySet {.ruleOff: "objects".}
+type SubmissionParam {.ruleOff: "objects".}
+type SubmissionParamKey {.ruleOff: "objects".}
+type SubmissionParamKind
+type SubmissionParams {.ruleOff: "objects".}
+func asBody (p: SubmissionParam): Opt[BodyEncoding]
+func asBy (p: SubmissionParam): Opt[(JmapInt, DeliveryByMode)]
+func asEnvid (p: SubmissionParam): Opt[string]
+func asExtension (p: SubmissionParam): Opt[(RFC5321Keyword, Opt[string])]
+func asHoldFor (p: SubmissionParam): Opt[HoldForSeconds]
+func asHoldUntil (p: SubmissionParam): Opt[UTCDate]
+func asMtPriority (p: SubmissionParam): Opt[MtPriority]
+func asNotify (p: SubmissionParam): Opt[NotifySet]
+func asOrcpt (p: SubmissionParam): Opt[(OrcptAddrType, string)]
+func asRet (p: SubmissionParam): Opt[DsnRetType]
+func asSize (p: SubmissionParam): Opt[UnsignedInt]
+func bodyParam (e: BodyEncoding): SubmissionParam
+func byParam (deadline: JmapInt, mode: DeliveryByMode): SubmissionParam
+func envidParam (envid: string): SubmissionParam
+func extensionParam (name: RFC5321Keyword, value: Opt[string]): SubmissionParam
+func flags (n: NotifySet): set[DsnNotifyFlag]
+func hash (k: SubmissionParamKey): Hash
+func holdForParam (seconds: HoldForSeconds): SubmissionParam
+func holdUntilParam (d: UTCDate): SubmissionParam
+iterator items (n: NotifySet): DsnNotifyFlag
+func kind (p: SubmissionParam): SubmissionParamKind
+func mtPriorityParam (p: MtPriority): SubmissionParam
+func notifyParam (flags: set[DsnNotifyFlag]): Result[SubmissionParam, ValidationError]
+func orcptParam (at: OrcptAddrType, origRecipient: string): SubmissionParam
+func paramKey (p: SubmissionParam): SubmissionParamKey
+func parseHoldForSeconds (raw: UnsignedInt): Result[HoldForSeconds, ValidationError]
+func parseMtPriority (raw: int): Result[MtPriority, ValidationError]
+func parseNotifySet (flags: set[DsnNotifyFlag]): Result[NotifySet, ValidationError]
+func parseSubmissionParams (items: openArray[SubmissionParam]): Result[SubmissionParams, seq[ValidationError]]
+func retParam (t: DsnRetType): SubmissionParam
+func sizeParam (octets: UnsignedInt): SubmissionParam
+func smtpUtf8Param (): SubmissionParam
+func toInt (m: MtPriority): int {.inline.}
+func toInt64 (h: HoldForSeconds): int64 {.inline.}
+func toOrderedTable (s: SubmissionParams): OrderedTable[SubmissionParamKey, SubmissionParam] {.inline.}
+
+## jmap_client/internal/mail/submission_status
+type DeliveredState
+type DeliveryStatus {.ruleOff: "objects".}
+type DeliveryStatusMap {.ruleOff: "objects".}
+type DetailCode {.ruleOff: "objects".}
+type DisplayedState
+type EnhancedStatusCode {.ruleOff: "objects".}
+type ParsedDeliveredState {.ruleOff: "objects".}
+type ParsedDisplayedState {.ruleOff: "objects".}
+type ParsedSmtpReply {.ruleOff: "objects".}
+type ReplyCode {.ruleOff: "objects".}
+type SmtpReplyViolation
+type StatusCodeClass
+type SubjectCode {.ruleOff: "objects".}
+type UndoStatus
+func anyFailed (m: DeliveryStatusMap): bool
+func countDelivered (m: DeliveryStatusMap): int
+func detectClassDigit (c: char): Result[StatusCodeClass, SmtpReplyViolation]
+func detectConsistentItems [T](per: openArray[T], violation: SmtpReplyViolation): Result[void, SmtpReplyViolation]
+func detectDetailInRange (n: uint16): Result[DetailCode, SmtpReplyViolation]
+func detectReplyCodeGrammar (line: string): Result[ReplyCode, SmtpReplyViolation]
+func detectSeparator (line: string, isFinal: bool): Result[void, SmtpReplyViolation]
+func detectSubjectInRange (n: uint16): Result[SubjectCode, SmtpReplyViolation]
+func initDeliveryStatusMap (t: Table[RFC5321Mailbox, DeliveryStatus]): DeliveryStatusMap
+func parseDeliveredState (raw: string): ParsedDeliveredState
+func parseDisplayedState (raw: string): ParsedDisplayedState
+func parseSmtpReply (raw: string): Result[ParsedSmtpReply, ValidationError]
+func renderSmtpReply (p: ParsedSmtpReply): string
+func toTable (m: DeliveryStatusMap): Table[RFC5321Mailbox, DeliveryStatus] {.inline.}
+func toUint16 (d: DetailCode): uint16 {.inline.}
+func toUint16 (r: ReplyCode): uint16 {.inline.}
+func toUint16 (s: SubjectCode): uint16 {.inline.}
+
+## jmap_client/internal/mail/thread
+type PartialThread {.ruleOff: "objects".}
+type Thread {.ruleOff: "objects".}
+type ThreadGetProperty {.ruleOff: "objects".}
+type ThreadGetPropertyKind
+func emailIds (p: PartialThread): Opt[seq[Id]]
+func emailIds (t: Thread): lent seq[Id]
+func hash (p: ThreadGetProperty): Hash
+func id (p: PartialThread): Opt[Id]
+func id (t: Thread): Id
+func initPartialThread (id: Opt[Id], emailIds: Opt[seq[Id]]): PartialThread
+func kind (p: ThreadGetProperty): ThreadGetPropertyKind
+func parseThread (id: Id, emailIds: seq[Id]): Result[Thread, ValidationError]
+func parseThreadGetProperty (raw: string): Result[ThreadGetProperty, ValidationError]
+func wireName (p: ThreadGetProperty): string
+
+## jmap_client/internal/mail/vacation
+type PartialVacationResponse {.ruleOff: "objects".}
+type VacationResponse {.ruleOff: "objects".}
+type VacationResponseGetProperty {.ruleOff: "objects".}
+type VacationResponseGetPropertyKind
+const VacationResponseSingletonId
+type VacationResponseUpdate {.ruleOff: "objects".}
+type VacationResponseUpdateSet {.ruleOff: "objects".}
+type VacationResponseUpdateVariantKind
+func hash (p: VacationResponseGetProperty): Hash
+func initVacationResponseUpdateSet (updates: openArray[VacationResponseUpdate]): Result[VacationResponseUpdateSet, seq[ValidationError]]
+func kind (p: VacationResponseGetProperty): VacationResponseGetPropertyKind
+func parseVacationResponseGetProperty (raw: string): Result[VacationResponseGetProperty, ValidationError]
+func setFromDate (fromDate: Opt[UTCDate]): VacationResponseUpdate
+func setHtmlBody (htmlBody: Opt[string]): VacationResponseUpdate
+func setIsEnabled (isEnabled: bool): VacationResponseUpdate
+func setSubject (subject: Opt[string]): VacationResponseUpdate
+func setTextBody (textBody: Opt[string]): VacationResponseUpdate
+func setToDate (toDate: Opt[UTCDate]): VacationResponseUpdate
+func toSeq (s: VacationResponseUpdateSet): seq[VacationResponseUpdate] {.inline.}
+func wireName (p: VacationResponseGetProperty): string
+
+## jmap_client/internal/protocol/builder
+type BuiltRequest
+type RequestBuilder
+
+## jmap_client/internal/protocol/dispatch
+type CompoundHandles [A, B] {.ruleOff: "objects".}
+type CompoundResults [A, B] {.ruleOff: "objects".}
+type DispatchedResponse {.ruleOff: "objects".}
+type NameBoundHandle [T] {.ruleOff: "objects".}
+func callId [T](h: NameBoundHandle[T]): MethodCallId
+func callId [T](h: ResponseHandle[T]): MethodCallId
+func createdIds (dr: DispatchedResponse): Opt[Table[CreationId, Id]]
+func get [T](dr: DispatchedResponse, h: NameBoundHandle[T]): Result[T, GetError]
+func get [T](dr: DispatchedResponse, handle: ResponseHandle[T]): Result[T, GetError]
+func getBoth [A, B](dr: DispatchedResponse, handles: CompoundHandles[A, B]): Result[CompoundResults[A, B], GetError]
+func hash [T](h: NameBoundHandle[T]): Hash
+func hash [T](h: ResponseHandle[T]): Hash
+func methodName [T](h: NameBoundHandle[T]): MethodName
+func reference [U](handle: ResponseHandle[auto], name: MethodName, path: RefPath): Referencable[U]
+template registerCompoundMethod (Primary, Implicit: typedesc)
+func sessionState (dr: DispatchedResponse): JmapState
+
+## jmap_client/internal/protocol/entity
+template registerExtractableEntity (T: typedesc)
+template registerJmapEntity (T: typedesc)
+template registerQueryableEntity (T: typedesc)
+template registerSettableEntity (T: typedesc)
+
+## jmap_client/internal/protocol/methods
+type ChangesRequest [T]
+type ChangesResponse [T]
+type CopyDestroyMode {.ruleOff: "objects".}
+type CopyDestroyModeKind
+type CopyRequest [T, CopyItem]
+type CopyResponse [T]
+type GetRequest [T]
+type GetResponse [T]
+type QueryChangesResponse [T]
+type QueryResponse [T]
+type SetRequest [T, C, U]
+type SetResponse [T, U]
+func destroyAfterSuccess (ifInState: Opt[JmapState] = Opt.none(JmapState)): CopyDestroyMode
+func fromJson (T: typedesc[JsonNode], node: JsonNode, path: JsonPath = emptyJsonPath()): Result[JsonNode, SerdeViolation]
+func fromJson [T, U](R: typedesc[SetResponse[T, U]], node: JsonNode, path: JsonPath = emptyJsonPath()): Result[SetResponse[T, U], SerdeViolation]
+func fromJson [T](R: typedesc[ChangesResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()): Result[ChangesResponse[T], SerdeViolation]
+func fromJson [T](R: typedesc[CopyResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()): Result[CopyResponse[T], SerdeViolation]
+func fromJson [T](R: typedesc[GetResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()): Result[GetResponse[T], SerdeViolation]
+func fromJson [T](R: typedesc[QueryChangesResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath(),): Result[QueryChangesResponse[T], SerdeViolation]
+func fromJson [T](R: typedesc[QueryResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()): Result[QueryResponse[T], SerdeViolation]
+func keepOriginals (): CopyDestroyMode
+func toJson [T, C, U](req: SetRequest[T, C, U]): JsonNode
+func toJson [T, CopyItem](req: CopyRequest[T, CopyItem]): JsonNode
+func toJson [T, U](resp: SetResponse[T, U]): JsonNode
+func toJson [T](req: ChangesRequest[T]): JsonNode
+func toJson [T](req: GetRequest[T]): JsonNode
+func toJson [T](resp: CopyResponse[T]): JsonNode
+
+## jmap_client/internal/push
+type PushChannel
+
+## jmap_client/internal/transport
+type CloseProc
+type HttpMethodKind
+type HttpRequest
+type HttpResponse
+type SendProc
+type Transport {.ruleOff: "hasDoc".}
+proc newHttpTransport (timeout: int = 30_000, maxRedirects: int = 5, maxResponseBytes: int = 50_000_000, userAgent: string = "jmap-client-nim/0.1.0",): Result[Transport, ValidationError]
+proc newTransport (sendImpl: SendProc, closeImpl: CloseProc): Result[Transport, ValidationError]
+proc send (t: Transport, req: HttpRequest): Result[HttpResponse, TransportError]
+
+## jmap_client/internal/types
+type JmapResult [T]
+
+## jmap_client/internal/types/account_capability_schemas
+type AccountCapabilityEntry {.ruleOff: "objects".}
+type MailAccountCapabilities {.ruleOff: "objects".}
+type SubmissionAccountCapabilities {.ruleOff: "objects".}
+func asMailAccountCapabilities (e: AccountCapabilityEntry): Opt[MailAccountCapabilities]
+func asRawData (e: AccountCapabilityEntry): Opt[JsonNode]
+func asSubmissionAccountCapabilities (e: AccountCapabilityEntry): Opt[SubmissionAccountCapabilities]
+func emailQuerySortOptions (m: MailAccountCapabilities): lent HashSet[string]
+func hash (e: AccountCapabilityEntry): Hash
+func maxDelayedSend (s: SubmissionAccountCapabilities): UnsignedInt
+func maxMailboxDepth (m: MailAccountCapabilities): Opt[UnsignedInt]
+func maxMailboxesPerEmail (m: MailAccountCapabilities): Opt[UnsignedInt]
+func maxSizeAttachmentsPerEmail (m: MailAccountCapabilities): UnsignedInt
+func maxSizeMailboxName (m: MailAccountCapabilities): Opt[UnsignedInt]
+func mayCreateTopLevelMailbox (m: MailAccountCapabilities): bool
+func submissionExtensions (s: SubmissionAccountCapabilities): SubmissionExtensionMap
+func uri (e: AccountCapabilityEntry): string
+
+## jmap_client/internal/types/capabilities
+type CapabilityKind
+type CapabilityUri {.ruleOff: "objects".}
+type CoreCapabilities {.ruleOff: "objects".}
+type ServerCapability {.ruleOff: "objects".}
+func asCoreCapabilities (c: ServerCapability): Opt[CoreCapabilities]
+func asRawData (c: ServerCapability): Opt[JsonNode]
+func capabilityUri (kind: CapabilityKind): Opt[string]
+func collationAlgorithms (c: CoreCapabilities): lent HashSet[CollationAlgorithm]
+func hasCollation (c: CoreCapabilities, algorithm: CollationAlgorithm): bool
+func hash (c: ServerCapability): Hash
+func maxCallsInRequest (c: CoreCapabilities): UnsignedInt
+func maxConcurrentRequests (c: CoreCapabilities): UnsignedInt
+func maxConcurrentUpload (c: CoreCapabilities): UnsignedInt
+func maxObjectsInGet (c: CoreCapabilities): UnsignedInt
+func maxObjectsInSet (c: CoreCapabilities): UnsignedInt
+func maxSizeRequest (c: CoreCapabilities): UnsignedInt
+func maxSizeUpload (c: CoreCapabilities): UnsignedInt
+func parseCapabilityKind (uri: string): CapabilityKind
+func parseCapabilityUri (raw: string): Result[CapabilityUri, ValidationError]
+func uri (c: ServerCapability): string
+
+## jmap_client/internal/types/collation
+type CollationAlgorithm {.ruleOff: "objects".}
+type CollationAlgorithmKind
+const CollationAsciiCasemap
+const CollationAsciiNumeric
+const CollationOctet
+const CollationUnicodeCasemap
+func hash (c: CollationAlgorithm): Hash
+func identifier (c: CollationAlgorithm): string
+func kind (c: CollationAlgorithm): CollationAlgorithmKind
+func parseCollationAlgorithm (raw: string): Result[CollationAlgorithm, ValidationError]
+
+## jmap_client/internal/types/credential
+type AuthScheme
+type Credential {.ruleOff: "objects".}
+func basicCredential (username, password: string): Result[Credential, ValidationError]
+func bearerCredential (token: string): Result[Credential, ValidationError]
+func scheme (c: Credential): AuthScheme
+
+## jmap_client/internal/types/envelope
+func direct [T](value: T): Referencable[T]
+
+## jmap_client/internal/types/errors
+type ClientError
+type ClientErrorKind
+type GetError
+type GetErrorKind
+type MethodError
+type MethodErrorKind
+type RequestError
+type RequestErrorKind
+type SetError
+type SetErrorKind
+type TransportError
+type TransportErrorKind
+func classifyException (e: ref CatchableError): ClientError
+func classifyTransportException (e: ref CatchableError): TransportError
+func enforceBodySizeLimit (maxResponseBytes: int, body: string): Result[void, TransportError]
+func httpStatusError (status: int, detail: string): TransportError
+func kind (me: MethodError): MethodErrorKind
+func kind (re: RequestError): RequestErrorKind
+func message (err: ClientError): string
+func message (ge: GetError): string
+func message (me: MethodError): string
+func message (re: RequestError): string
+func message (se: SetError): string
+func message (te: TransportError): string
+func parseMethodErrorKind (raw: string): MethodErrorKind
+func parseRequestErrorKind (raw: string): RequestErrorKind
+func parseSetErrorKind (raw: string): SetErrorKind
+func sizeLimitExceeded (what: string, actual, limit: int): TransportError
+func transportError (kind: TransportErrorKind, detail: string): TransportError
+
+## jmap_client/internal/types/field_echo
+type FieldEcho [T] {.ruleOff: "objects".}
+type FieldEchoKind
+type NoCreate {.ruleOff: "objects".}
+template fieldAbsent [T](t: typedesc[T]): FieldEcho[T]
+template fieldNull [T](t: typedesc[T]): FieldEcho[T]
+template fieldValue [T](v: T): FieldEcho[T]
+func hash [T](e: FieldEcho[T]): Hash
+
+## jmap_client/internal/types/framework
+type AddedItem {.ruleOff: "objects".}
+type Comparator {.ruleOff: "objects".}
+type Filter [C] {.ruleOff: "objects".}
+type FilterKind
+type FilterOperator
+type PropertyName {.ruleOff: "objects".}
+type QueryParams
+type SortDirection
+func filterAnd [C](operands: openArray[Filter[C]]): Result[Filter[C], ValidationError]
+func filterCondition [C](cond: C): Filter[C]
+func filterNot [C](child: Filter[C]): Filter[C]
+func filterOr [C](operands: openArray[Filter[C]]): Result[Filter[C], ValidationError]
+func id (item: AddedItem): Id
+func initAddedItem (id: Id, index: UnsignedInt): AddedItem
+func operands [C](f: Filter[C]): seq[Filter[C]]
+func parseComparator (property: PropertyName, direction: SortDirection = sdServerDefault, collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),): Comparator
+func parsePropertyName (raw: string): Result[PropertyName, ValidationError]
+func property (c: Comparator): PropertyName
+
+## jmap_client/internal/types/identifiers
+type AccountId {.ruleOff: "objects".}
+type BlobId {.ruleOff: "objects".}
+type BuilderId {.ruleOff: "objects".}
+type CreationId {.ruleOff: "objects".}
+type JmapState {.ruleOff: "objects".}
+type MethodCallId {.ruleOff: "objects".}
+func clientBrand (b: BuilderId): uint64
+func hash (a: BuilderId): Hash
+func parseAccountId (raw: string): Result[AccountId, ValidationError]
+func parseBlobId (raw: string): Result[BlobId, ValidationError]
+func parseCreationId (raw: string): Result[CreationId, ValidationError]
+func parseJmapState (raw: string): Result[JmapState, ValidationError]
+func parseMethodCallId (raw: string): Result[MethodCallId, ValidationError]
+func serial (b: BuilderId): uint64
+
+## jmap_client/internal/types/methods_enum
+type MethodEntity
+type MethodName
+type MethodNameLiteral {.ruleOff: "objects".}
+type RefPath
+func parseMethodName (raw: string): MethodName
+func parseMethodNameLiteral (raw: string): Result[MethodNameLiteral, ValidationError]
+func parseRefPath (raw: string): RefPath
+
+## jmap_client/internal/types/primitives
+type Date {.ruleOff: "objects".}
+type Id {.ruleOff: "objects".}
+type JmapInt {.ruleOff: "objects".}
+type MaxChanges {.ruleOff: "objects".}
+const MaxUnsignedInt : int64
+type NonEmptySeq [T] {.ruleOff: "objects".}
+type UTCDate {.ruleOff: "objects".}
+type UnsignedInt {.ruleOff: "objects".}
+func asSeq [T](a: NonEmptySeq[T]): lent seq[T] {.inline.}
+func head [T](a: NonEmptySeq[T]): lent T
+func parseDate (raw: string): Result[Date, ValidationError]
+func parseId (raw: string): Result[Id, ValidationError]
+func parseIdFromServer (raw: string): Result[Id, ValidationError]
+func parseJmapInt (value: int64): Result[JmapInt, ValidationError]
+func parseMaxChanges (raw: UnsignedInt): Result[MaxChanges, ValidationError]
+func parseNonEmptySeq [T](s: seq[T]): Result[NonEmptySeq[T], ValidationError]
+func parseUnsignedInt (value: int64): Result[UnsignedInt, ValidationError]
+func parseUtcDate (raw: string): Result[UTCDate, ValidationError]
+func toInt64 (j: JmapInt): int64 {.inline.}
+func toInt64 (m: MaxChanges): int64 {.inline.}
+func toInt64 (u: UnsignedInt): int64 {.inline.}
+
+## jmap_client/internal/types/session
+type Account {.ruleOff: "objects".}
+type AccountPolicy
+const CoreCapabilityUri
+type Session {.ruleOff: "objects".}
+type UriPart {.ruleOff: "objects".}
+type UriPartKind
+type UriTemplate {.ruleOff: "objects".}
+const WriteImplyingAccountCapabilities
+func accountCapabilities (a: Account): lent seq[AccountCapabilityEntry]
+func accounts (s: Session): lent Table[AccountId, Account]
+func apiUrl (s: Session): string
+func capabilities (s: Session): seq[ServerCapability]
+func coreCapabilities (session: Session): CoreCapabilities
+func downloadUrl (s: Session): UriTemplate
+func eventSourceUrl (s: Session): UriTemplate
+func expandUriTemplate (tmpl: UriTemplate, variables: openArray[(string, string)]): string
+func findAccount (session: Session, id: AccountId): Opt[Account]
+func findCapability (account: Account, kind: CapabilityKind): Opt[AccountCapabilityEntry]
+func findCapability (session: Session, kind: CapabilityKind): Opt[ServerCapability]
+func findCapabilityByUri (account: Account, uri: string): Opt[AccountCapabilityEntry]
+func findCapabilityByUri (session: Session, uri: string): Opt[ServerCapability]
+func hasCapability (account: Account, kind: CapabilityKind): bool
+func hasVariable (tmpl: UriTemplate, name: string): bool
+func hash (t: UriTemplate): Hash
+func isPersonal (a: Account): bool
+func isReadOnly (a: Account): bool
+func mailCapability (a: Account): Opt[MailAccountCapabilities]
+func name (a: Account): string
+func parseUriTemplate (raw: string): Result[UriTemplate, ValidationError]
+func parts (t: UriTemplate): lent seq[UriPart]
+func policy (a: Account): AccountPolicy
+func primaryAccount (session: Session, kind: CapabilityKind): Opt[AccountId]
+func primaryAccounts (s: Session): lent Table[string, AccountId]
+func state (s: Session): JmapState
+func submissionCapability (a: Account): Opt[SubmissionAccountCapabilities]
+func supportsVacationResponse (a: Account): bool
+func uploadUrl (s: Session): UriTemplate
+func username (s: Session): string
+func variables (t: UriTemplate): lent HashSet[string]
+
+## jmap_client/internal/types/session_endpoint
+type SessionEndpoint {.ruleOff: "objects".}
+type SessionEndpointKind
+func directEndpoint (url: string): Result[SessionEndpoint, ValidationError]
+func discoveryEndpoint (domain: string): Result[SessionEndpoint, ValidationError]
+func kind (e: SessionEndpoint): SessionEndpointKind
+
+## jmap_client/internal/types/submission_atoms
+type OrcptAddrType {.ruleOff: "objects".}
+type RFC5321Keyword {.ruleOff: "objects".}
+type SubmissionExtensionMap {.ruleOff: "objects".}
+func hash (a: RFC5321Keyword): Hash
+func initSubmissionExtensionMap (t: OrderedTable[RFC5321Keyword, seq[string]]): SubmissionExtensionMap
+func len (a: RFC5321Keyword): int
+func parseOrcptAddrType (raw: string): Result[OrcptAddrType, ValidationError]
+func parseRFC5321Keyword (raw: string): Result[RFC5321Keyword, ValidationError]
+func toOrderedTable (m: SubmissionExtensionMap): OrderedTable[RFC5321Keyword, seq[string]] {.inline.}
+
+## jmap_client/internal/types/validation
+const Base64UrlChars
+type Idx {.ruleOff: "objects".}
+type TokenViolation
+type ValidationError
+func card (s: T): int
+func contains (a: NonEmptySeq[T], x: T): bool
+func contains (s: T, e: E): bool
+template defineSealedHashSetOps (T: typedesc, E: typedesc)
+template defineSealedIntOps (T: typedesc)
+template defineSealedNonEmptyHashSetOps (T: typedesc, E: typedesc)
+template defineSealedNonEmptySeqOps (T: typedesc)
+template defineSealedOpaqueStringOps (T: typedesc)
+template defineSealedStringOps (T: typedesc)
+template defineSealedTagIntOps (T: typedesc)
+func hash (a: NonEmptySeq[T]): Hash
+func hash (a: T): Hash
+func hash (a: T): Hash
+func hash (a: T): Hash
+func hash (a: T): Hash
+template idx (i: static[int]): Idx
+iterator items (a: NonEmptySeq[T]): T
+iterator items (s: T): E
+func len (a: NonEmptySeq[T]): int
+func len (a: T): int
+func len (s: T): int
+func message (ve: ValidationError): string
+iterator pairs (a: NonEmptySeq[T]): (int, T)
+iterator pairs (s: T): (int, E)
+func parseIdx (raw: int): Result[Idx, ValidationError]
+template ruleOff (name: string) {.pragma.}
+template ruleOn (name: string) {.pragma.}
+func succ (i: Idx): Idx {.inline.}
+func toInt (i: Idx): int {.inline.}
+func toNatural (i: Idx): Natural {.inline.}
+template validateUniqueByIt (s: untyped, keyExpr: untyped, typeName, emptyMsg, dupMsg: string): seq[ValidationError]
+
+## jmap_client/internal/websocket
+type WebSocketChannel

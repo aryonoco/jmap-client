@@ -8,30 +8,45 @@ import std/json
 import std/sets
 import std/tables
 
-import jmap_client/serde
-import jmap_client/serde_session
-import jmap_client/primitives
-import jmap_client/capabilities
-import jmap_client/validation
-import jmap_client/session
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_session
+import jmap_client/internal/types/account_capability_schemas
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/session
 
 import ../massertions
 import ../mfixtures
 import ../mproperty
+import ../mtestblock
+
+func validCoreCapsJson(): JsonNode =
+  ## Reference valid CoreCapabilities JSON used by per-field tests.
+  %*{
+    "maxSizeUpload": 1,
+    "maxConcurrentUpload": 1,
+    "maxSizeRequest": 1,
+    "maxConcurrentRequests": 1,
+    "maxCallsInRequest": 1,
+    "maxObjectsInGet": 1,
+    "maxObjectsInSet": 1,
+    "collationAlgorithms": [],
+  }
 
 # =============================================================================
 # A. CoreCapabilities
 # =============================================================================
 
-block roundTripCoreCapabilitiesZero:
+testCase roundTripCoreCapabilitiesZero:
   let original = zeroCoreCaps()
   assertOkEq CoreCapabilities.fromJson(original.toJson()), original
 
-block roundTripCoreCapabilitiesRealistic:
+testCase roundTripCoreCapabilitiesRealistic:
   let original = realisticCoreCaps()
   assertOkEq CoreCapabilities.fromJson(original.toJson()), original
 
-block coreCapabilitiesToJsonFieldNames:
+testCase coreCapabilitiesToJsonFieldNames:
   let caps = realisticCoreCaps()
   let j = caps.toJson()
   doAssert j{"maxSizeUpload"} != nil
@@ -48,7 +63,7 @@ block coreCapabilitiesToJsonFieldNames:
   for elem in j{"collationAlgorithms"}.getElems(@[]):
     doAssert elem.kind == JString
 
-block coreCapabilitiesDeserValid:
+testCase coreCapabilitiesDeserValid:
   let j = %*{
     "maxSizeUpload": 50000000,
     "maxConcurrentUpload": 8,
@@ -60,11 +75,11 @@ block coreCapabilitiesDeserValid:
     "collationAlgorithms": ["i;ascii-numeric"],
   }
   let caps = CoreCapabilities.fromJson(j).get()
-  assertEq int64(caps.maxSizeUpload), 50000000'i64
-  assertEq int64(caps.maxCallsInRequest), 32'i64
-  doAssert caps.collationAlgorithms.contains(CollationAsciiNumeric)
+  assertEq caps.maxSizeUpload().toInt64, 50000000'i64
+  assertEq caps.maxCallsInRequest().toInt64, 32'i64
+  doAssert caps.collationAlgorithms().contains(CollationAsciiNumeric)
 
-block coreCapabilitiesDeserMissingField:
+testCase coreCapabilitiesDeserMissingField:
   let j = %*{
     "maxConcurrentUpload": 8,
     "maxSizeRequest": 10000000,
@@ -76,7 +91,7 @@ block coreCapabilitiesDeserMissingField:
   }
   assertErr CoreCapabilities.fromJson(j)
 
-block coreCapabilitiesDeserWrongKindString:
+testCase coreCapabilitiesDeserWrongKindString:
   let j = %*{
     "maxSizeUpload": "string",
     "maxConcurrentUpload": 8,
@@ -89,7 +104,7 @@ block coreCapabilitiesDeserWrongKindString:
   }
   assertErr CoreCapabilities.fromJson(j)
 
-block coreCapabilitiesDeserNegativeValue:
+testCase coreCapabilitiesDeserNegativeValue:
   let j = %*{
     "maxSizeUpload": -1,
     "maxConcurrentUpload": 8,
@@ -102,7 +117,7 @@ block coreCapabilitiesDeserNegativeValue:
   }
   assertErr CoreCapabilities.fromJson(j)
 
-block coreCapabilitiesDeserEmptyCollation:
+testCase coreCapabilitiesDeserEmptyCollation:
   let j = %*{
     "maxSizeUpload": 1,
     "maxConcurrentUpload": 1,
@@ -114,9 +129,9 @@ block coreCapabilitiesDeserEmptyCollation:
     "collationAlgorithms": [],
   }
   let r = CoreCapabilities.fromJson(j).get()
-  assertEq r.collationAlgorithms.len, 0
+  assertEq r.collationAlgorithms().len, 0
 
-block coreCapabilitiesDeserCollationNonString:
+testCase coreCapabilitiesDeserCollationNonString:
   let j = %*{
     "maxSizeUpload": 1,
     "maxConcurrentUpload": 1,
@@ -129,7 +144,7 @@ block coreCapabilitiesDeserCollationNonString:
   }
   assertErrContains CoreCapabilities.fromJson(j), "at /collationAlgorithms/"
 
-block coreCapabilitiesDeserCollationWrongKind:
+testCase coreCapabilitiesDeserCollationWrongKind:
   let j = %*{
     "maxSizeUpload": 1,
     "maxConcurrentUpload": 1,
@@ -142,12 +157,12 @@ block coreCapabilitiesDeserCollationWrongKind:
   }
   assertErrContains CoreCapabilities.fromJson(j), "collationAlgorithms"
 
-block coreCapabilitiesDeserNotObjectOrNil:
+testCase coreCapabilitiesDeserNotObjectOrNil:
   assertErr CoreCapabilities.fromJson(%*[1, 2, 3])
   const nilNode: JsonNode = nil
   assertErr CoreCapabilities.fromJson(nilNode)
 
-block coreCapabilitiesDeserSingularOnly:
+testCase coreCapabilitiesDeserSingularOnly:
   let j = %*{
     "maxSizeUpload": 1,
     "maxConcurrentUpload": 1,
@@ -159,9 +174,9 @@ block coreCapabilitiesDeserSingularOnly:
     "collationAlgorithms": [],
   }
   let r = CoreCapabilities.fromJson(j).get()
-  assertEq int64(r.maxConcurrentRequests), 5'i64
+  assertEq r.maxConcurrentRequests().toInt64, 5'i64
 
-block coreCapabilitiesDeserBothDifferentValues:
+testCase coreCapabilitiesDeserBothDifferentValues:
   let j = %*{
     "maxSizeUpload": 1,
     "maxConcurrentUpload": 1,
@@ -175,9 +190,9 @@ block coreCapabilitiesDeserBothDifferentValues:
   }
   let r = CoreCapabilities.fromJson(j).get()
   # Plural form takes precedence
-  assertEq int64(r.maxConcurrentRequests), 10'i64
+  assertEq r.maxConcurrentRequests().toInt64, 10'i64
 
-block coreCapabilitiesDeserNeitherPresent:
+testCase coreCapabilitiesDeserNeitherPresent:
   let j = %*{
     "maxSizeUpload": 1,
     "maxConcurrentUpload": 1,
@@ -193,12 +208,12 @@ block coreCapabilitiesDeserNeitherPresent:
 # B. ServerCapability
 # =============================================================================
 
-block roundTripServerCapabilityCkCore:
+testCase roundTripServerCapabilityCkCore:
   let original = makeCoreServerCap(realisticCoreCaps())
-  assertCapOkEq ServerCapability.fromJson(original.rawUri, original.toJson()).get(),
+  assertCapOkEq ServerCapability.fromJson(original.uri(), original.toJson()).get(),
     original
 
-block serverCapabilityDeserCkCoreValid:
+testCase serverCapabilityDeserCkCoreValid:
   let j = %*{
     "maxSizeUpload": 1,
     "maxConcurrentUpload": 1,
@@ -211,9 +226,9 @@ block serverCapabilityDeserCkCoreValid:
   }
   let r = ServerCapability.fromJson("urn:ietf:params:jmap:core", j).get()
   doAssert r.kind == ckCore
-  assertEq r.rawUri, "urn:ietf:params:jmap:core"
+  assertEq r.uri(), "urn:ietf:params:jmap:core"
 
-block serverCapabilityDeserCkCoreMissingField:
+testCase serverCapabilityDeserCkCoreMissingField:
   let j = %*{"maxSizeUpload": 1}
   ## Missing required field surfaces as ``svkNilNode`` (the field wasn't
   ## present, so the descent into the distinct-int fromJson sees a nil
@@ -223,35 +238,37 @@ block serverCapabilityDeserCkCoreMissingField:
   doAssert res.error.kind == svkNilNode
   doAssert res.error.expectedKindForNil == JInt
 
-block serverCapabilityDeserUnknownUri:
+testCase serverCapabilityDeserUnknownUri:
   let data = %*{"maxFoosFinangled": 42}
   let cap = ServerCapability.fromJson("https://vendor.example/ext", data).get()
   doAssert cap.kind == ckUnknown
-  assertEq cap.rawUri, "https://vendor.example/ext"
-  doAssert cap.rawData{"maxFoosFinangled"} != nil
+  assertEq cap.uri(), "https://vendor.example/ext"
+  let raw = cap.asRawData()
+  assertSome raw
+  doAssert raw.get(){"maxFoosFinangled"} != nil
 
-block serverCapabilityDeserKnownNonCoreUri:
+testCase serverCapabilityDeserKnownNonCoreUri:
   let r = ServerCapability.fromJson("urn:ietf:params:jmap:mail", newJObject()).get()
   doAssert r.kind == ckMail
 
-block serverCapabilityToJsonCkCoreStructure:
+testCase serverCapabilityToJsonCkCoreStructure:
   let cap = makeCoreServerCap(realisticCoreCaps())
   let j = cap.toJson()
   doAssert j.kind == JObject
   doAssert j{"maxSizeUpload"} != nil
 
-block serverCapabilityToJsonNilVsNonNilRawData:
-  let nilCap =
-    ServerCapability(rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: nil)
-  let nilResult = nilCap.toJson()
-  doAssert nilResult.kind == JObject
-  assertEq nilResult.getFields().len, 0
-  let data = %*{"custom": true}
-  let dataCap =
-    ServerCapability(rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: data)
-  doAssert dataCap.toJson() == data
+testCase serverCapabilityToJsonDiscardArmEmitsEmpty:
+  ## ckMail is a discard arm at session scope — RFC 8621 §1.3.1 declares
+  ## it empty; toJson emits the empty object regardless of payload.
+  let mailCap = parseServerCapability(
+      "urn:ietf:params:jmap:mail", Opt.none(CoreCapabilities), Opt.none(JsonNode)
+    )
+    .get()
+  let j = mailCap.toJson()
+  doAssert j.kind == JObject
+  assertEq j.getFields().len, 0
 
-block serverCapabilityCoreBranchInvalidCoreData:
+testCase serverCapabilityCoreBranchInvalidCoreData:
   ## Passing a JArray instead of JObject for ckCore capability data must return err.
   let res = ServerCapability.fromJson("urn:ietf:params:jmap:core", %*[1, 2, 3])
   doAssert res.isErr
@@ -263,12 +280,13 @@ block serverCapabilityCoreBranchInvalidCoreData:
 # C. ServerCapability variant round-trips and edge cases
 # =============================================================================
 
-block serverCapabilityAllVariantsDeserRoundTrip:
-  ## Verifies every non-core CapabilityKind deserialises and round-trips.
+testCase serverCapabilityAllVariantsDeserRoundTrip:
+  ## Verifies every non-core CapabilityKind that carries a rawXxxData
+  ## payload deserialises and round-trips through fromJson/toJson.
+  ## ckMail/ckSubmission/ckVacationResponse are discard arms — payload
+  ## drops at the typed boundary, so they're excluded here.
   let testData = %*{"vendorExtension": true, "nested": {"key": "val"}}
   let variants = [
-    ("urn:ietf:params:jmap:submission", ckSubmission),
-    ("urn:ietf:params:jmap:vacationresponse", ckVacationResponse),
     ("urn:ietf:params:jmap:websocket", ckWebsocket),
     ("urn:ietf:params:jmap:mdn", ckMdn),
     ("urn:ietf:params:jmap:smimeverify", ckSmimeVerify),
@@ -281,28 +299,43 @@ block serverCapabilityAllVariantsDeserRoundTrip:
   for (uri, expectedKind) in variants:
     let r = ServerCapability.fromJson(uri, testData).get()
     doAssert r.kind == expectedKind, "wrong kind for " & uri
-    assertEq r.rawUri, uri
+    assertEq r.uri(), uri
     # Verify rawData preserved (deep copy)
     let rtJson = r.toJson()
     doAssert rtJson{"vendorExtension"} != nil, "rawData lost for " & uri
     assertEq rtJson{"vendorExtension"}.getBool(false), true
     doAssert rtJson{"nested"} != nil, "nested data lost for " & uri
 
-block serverCapabilityArcSharedRefSafety:
-  ## Validates Phase 1A fix: two capabilities sharing the same JsonNode ref
+testCase serverCapabilityDiscardArmsDropPayload:
+  ## ckMail/ckSubmission/ckVacationResponse are session-scope discard
+  ## arms. Their fromJson silently drops any provided payload; toJson
+  ## emits the empty object.
+  let discardArms = [
+    ("urn:ietf:params:jmap:mail", ckMail),
+    ("urn:ietf:params:jmap:submission", ckSubmission),
+    ("urn:ietf:params:jmap:vacationresponse", ckVacationResponse),
+  ]
+  for (uri, expectedKind) in discardArms:
+    let r = ServerCapability.fromJson(uri, %*{"junk": 1}).get()
+    doAssert r.kind == expectedKind
+    let j = r.toJson()
+    doAssert j.kind == JObject
+    assertEq j.getFields().len, 0
+
+testCase serverCapabilityArcSharedRefSafety:
+  ## Validates that two capabilities sharing the same JsonNode ref
   ## must not cause ARC double-free on destruction.
   let sharedData = %*{"shared": 42, "nested": {"a": 1}}
   # Both capabilities point to the same JsonNode — ownData() must deep-copy
-  let r1 = ServerCapability.fromJson("urn:ietf:params:jmap:mail", sharedData).get()
+  let r1 = ServerCapability.fromJson("urn:ietf:params:jmap:quota", sharedData).get()
   let r2 = ServerCapability.fromJson("urn:ietf:params:jmap:contacts", sharedData).get()
   # Verify they are independent copies, not the same ref
   let json1 = r1.toJson()
   let json2 = r2.toJson()
   assertEq json1{"shared"}.getBiggestInt(0), 42
   assertEq json2{"shared"}.getBiggestInt(0), 42
-  # If they survived to here without crash, ARC ref management is safe
 
-block coreCapabilitiesDeserMaxUnsignedIntBoundary:
+testCase coreCapabilitiesDeserMaxUnsignedIntBoundary:
   ## Boundary: 2^53-1 at CoreCapabilities level within Session context.
   const maxVal = 9007199254740991'i64 # 2^53-1
   let j = %*{
@@ -316,9 +349,9 @@ block coreCapabilitiesDeserMaxUnsignedIntBoundary:
     "collationAlgorithms": [],
   }
   let r = CoreCapabilities.fromJson(j).get()
-  assertEq int64(r.maxSizeUpload), maxVal
+  assertEq r.maxSizeUpload().toInt64, maxVal
 
-block coreCapabilitiesCollationDuplicatesDeduplication:
+testCase coreCapabilitiesCollationDuplicatesDeduplication:
   ## HashSet deduplicates collation algorithms.
   let j = %*{
     "maxSizeUpload": 1,
@@ -331,65 +364,71 @@ block coreCapabilitiesCollationDuplicatesDeduplication:
     "collationAlgorithms": ["i;ascii-casemap", "i;ascii-casemap", "i;octet"],
   }
   let r = CoreCapabilities.fromJson(j).get()
-  assertEq r.collationAlgorithms.len, 2
+  assertEq r.collationAlgorithms().len, 2
 
-block coreCapabilitiesCollationVendorExtensionRoundTrip:
+testCase coreCapabilitiesCollationVendorExtensionRoundTrip:
   ## Vendor extension identifiers round-trip through toJson/fromJson
   ## preserving identity (``caOther`` branch).
   var j = validCoreCapsJson()
   j["collationAlgorithms"] = %*["x-foo", "i;octet"]
   let r = CoreCapabilities.fromJson(j).get()
-  assertEq r.collationAlgorithms.len, 2
-  doAssert r.collationAlgorithms.contains(CollationOctet)
-  doAssert r.collationAlgorithms.contains(parseCollationAlgorithm("x-foo").get())
+  assertEq r.collationAlgorithms().len, 2
+  doAssert r.collationAlgorithms().contains(CollationOctet)
+  doAssert r.collationAlgorithms().contains(parseCollationAlgorithm("x-foo").get())
   # Round-trip preserves wire identifier
   let rt = CoreCapabilities.fromJson(r.toJson()).get()
-  doAssert rt.collationAlgorithms.contains(parseCollationAlgorithm("x-foo").get())
+  doAssert rt.collationAlgorithms().contains(parseCollationAlgorithm("x-foo").get())
 
-block coreCapabilitiesCollationEmptyStringElementErr:
+testCase coreCapabilitiesCollationEmptyStringElementErr:
   ## An empty string in the collationAlgorithms array violates the wire
   ## invariant and surfaces a SerdeViolation with the element-index path.
   var j = validCoreCapsJson()
   j["collationAlgorithms"] = %*[""]
   assertErrContains CoreCapabilities.fromJson(j), "/collationAlgorithms/0"
 
-block serverCapabilityNestedRawDataRoundTrip:
+testCase serverCapabilityNestedRawDataRoundTrip:
   let data = %*{"foo": {"bar": [1, 2, {"baz": true}]}}
   let cap = ServerCapability.fromJson("https://vendor.example/ext", data).get()
-  let rt = ServerCapability.fromJson(cap.rawUri, cap.toJson()).get()
-  doAssert rt.rawData == data
+  let rt = ServerCapability.fromJson(cap.uri(), cap.toJson()).get()
+  doAssert rt == cap
 
-block serverCapabilityJNullData:
-  ## Documents behaviour when server sends null for capability data.
-  ## JNull is non-nil, stored as-is in rawData.
-  let r = ServerCapability.fromJson("urn:ietf:params:jmap:mail", newJNull()).get()
-  doAssert r.rawData.kind == JNull
+testCase serverCapabilityJNullDataNonDiscardArm:
+  ## Documents behaviour when server sends null for a rawXxxData arm.
+  ## JNull projects through ownData to be replaced by newJObject() (the
+  ## valueOr fallback in parseServerCapability).
+  let r = ServerCapability.fromJson("urn:ietf:params:jmap:mdn", newJNull()).get()
+  let raw = r.asRawData()
+  assertSome raw
+  doAssert raw.get().kind == JNull
 
 # =============================================================================
 # D. Deep-copy mutation isolation
 # =============================================================================
 
-block serverCapabilityOwnDataMutationIsolation:
-  ## Deserialise a ServerCapability for a non-core kind from a shared JsonNode,
-  ## then mutate the original JsonNode and verify the capability's rawData
-  ## field is unaffected (proving ownData deep-copies).
+testCase serverCapabilityOwnDataMutationIsolation:
+  ## Deserialise a ServerCapability for a non-core, non-discard kind from
+  ## a shared JsonNode, then mutate the original JsonNode and verify the
+  ## capability's payload is unaffected (proving ownData deep-copies).
   let sharedData = %*{"key": "original", "nested": {"inner": 42}}
-  let cap = ServerCapability.fromJson("urn:ietf:params:jmap:mail", sharedData).get()
+  let cap = ServerCapability.fromJson("urn:ietf:params:jmap:quota", sharedData).get()
   # Mutate the original shared JsonNode
   sharedData["key"] = %"mutated"
   sharedData["nested"]["inner"] = %999
   sharedData["newField"] = %"added"
   # Verify the capability's rawData is unaffected by the mutation
-  assertEq cap.rawData{"key"}.getStr(""), "original"
-  assertEq cap.rawData{"nested"}{"inner"}.getBiggestInt(0), 42
-  doAssert cap.rawData{"newField"}.isNil,
+  let rawOpt = cap.asRawData()
+  assertSome rawOpt
+  let raw = rawOpt.get()
+  assertEq raw{"key"}.getStr(""), "original"
+  assertEq raw{"nested"}{"inner"}.getBiggestInt(0), 42
+  doAssert raw{"newField"}.isNil,
     "newly added field must not appear in deep-copied rawData"
 
 # =============================================================================
 # E. Collection scale tests (CoreCapabilities)
 # =============================================================================
 
-block collationAlgorithmsLarge1000:
+testCase collationAlgorithmsLarge1000:
   ## CoreCapabilities with 1000 collation algorithm strings round-trips
   ## preserving the count.
   var j = validCoreCapsJson()
@@ -398,10 +437,10 @@ block collationAlgorithmsLarge1000:
     algArr.add(%("alg" & $i))
   j["collationAlgorithms"] = algArr
   let r = CoreCapabilities.fromJson(j).get()
-  assertEq r.collationAlgorithms.len, 1000
+  assertEq r.collationAlgorithms().len, 1000
   # Round-trip
   let rt = CoreCapabilities.fromJson(r.toJson()).get()
-  assertEq rt.collationAlgorithms.len, 1000
+  assertEq rt.collationAlgorithms().len, 1000
 
 # =============================================================================
 # F. Property-based round-trip tests
@@ -413,114 +452,114 @@ checkProperty "CoreCapabilities round-trip":
 
 checkProperty "ServerCapability round-trip":
   let cap = rng.genServerCapability()
-  assertCapOkEq ServerCapability.fromJson(cap.rawUri, cap.toJson()).get(), cap
+  assertCapOkEq ServerCapability.fromJson(cap.uri(), cap.toJson()).get(), cap
 
 # =============================================================================
 # G. Equality helper verification
 # =============================================================================
 
-block equalityHelperCapEqDifferentKind:
+testCase equalityHelperCapEqDifferentKind:
   ## Verify capEq returns false for capabilities with different kinds.
   let coreCap = makeCoreServerCap(zeroCoreCaps())
-  let mailCap = ServerCapability(
-    rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJObject()
-  )
+  let mailCap = parseServerCapability(
+      "urn:ietf:params:jmap:mail", Opt.none(CoreCapabilities), Opt.none(JsonNode)
+    )
+    .get()
   doAssert not capEq(coreCap, mailCap), "capEq must return false for different kinds"
 
 # =============================================================================
-# H. Phase 3D: CoreCapabilities per-field missing tests
-# Each test removes one required field and asserts err.
+# H. CoreCapabilities per-field missing tests
 # =============================================================================
 
-block coreCapsMissingMaxSizeUpload:
+testCase coreCapsMissingMaxSizeUpload:
   var j = validCoreCapsJson()
   j.delete("maxSizeUpload")
   assertErr CoreCapabilities.fromJson(j)
 
-block coreCapsMissingMaxConcurrentUpload:
+testCase coreCapsMissingMaxConcurrentUpload:
   var j = validCoreCapsJson()
   j.delete("maxConcurrentUpload")
   assertErr CoreCapabilities.fromJson(j)
 
-block coreCapsMissingMaxSizeRequest:
+testCase coreCapsMissingMaxSizeRequest:
   var j = validCoreCapsJson()
   j.delete("maxSizeRequest")
   assertErr CoreCapabilities.fromJson(j)
 
-block coreCapsMissingMaxConcurrentRequests:
+testCase coreCapsMissingMaxConcurrentRequests:
   ## Removing both plural and singular forms must cause err.
   var j = validCoreCapsJson()
   j.delete("maxConcurrentRequests")
-  # validCoreCapsJson uses plural form; verify it is now absent
   doAssert j{"maxConcurrentRequests"}.isNil
   doAssert j{"maxConcurrentRequest"}.isNil
   assertErrContains CoreCapabilities.fromJson(j), "maxConcurrentRequests"
 
-block coreCapsMissingMaxCallsInRequest:
+testCase coreCapsMissingMaxCallsInRequest:
   var j = validCoreCapsJson()
   j.delete("maxCallsInRequest")
   assertErr CoreCapabilities.fromJson(j)
 
-block coreCapsMissingMaxObjectsInGet:
+testCase coreCapsMissingMaxObjectsInGet:
   var j = validCoreCapsJson()
   j.delete("maxObjectsInGet")
   assertErr CoreCapabilities.fromJson(j)
 
-block coreCapsMissingMaxObjectsInSet:
+testCase coreCapsMissingMaxObjectsInSet:
   var j = validCoreCapsJson()
   j.delete("maxObjectsInSet")
   assertErr CoreCapabilities.fromJson(j)
 
-block coreCapsMissingCollationAlgorithms:
+testCase coreCapsMissingCollationAlgorithms:
   var j = validCoreCapsJson()
   j.delete("collationAlgorithms")
   assertErrContains CoreCapabilities.fromJson(j), "collationAlgorithms"
 
 # =============================================================================
-# I. Phase 3I: AccountCapabilityEntry boundary tests
+# I. AccountCapabilityEntry boundary tests
 # =============================================================================
 
-block accountCapabilityEntryEmptyUriRejectsMutation:
+testCase accountCapabilityEntryEmptyUriRejectsMutation:
   ## Empty URI string must be rejected by AccountCapabilityEntry.fromJson.
-  ## This test kills the mutation that removes the len==0 guard.
   assertErrContains AccountCapabilityEntry.fromJson("", newJObject()), "empty"
 
-block accountCapabilityEntryNilDataToJson:
-  ## Constructing an AccountCapabilityEntry with data: nil and calling toJson
-  ## must produce a valid JObject (not crash). This kills the mutation that
-  ## removes the nil-to-empty-object guard in toJson.
+testCase accountCapabilityEntryNilDataToJson:
+  ## Constructing an AccountCapabilityEntry through fromJson with a nil
+  ## payload for a rawXxxData arm must produce a JObject toJson (not crash).
   let entry =
-    AccountCapabilityEntry(kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: nil)
+    AccountCapabilityEntry.fromJson("https://vendor.example/ext", newJObject()).get()
   let j = entry.toJson()
-  doAssert j != nil, "toJson on nil-data entry must not return nil"
-  doAssert j.kind == JObject, "toJson on nil-data entry must return JObject"
+  doAssert j != nil
+  doAssert j.kind == JObject
 
 # =============================================================================
-# toJson ownership: returned JsonNode must be independent of internal state
+# J. toJson ownership: returned JsonNode must be independent of internal state
 # =============================================================================
 
-block serverCapabilityToJsonReturnsIndependentCopy:
+testCase serverCapabilityToJsonReturnsIndependentCopy:
   ## Mutating the JsonNode returned by toJson must not corrupt the capability.
   let vendorData = newJObject()
   vendorData["original"] = %"value"
-  let cap = ServerCapability(
-    rawUri: "urn:vendor:example", kind: ckUnknown, rawData: vendorData.copy()
-  )
+  let cap = ServerCapability.fromJson("urn:vendor:example", vendorData).get()
   let j = cap.toJson()
   j["injected"] = %"corrupted"
-  doAssert cap.rawData{"injected"}.isNil,
+  let rawOpt = cap.asRawData()
+  assertSome rawOpt
+  let raw = rawOpt.get()
+  doAssert raw{"injected"}.isNil,
     "toJson must return an independent copy — mutation must not propagate"
-  doAssert cap.rawData{"original"}.getStr("") == "value", "original data must be intact"
+  doAssert raw{"original"}.getStr("") == "value", "original data must be intact"
 
-block accountCapabilityEntryToJsonReturnsIndependentCopy:
+testCase accountCapabilityEntryToJsonReturnsIndependentCopy:
   ## Mutating the JsonNode returned by toJson must not corrupt the entry.
   let entryData = newJObject()
   entryData["original"] = %"value"
-  let entry = AccountCapabilityEntry(
-    kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: entryData.copy()
-  )
+  let entry =
+    AccountCapabilityEntry.fromJson("https://vendor.example/ext", entryData).get()
   let j = entry.toJson()
   j["injected"] = %"corrupted"
-  doAssert entry.data{"injected"}.isNil,
+  let rawOpt = entry.asRawData()
+  assertSome rawOpt
+  let raw = rawOpt.get()
+  doAssert raw{"injected"}.isNil,
     "toJson must return an independent copy — mutation must not propagate"
-  doAssert entry.data{"original"}.getStr("") == "value", "original data must be intact"
+  doAssert raw{"original"}.getStr("") == "value", "original data must be intact"

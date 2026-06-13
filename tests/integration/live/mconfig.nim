@@ -16,7 +16,8 @@
 {.push raises: [].}
 
 import std/os
-import results
+
+import jmap_client
 
 type LiveTargetKind* = enum
   ## Typed identifier of the JMAP server under test. The string value
@@ -32,29 +33,43 @@ type LiveTargetKind* = enum
 type LiveTestTarget* = object
   ## A configured JMAP server. ``kind`` flows into capture filenames
   ## (via its backing string) and into typed ``case`` branches in
-  ## Cat-D verification-path sites. ``sessionUrl`` is the JMAP
-  ## session-document endpoint; ``authScheme`` is ``Basic`` for every
+  ## Cat-D verification-path sites. ``endpoint`` is the typed JMAP
+  ## session locator (a direct session URL); ``sessionUrl`` retains the
+  ## raw URL string for the raw-POST diagnostic helpers. Each principal
+  ## authenticates with a Basic ``Credential`` for every
   ## currently-configured target.
   kind*: LiveTargetKind
   sessionUrl*: string
-  authScheme*: string
-  aliceToken*: string
-  bobToken*: string
+  endpoint*: SessionEndpoint
+  aliceCredential*: Credential
+  bobCredential*: Credential
 
 proc loadTarget(kind: LiveTargetKind, prefix: string): Opt[LiveTestTarget] =
-  ## Reads the four ``<prefix>_SESSION_URL`` / ``_AUTH_SCHEME`` /
-  ## ``_ALICE_TOKEN`` / ``_BOB_TOKEN`` env vars and returns a populated
-  ## ``LiveTestTarget``. Returns ``Opt.none`` when any of the four are
-  ## absent so the caller can compose multiple loaders without raising.
+  ## Reads the per-principal ``<prefix>_SESSION_URL`` / ``_ALICE_USER`` /
+  ## ``_ALICE_PASSWORD`` / ``_BOB_USER`` / ``_BOB_PASSWORD`` env vars and
+  ## builds a populated ``LiveTestTarget``. Returns ``Opt.none`` when any
+  ## var is absent or any sealed value fails to construct, so the caller
+  ## can compose multiple loaders without raising.
   let su = getEnv(prefix & "_SESSION_URL")
-  let sc = getEnv(prefix & "_AUTH_SCHEME")
-  let at = getEnv(prefix & "_ALICE_TOKEN")
-  let bt = getEnv(prefix & "_BOB_TOKEN")
-  if su.len == 0 or sc.len == 0 or at.len == 0 or bt.len == 0:
+  let au = getEnv(prefix & "_ALICE_USER")
+  let ap = getEnv(prefix & "_ALICE_PASSWORD")
+  let bu = getEnv(prefix & "_BOB_USER")
+  let bp = getEnv(prefix & "_BOB_PASSWORD")
+  if su.len == 0 or au.len == 0 or ap.len == 0 or bu.len == 0 or bp.len == 0:
+    return Opt.none(LiveTestTarget)
+  let endpoint = directEndpoint(su).valueOr:
+    return Opt.none(LiveTestTarget)
+  let aliceCred = basicCredential(au, ap).valueOr:
+    return Opt.none(LiveTestTarget)
+  let bobCred = basicCredential(bu, bp).valueOr:
     return Opt.none(LiveTestTarget)
   Opt.some(
     LiveTestTarget(
-      kind: kind, sessionUrl: su, authScheme: sc, aliceToken: at, bobToken: bt
+      kind: kind,
+      sessionUrl: su,
+      endpoint: endpoint,
+      aliceCredential: aliceCred,
+      bobCredential: bobCred,
     )
   )
 

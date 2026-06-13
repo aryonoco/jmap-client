@@ -45,12 +45,12 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailCopyIntraAccountLive:
+testCase temailCopyIntraAccountLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): test asserts on client behaviour for
     # RFC 8620 §5.4 (accountId != fromAccountId). Stalwart 0.15.5 and
@@ -58,12 +58,7 @@ block temailCopyIntraAccountLive:
     # invocation with ``metInvalidArguments``; James 3.9 lacks Email/
     # copy and returns ``metUnknownMethod``. Both are valid client-
     # library typed-error projections.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -87,17 +82,18 @@ block temailCopyIntraAccountLive:
     createTbl[copyCid] =
       initEmailCopyItem(id = sourceId, mailboxIds = Opt.some(inboxSet))
     let (bCopy, copyHandle) = addEmailCopy(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       fromAccountId = mailAccountId,
       accountId = mailAccountId,
       create = createTbl,
     )
-    let respCopy = client.send(bCopy).expect(
+    let respCopy = client.send(bCopy.freeze()).expect(
         "send Email/copy (rejection-bound)[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-copy-intra-rejected-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-copy-intra-rejected-" & $target.kind
     )
+      .expect("captureIfRequested")
 
     # --- 4. Assert rejection at method level ------------------------------
     # RFC 8620 §5.4 mandates accountId != fromAccountId. Stalwart and
@@ -108,17 +104,23 @@ block temailCopyIntraAccountLive:
     assertOn target,
       copyResult.isErr,
       "Email/copy with accountId == fromAccountId must surface a typed error"
-    let methodErr = copyResult.error
+    let getErr = copyResult.error
+    doAssert getErr.kind == gekMethod, "expected gekMethod"
+    let methodErr = getErr.methodErr
     assertOn target,
-      methodErr.errorType in {metInvalidArguments, metUnknownMethod},
+      methodErr.kind in {metInvalidArguments, metUnknownMethod},
       "method error must project as metInvalidArguments or metUnknownMethod (got rawType=" &
         methodErr.rawType & ")"
 
     # --- 5. Cleanup: source must still exist -----------------------------
-    let (bClean, cleanHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[sourceId]))
-    let respClean =
-      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let (bClean, cleanHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()),
+      mailAccountId,
+      destroy = directIds(@[sourceId]),
+    )
+    let respClean = client.send(bClean.freeze()).expect(
+        "send Email/set cleanup[" & $target.kind & "]"
+      )
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
@@ -131,4 +133,3 @@ block temailCopyIntraAccountLive:
     do:
       assertOn target, false, "cleanup must report an outcome for sourceId"
     assertOn target, sourceDestroyed
-    client.close()

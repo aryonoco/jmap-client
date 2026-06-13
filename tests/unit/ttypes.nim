@@ -6,19 +6,23 @@
 import std/json
 import std/tables
 
-import jmap_client/types
-import jmap_client/framework
+import jmap_client
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/envelope
+import jmap_client/internal/types/framework
+import ../mtestblock
 
 # --- Re-export accessibility ---
 
-block reExportAccessibility:
+testCase reExportAccessibility:
   # validation
   let ve = validationError("Test", "msg", "raw")
   doAssert ve.typeName == "Test"
   doAssert 'A' in Base64UrlChars
 
   # primitives
-  let id = parseId("abc123").get()
+  let id = parseIdFromServer("abc123").get()
   doAssert $id == "abc123"
 
   # identifiers
@@ -39,12 +43,12 @@ block reExportAccessibility:
   let ce = clientError(te)
   doAssert ce.kind == cekTransport
   let re = requestError("urn:ietf:params:jmap:error:limit")
-  doAssert re.errorType == retLimit
+  doAssert re.kind == retLimit
   let ce2 = clientError(re)
   doAssert ce2.kind == cekRequest
   doAssert ce2.message == "urn:ietf:params:jmap:error:limit"
   let me = methodError("serverFail")
-  doAssert me.errorType == metServerFail
+  doAssert me.kind == metServerFail
   let se = setError("forbidden")
   doAssert se.rawType == "forbidden"
 
@@ -52,7 +56,7 @@ block reExportAccessibility:
   let pn = parsePropertyName("name").get()
   doAssert $pn == "name"
   let comp = parseComparator(pn)
-  doAssert comp.isAscending
+  doAssert comp.direction == sdServerDefault
 
   # envelope
   let inv = parseInvocation("Foo/get", %*{}, mcid).get()
@@ -69,5 +73,5 @@ block reExportAccessibility:
   # std/tables consumption: Request with createdIds
   var tbl = initTable[CreationId, Id]()
   tbl[cid] = id
-  let req = Request(`using`: @[], methodCalls: @[], createdIds: Opt.some(tbl))
+  let req = initRequest(@[], @[], Opt.some(tbl))
   doAssert req.createdIds.isSome

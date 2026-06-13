@@ -9,11 +9,14 @@
 
 import std/json
 
-import jmap_client/methods_enum
-import jmap_client/validation
-import jmap_client/entity
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/methods_enum
+import jmap_client/internal/types/validation
+import jmap_client/internal/protocol/entity
+import jmap_client/internal/serialisation/serde
 
 import ../massertions
+import ../mtestblock
 
 # ---------------------------------------------------------------------------
 # Mock entity types (local — compile-time verification only)
@@ -28,8 +31,8 @@ type MockFoo = object
 func methodEntity*(T: typedesc[MockFoo]): MethodEntity =
   meTest
 
-func capabilityUri*(T: typedesc[MockFoo]): string =
-  "urn:test:mockfoo"
+func capabilityUri*(T: typedesc[MockFoo]): CapabilityUri =
+  parseCapabilityUri("urn:test:mockfoo").get()
 
 registerJmapEntity(MockFoo)
 
@@ -40,8 +43,8 @@ type MockQueryable = object
 func methodEntity*(T: typedesc[MockQueryable]): MethodEntity =
   meTest
 
-func capabilityUri*(T: typedesc[MockQueryable]): string =
-  "urn:test:mockqueryable"
+func capabilityUri*(T: typedesc[MockQueryable]): CapabilityUri =
+  parseCapabilityUri("urn:test:mockqueryable").get()
 
 registerJmapEntity(MockQueryable)
 
@@ -52,6 +55,25 @@ func toJson*(c: MockFilterCondition): JsonNode =
   newJObject()
 
 registerQueryableEntity(MockQueryable)
+
+# Extractable mock (B5) — a readable entity with a valid ``fromJson`` parser.
+
+type MockExtractable = object
+
+func methodEntity*(T: typedesc[MockExtractable]): MethodEntity =
+  meTest
+
+func capabilityUri*(T: typedesc[MockExtractable]): CapabilityUri =
+  parseCapabilityUri("urn:test:mockextractable").get()
+
+func fromJson*(
+    T: typedesc[MockExtractable], node: JsonNode
+): Result[MockExtractable, SerdeViolation] =
+  discard node
+  ok(MockExtractable())
+
+registerJmapEntity(MockExtractable)
+registerExtractableEntity(MockExtractable)
 
 # Types for negative tests (deliberately missing overloads)
 
@@ -64,16 +86,16 @@ func methodEntity*(T: typedesc[NoCapUri]): MethodEntity =
 
 type NoMethodNs = object
 
-func capabilityUri*(T: typedesc[NoMethodNs]): string =
-  "urn:test:nomethodns"
+func capabilityUri*(T: typedesc[NoMethodNs]): CapabilityUri =
+  parseCapabilityUri("urn:test:nomethodns").get()
 
 type NoFilterToJson = object
 
 func methodEntity*(T: typedesc[NoFilterToJson]): MethodEntity =
   meTest
 
-func capabilityUri*(T: typedesc[NoFilterToJson]): string =
-  "urn:test:nofj"
+func capabilityUri*(T: typedesc[NoFilterToJson]): CapabilityUri =
+  parseCapabilityUri("urn:test:nofj").get()
 
 type NoFilterToJsonFilter = object
 
@@ -91,47 +113,56 @@ registerJmapEntity(NoFilterToJson)
 # A. Positive registration tests
 # ---------------------------------------------------------------------------
 
-block registerBasicEntity:
+testCase registerBasicEntity:
   ## MockFoo registered at module scope with both required overloads.
   ## If this module compiles, registration succeeded.
   doAssert true
 
-block registerQueryableEntity:
+testCase registerQueryableEntity:
   ## MockQueryable registered with filterType template.
   ## Both registerJmapEntity and registerQueryableEntity succeeded.
   doAssert true
 
-block overloadValuesCorrect:
+testCase overloadValuesCorrect:
   ## Overloads return the expected values. Typed dispatch: methodEntity
   ## resolves per typedesc to the test sentinel; capabilityUri yields the
   ## distinct URI registered for each mock.
   doAssert methodEntity(MockFoo) == meTest
-  doAssert capabilityUri(MockFoo) == "urn:test:mockfoo"
+  doAssert $capabilityUri(MockFoo) == "urn:test:mockfoo"
   doAssert methodEntity(MockQueryable) == meTest
-  doAssert capabilityUri(MockQueryable) == "urn:test:mockqueryable"
+  doAssert $capabilityUri(MockQueryable) == "urn:test:mockqueryable"
 
 # ---------------------------------------------------------------------------
 # B. Negative registration tests (compile-time error detection)
 # ---------------------------------------------------------------------------
 
-block missingBothOverloads:
+testCase missingBothOverloads:
   ## Type with no overloads — registerJmapEntity must fail.
   assertNotCompiles(registerJmapEntity(NoBoth))
 
-block missingCapabilityUri:
+testCase missingCapabilityUri:
   ## Type with only methodEntity — registerJmapEntity must fail.
   assertNotCompiles(registerJmapEntity(NoCapUri))
 
-block missingMethodEntity:
+testCase missingMethodEntity:
   ## Type with only capabilityUri — registerJmapEntity must fail.
   assertNotCompiles(registerJmapEntity(NoMethodNs))
 
-block missingFilterType:
+testCase missingFilterType:
   ## MockFoo has no filterType — registerQueryableEntity must fail.
   assertNotCompiles(registerQueryableEntity(MockFoo))
 
-block missingFilterToJson:
+testCase missingFilterToJson:
   ## Type with filterType but no ``toJson`` on the filter must fail.
   ## ``NoFilterToJson`` (defined at module level) has ``filterType`` but
   ## deliberately omits ``toJson(NoFilterToJsonFilter)``.
   assertNotCompiles(registerQueryableEntity(NoFilterToJson))
+
+testCase registerExtractableEntityPositive:
+  ## ``MockExtractable`` registered with a valid ``fromJson`` — if this module
+  ## compiles, ``registerExtractableEntity`` (B5) accepted it.
+  doAssert true
+
+testCase missingExtractableFromJson:
+  ## ``MockFoo`` has no ``fromJson`` — registerExtractableEntity must fail.
+  assertNotCompiles(registerExtractableEntity(MockFoo))

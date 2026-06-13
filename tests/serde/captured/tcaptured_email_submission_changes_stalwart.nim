@@ -15,9 +15,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailSubmissionChangesStalwart:
+testCase tcapturedEmailSubmissionChangesStalwart:
   let j = loadCapturedFixture("email-submission-changes-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 2,
@@ -42,9 +44,9 @@ block tcapturedEmailSubmissionChangesStalwart:
       happyFound = true
     elif inv.rawName == "error":
       let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
-      doAssert me.errorType in {metCannotCalculateChanges, metInvalidArguments},
+      doAssert me.kind in {metCannotCalculateChanges, metInvalidArguments},
         "method error must project as cannotCalculateChanges or invalidArguments " &
-          "(got " & $me.errorType & ", rawType=" & me.rawType & ")"
+          "(got " & $me.kind & ", rawType=" & me.rawType & ")"
       sadFound = true
   doAssert happyFound,
     "captured response must contain the EmailSubmission/changes happy invocation"

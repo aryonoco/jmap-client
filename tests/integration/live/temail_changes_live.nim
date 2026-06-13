@@ -12,7 +12,7 @@
 ## 2. **Sad path** — issue Email/changes with a synthetic bogus
 ##    ``sinceState``. RFC 8620 §5.2 permits the server to respond with
 ##    either ``cannotCalculateChanges`` or ``invalidArguments``; the
-##    test accepts both, asserting the projected ``MethodErrorType``
+##    test accepts both, asserting the projected ``MethodErrorKind``
 ##    against that pair.
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
@@ -22,31 +22,27 @@
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailChangesLive:
+testCase temailChangesLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Capture baseline state via an empty Email/get -------------------
-    let (b1, getHandle) = addEmailGet(
-      initRequestBuilder(),
+    let (b1, getHandle) = addPartialEmailGet(
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[]),
-      properties = Opt.some(@["id"]),
+      properties = parseNonEmptySeq(@[egpId]).get(),
     )
-    let resp1 = client.send(b1).expect("send Email/get baseline[" & $target.kind & "]")
+    let resp1 =
+      client.send(b1.freeze()).expect("send Email/get baseline[" & $target.kind & "]")
     let getResp =
       resp1.get(getHandle).expect("Email/get baseline extract[" & $target.kind & "]")
     let baselineState = getResp.state
@@ -65,15 +61,16 @@ block temailChangesLive:
       .expect("seedSimpleEmail B[" & $target.kind & "]")
 
     # --- Happy path: Email/changes since baseline -----------------------
-    let (b2, changesHandle) =
-      addChanges[Email](initRequestBuilder(), mailAccountId, sinceState = baselineState)
-    let resp2 = client.send(b2).expect("send Email/changes happy[" & $target.kind & "]")
+    let (b2, changesHandle) = addEmailChanges(
+      initRequestBuilder(makeBuilderId()), mailAccountId, sinceState = baselineState
+    )
+    let resp2 =
+      client.send(b2.freeze()).expect("send Email/changes happy[" & $target.kind & "]")
     let cr = resp2.get(changesHandle).expect(
         "Email/changes happy extract[" & $target.kind & "]"
       )
     assertOn target,
-      string(cr.oldState) == string(baselineState),
-      "oldState must echo the supplied baseline"
+      $cr.oldState == $baselineState, "oldState must echo the supplied baseline"
     assertOn target,
       cr.created.len == 2,
       "two seeds must surface as two created entries (got " & $cr.created.len & ")"
@@ -84,19 +81,25 @@ block temailChangesLive:
     assertOn target, idB in cr.created, "seed B must appear in created"
 
     # --- Sad path: bogus sinceState -------------------------------------
-    let bogusState = JmapState("phase-b-bogus-state")
-    let (b3, sadHandle) =
-      addChanges[Email](initRequestBuilder(), mailAccountId, sinceState = bogusState)
-    let resp3 = client.send(b3).expect("send Email/changes bogus[" & $target.kind & "]")
-    captureIfRequested(client, "email-changes-bogus-state-" & $target.kind).expect(
-      "captureIfRequested"
+    let bogusState = parseJmapState("phase-b-bogus-state").get()
+    let (b3, sadHandle) = addEmailChanges(
+      initRequestBuilder(makeBuilderId()), mailAccountId, sinceState = bogusState
     )
+    let resp3 =
+      client.send(b3.freeze()).expect("send Email/changes bogus[" & $target.kind & "]")
+    captureIfRequested(
+      recorder.lastResponseBody, "email-changes-bogus-state-" & $target.kind
+    )
+      .expect("captureIfRequested")
     let sadExtract = resp3.get(sadHandle)
     assertOn target,
       sadExtract.isErr, "bogus sinceState must surface as a method-level error"
-    let methodErr = sadExtract.error
+    let getErr = sadExtract.error
     assertOn target,
-      methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
+      getErr.kind == gekMethod,
+      "bogus sinceState must surface as gekMethod, not gekHandleMismatch"
+    let methodErr = getErr.methodErr
+    assertOn target,
+      methodErr.kind in {metCannotCalculateChanges, metInvalidArguments},
       "method error must project as cannotCalculateChanges or invalidArguments " &
         "(got rawType=" & methodErr.rawType & ")"
-    client.close()

@@ -6,21 +6,22 @@
 
 import std/json
 
-import jmap_client/validation
-import jmap_client/primitives
-import jmap_client/framework
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/framework
 
 import ../massertions
+import ../mtestblock
 
 # --- PropertyName ---
 
-block parsePropertyNameEmpty:
+testCase parsePropertyNameEmpty:
   assertErrFields parsePropertyName(""), "PropertyName", "must not be empty", ""
 
-block parsePropertyNameValid:
+testCase parsePropertyNameValid:
   assertOk parsePropertyName("name")
 
-block propertyNameBorrowedOps:
+testCase propertyNameBorrowedOps:
   let a = parsePropertyName("name").get()
   let b = parsePropertyName("name").get()
   let c = parsePropertyName("other").get()
@@ -32,94 +33,95 @@ block propertyNameBorrowedOps:
 
 # --- FilterOperator ---
 
-block filterOperatorStringBacking:
+testCase filterOperatorStringBacking:
   doAssert $foAnd == "AND"
   doAssert $foOr == "OR"
   doAssert $foNot == "NOT"
 
 # --- Filter[C] ---
 
-block filterConditionConstruction:
+testCase filterConditionConstruction:
   let f = filterCondition(42)
   doAssert f.kind == fkCondition
   doAssert f.condition == 42
 
-block filterOperatorConstruction:
+testCase filterOperatorConstruction:
   let child = filterCondition(1)
-  let f = filterOperator[int](foAnd, @[child])
+  let f = filterAnd(@[child]).get()
   doAssert f.kind == fkOperator
   doAssert f.operator == foAnd
-  doAssert f.conditions.len == 1
+  doAssert f.operands.len == 1
 
-block filterRecursiveNesting:
-  let inner = filterOperator[int](foOr, @[filterCondition(1), filterCondition(2)])
-  let outer = filterOperator[int](foAnd, @[inner, filterCondition(3)])
+testCase filterRecursiveNesting:
+  let inner = filterOr(@[filterCondition(1), filterCondition(2)]).get()
+  let outer = filterAnd(@[inner, filterCondition(3)]).get()
   doAssert outer.kind == fkOperator
-  doAssert outer.conditions.len == 2
-  doAssert outer.conditions[0].kind == fkOperator
+  doAssert outer.operands.len == 2
+  doAssert outer.operands[0].kind == fkOperator
 
 # --- Comparator ---
 
-block parseComparatorValid:
+testCase parseComparatorValid:
   let pn = parsePropertyName("name").get()
   let c = parseComparator(pn)
-  doAssert c.isAscending == true
+  doAssert c.direction == sdServerDefault
   doAssert c.collation.isNone
 
-block parseComparatorWithCollation:
+testCase parseComparatorWithCollation:
   let pn = parsePropertyName("name").get()
   let c = parseComparator(pn, collation = Opt.some(CollationUnicodeCasemap))
   doAssert c.collation.isSome
   doAssert c.collation.get() == CollationUnicodeCasemap
 
-block parseComparatorNotAscending:
+testCase parseComparatorNotAscending:
   let pn = parsePropertyName("subject").get()
-  let c = parseComparator(pn, isAscending = false)
-  doAssert c.isAscending == false
+  let c = parseComparator(pn, direction = sdDescending)
+  doAssert c.direction == sdDescending
 
 # --- AddedItem ---
 
-block addedItemConstruction:
-  let id = parseId("abc").get()
+testCase addedItemConstruction:
+  let id = parseIdFromServer("abc").get()
   let idx = parseUnsignedInt(0'i64).get()
   let item = initAddedItem(id, idx)
-  doAssert string(item.id) == "abc"
-  doAssert int64(item.index) == 0'i64
+  doAssert $item.id == "abc"
+  doAssert item.index.toInt64 == 0'i64
 
-# --- Filter arity tests ---
+# --- Filter arity tests (B3, RFC 8620 §5.5) ---
 
-block filterOperatorNotEmpty:
-  # NOT with zero children: structurally valid
-  let f = filterOperator[int](foNot, newSeq[Filter[int]]())
+testCase filterNotIsSingleChild:
+  ## NOT has exactly one child. ``filterNot`` takes a single filter, so a
+  ## zero-child or multi-child NOT is not expressible — the arity is in the
+  ## constructor's signature, not a runtime check.
+  let f = filterNot(filterCondition[int](1))
   doAssert f.kind == fkOperator
+  doAssert f.operator == foNot
+  doAssert f.operands.len == 1
 
-block filterOperatorNotMultiple:
-  # NOT with multiple children: RFC semantics = NOR (none must match)
-  let a = filterCondition[int](1)
-  let b = filterCondition[int](2)
-  let c = filterCondition[int](3)
-  let f = filterOperator[int](foNot, @[a, b, c])
-  doAssert f.conditions.len == 3
+testCase filterAndOrRejectEmpty:
+  ## AND/OR require one or more conditions; an empty operand list is rejected.
+  assertErr filterAnd(newSeq[Filter[int]]())
+  assertErr filterOr(newSeq[Filter[int]]())
 
-block filterOperatorAndSingle:
-  let f = filterOperator[int](foAnd, @[filterCondition[int](42)])
-  doAssert f.conditions.len == 1
+testCase filterAndSingleOperand:
+  let f = filterAnd(@[filterCondition[int](42)]).get()
+  doAssert f.operands.len == 1
 
 # --- Comparator and AddedItem edge cases ---
 
-block addedItemMaxIndex:
+testCase addedItemMaxIndex:
   let maxIdx = parseUnsignedInt(MaxUnsignedInt).get()
-  let id = parseId("test").get()
+  let id = parseIdFromServer("test").get()
   let ai = initAddedItem(id, maxIdx)
   doAssert ai.index == maxIdx
 
-block parsePropertyNameSingleChar:
+testCase parsePropertyNameSingleChar:
   ## parsePropertyName accepts a single-character string.
   let pn = parsePropertyName("x").get()
   assertOk pn
   doAssert $pn == "x"
 
-block parsePropertyNameStandard:
+testCase parsePropertyNameStandard:
   ## parsePropertyName accepts a standard property name.
   let pn = parsePropertyName("subject").get()
   assertOk pn
@@ -127,21 +129,21 @@ block parsePropertyNameStandard:
 
 # --- Generic type instantiation: Filter[string] ---
 
-block filterConditionString:
+testCase filterConditionString:
   ## filterCondition[string] constructs a leaf node with a string condition.
   let f = filterCondition[string]("hello")
   doAssert f.kind == fkCondition
   doAssert f.condition == "hello"
 
-block filterOperatorString:
+testCase filterOperatorString:
   ## filterOperator[string] composes string-typed child filters under foAnd.
   let childA = filterCondition[string]("a")
   let childB = filterCondition[string]("b")
-  let f = filterOperator[string](foAnd, @[childA, childB])
+  let f = filterAnd(@[childA, childB]).get()
   doAssert f.kind == fkOperator
   doAssert f.operator == foAnd
-  assertLen f.conditions, 2
-  doAssert f.conditions[0].kind == fkCondition
-  doAssert f.conditions[0].condition == "a"
-  doAssert f.conditions[1].kind == fkCondition
-  doAssert f.conditions[1].condition == "b"
+  assertLen f.operands, 2
+  doAssert f.operands[0].kind == fkCondition
+  doAssert f.operands[0].condition == "a"
+  doAssert f.operands[1].kind == fkCondition
+  doAssert f.operands[1].condition == "b"

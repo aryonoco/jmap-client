@@ -7,17 +7,19 @@ import std/json
 import std/random
 import std/sets
 
-import jmap_client/capabilities
-import jmap_client/validation
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/validation
 import ../mproperty
+import ../mtestblock
 
-block propCapabilityKindTotality:
+testCase propCapabilityKindTotality:
   checkProperty "parseCapabilityKind never crashes on arbitrary string":
     let s = genArbitraryString(rng)
     lastInput = s
     discard parseCapabilityKind(s)
 
-block propCapabilityKindKnownRoundTrip:
+testCase propCapabilityKindKnownRoundTrip:
   for kind in [
     ckCore, ckMail, ckSubmission, ckVacationResponse, ckWebsocket, ckMdn, ckSmimeVerify,
     ckBlob, ckQuota, ckContacts, ckCalendars, ckSieve,
@@ -25,50 +27,57 @@ block propCapabilityKindKnownRoundTrip:
     let uri = capabilityUri(kind).get()
     doAssert parseCapabilityKind(uri) == kind
 
-block propCapabilityKindUnknownReturnsNone:
+testCase propCapabilityKindUnknownReturnsNone:
   doAssert capabilityUri(ckUnknown).isNone
 
-block propCapabilityKindAllKnownHaveUri:
+testCase propCapabilityKindAllKnownHaveUri:
   for kind in CapabilityKind:
     if kind != ckUnknown:
       doAssert capabilityUri(kind).isSome
 
 # --- CoreCapabilities and ServerCapability generator properties ---
 
-block propCoreCapabilitiesFieldsNonNegative:
+testCase propCoreCapabilitiesFieldsNonNegative:
   checkProperty "genCoreCapabilities fields are non-negative":
     let caps = genCoreCapabilities(rng)
-    doAssert int64(caps.maxSizeUpload) >= 0
-    doAssert int64(caps.maxConcurrentUpload) >= 0
-    doAssert int64(caps.maxSizeRequest) >= 0
-    doAssert int64(caps.maxConcurrentRequests) >= 0
-    doAssert int64(caps.maxCallsInRequest) >= 0
-    doAssert int64(caps.maxObjectsInGet) >= 0
-    doAssert int64(caps.maxObjectsInSet) >= 0
+    doAssert caps.maxSizeUpload().toInt64 >= 0
+    doAssert caps.maxConcurrentUpload().toInt64 >= 0
+    doAssert caps.maxSizeRequest().toInt64 >= 0
+    doAssert caps.maxConcurrentRequests().toInt64 >= 0
+    doAssert caps.maxCallsInRequest().toInt64 >= 0
+    doAssert caps.maxObjectsInGet().toInt64 >= 0
+    doAssert caps.maxObjectsInSet().toInt64 >= 0
 
-block propServerCapabilityRawUriNonEmpty:
-  checkProperty "genServerCapability rawUri always non-empty":
+testCase propServerCapabilityRawUriNonEmpty:
+  checkProperty "genServerCapability uri always non-empty":
     let sc = genServerCapability(rng)
-    lastInput = sc.rawUri
-    doAssert sc.rawUri.len > 0
+    lastInput = sc.uri()
+    doAssert sc.uri().len > 0
 
-block propServerCapabilityKindMatchesUri:
-  checkProperty "genServerCapability kind matches parseCapabilityKind(rawUri)":
+testCase propServerCapabilityKindMatchesUri:
+  checkProperty "genServerCapability kind matches parseCapabilityKind(uri)":
     let sc = genServerCapability(rng)
-    lastInput = sc.rawUri
-    doAssert sc.kind == parseCapabilityKind(sc.rawUri)
+    lastInput = sc.uri()
+    doAssert sc.kind == parseCapabilityKind(sc.uri())
 
-block propServerCapabilityCoreHasCoreData:
-  checkProperty "genServerCapability ckCore variant has accessible core fields":
+testCase propServerCapabilityCoreHasCoreData:
+  checkProperty "genServerCapability ckCore variant has accessible core data":
     let sc = genServerCapability(rng)
-    lastInput = sc.rawUri
+    lastInput = sc.uri()
     case sc.kind
     of ckCore:
-      doAssert int64(sc.core.maxSizeUpload) >= 0
-    else:
-      doAssert sc.rawData != nil
+      let coreOpt = sc.asCoreCapabilities()
+      doAssert coreOpt.isSome
+      doAssert coreOpt.get().maxSizeUpload().toInt64 >= 0
+    of ckMail, ckSubmission, ckVacationResponse:
+      # discard arms — asRawData returns none, no payload
+      doAssert sc.asRawData().isNone
+    of ckWebsocket, ckMdn, ckSmimeVerify, ckBlob, ckQuota, ckContacts, ckCalendars,
+        ckSieve, ckUnknown:
+      doAssert sc.asRawData().isSome
+      doAssert sc.asRawData().get() != nil
 
-block propCoreCapabilitiesHasCollationConsistency:
+testCase propCoreCapabilitiesHasCollationConsistency:
   checkProperty "hasCollation agrees with set membership":
     let caps = genCoreCapabilities(rng)
     for alg in caps.collationAlgorithms:
@@ -79,7 +88,7 @@ block propCoreCapabilitiesHasCollationConsistency:
       caps, parseCollationAlgorithm("i;nonexistent-collation-xyz").get()
     )
 
-block propCoreCapabilitiesCollationAlgorithmsValid:
+testCase propCoreCapabilitiesCollationAlgorithmsValid:
   checkProperty "genCoreCapabilities collation identifiers are non-empty":
     let caps = genCoreCapabilities(rng)
     for alg in caps.collationAlgorithms:

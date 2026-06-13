@@ -16,9 +16,11 @@
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedSetErrorNotFound:
+testCase tcapturedSetErrorNotFound:
   let j = loadCapturedFixture("set-error-not-found-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -26,18 +28,19 @@ block tcapturedSetErrorNotFound:
   doAssert inv.rawName == "Email/set",
     "successful Email/set with notDestroyed must surface as Email/set, got " &
       inv.rawName
-  let setResp =
-    SetResponse[EmailCreatedItem].fromJson(inv.arguments).expect("SetResponse.fromJson")
-  let syntheticId = Id("zzzzz")
+  let setResp = SetResponse[EmailCreatedItem, PartialEmail]
+    .fromJson(inv.arguments)
+    .expect("SetResponse.fromJson")
+  let syntheticId = parseIdFromServer("zzzzz").get()
   var found = false
   setResp.destroyResults.withValue(syntheticId, outcome):
     doAssert outcome.isErr, "synthetic id outcome must be Err(SetError)"
     let se = outcome.error
     doAssert se.rawType == "notFound",
       "Stalwart returns canonical 'notFound' rawType, got " & se.rawType
-    doAssert se.errorType == setNotFound,
-      "errorType must project to setNotFound, got " & $se.errorType
-    doAssert se.errorType == parseSetErrorType(se.rawType),
+    doAssert se.kind == setNotFound,
+      "errorType must project to setNotFound, got " & $se.kind
+    doAssert se.kind == parseSetErrorKind(se.rawType),
       "errorType / rawType must be derived consistently"
     found = true
   do:

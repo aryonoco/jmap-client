@@ -33,18 +33,15 @@ import std/sets
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailQueryFilterTreeLive:
+testCase temailQueryFilterTreeLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    var client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -67,16 +64,18 @@ block temailQueryFilterTreeLive:
     let corpus = ids.toHashSet
 
     # --- AND test: alpha AND uno ----------------------------------------
-    let andFilter = filterOperator(
-      foAnd,
-      @[
-        filterCondition(EmailFilterCondition(subject: Opt.some("alpha"))),
-        filterCondition(EmailFilterCondition(subject: Opt.some("uno"))),
-      ],
+    let andFilter = filterAnd(
+        @[
+          filterCondition(EmailFilterCondition(subject: Opt.some("alpha"))),
+          filterCondition(EmailFilterCondition(subject: Opt.some("uno"))),
+        ]
+      )
+      .get()
+    let (ba, andHandle) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(andFilter)
     )
-    let (ba, andHandle) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(andFilter))
-    let respA = client.send(ba).expect("send Email/query AND[" & $target.kind & "]")
+    let respA =
+      client.send(ba.freeze()).expect("send Email/query AND[" & $target.kind & "]")
     let andResp =
       respA.get(andHandle).expect("Email/query AND extract[" & $target.kind & "]")
     let andHits = andResp.ids.toHashSet * corpus
@@ -88,16 +87,18 @@ block temailQueryFilterTreeLive:
       "AND(alpha, uno) must return the alpha-uno id; got ids=" & $andHits
 
     # --- OR test: alpha OR bravo ----------------------------------------
-    let orFilter = filterOperator(
-      foOr,
-      @[
-        filterCondition(EmailFilterCondition(subject: Opt.some("alpha"))),
-        filterCondition(EmailFilterCondition(subject: Opt.some("bravo"))),
-      ],
+    let orFilter = filterOr(
+        @[
+          filterCondition(EmailFilterCondition(subject: Opt.some("alpha"))),
+          filterCondition(EmailFilterCondition(subject: Opt.some("bravo"))),
+        ]
+      )
+      .get()
+    let (bo, orHandle) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(orFilter)
     )
-    let (bo, orHandle) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(orFilter))
-    let respO = client.send(bo).expect("send Email/query OR[" & $target.kind & "]")
+    let respO =
+      client.send(bo.freeze()).expect("send Email/query OR[" & $target.kind & "]")
     let orResp =
       respO.get(orHandle).expect("Email/query OR extract[" & $target.kind & "]")
     let orHits = orResp.ids.toHashSet * corpus
@@ -111,18 +112,18 @@ block temailQueryFilterTreeLive:
           $i
 
     # --- NOT test: phase-c-14 AND NOT alpha -----------------------------
-    let notFilter = filterOperator(
-      foAnd,
-      @[
-        filterCondition(EmailFilterCondition(subject: Opt.some("phase-c-14"))),
-        filterOperator(
-          foNot, @[filterCondition(EmailFilterCondition(subject: Opt.some("alpha")))]
-        ),
-      ],
+    let notFilter = filterAnd(
+        @[
+          filterCondition(EmailFilterCondition(subject: Opt.some("phase-c-14"))),
+          filterNot(filterCondition(EmailFilterCondition(subject: Opt.some("alpha")))),
+        ]
+      )
+      .get()
+    let (bn, notHandle) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(notFilter)
     )
-    let (bn, notHandle) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(notFilter))
-    let respN = client.send(bn).expect("send Email/query NOT[" & $target.kind & "]")
+    let respN =
+      client.send(bn.freeze()).expect("send Email/query NOT[" & $target.kind & "]")
     let notResp =
       respN.get(notHandle).expect("Email/query NOT extract[" & $target.kind & "]")
     let notHits = notResp.ids.toHashSet * corpus
@@ -135,4 +136,3 @@ block temailQueryFilterTreeLive:
         ids[i] in notHits,
         "AND(phase-c-14, NOT alpha) must return bravo-1/bravo-2/charlie-1; missing index " &
           $i
-    client.close()

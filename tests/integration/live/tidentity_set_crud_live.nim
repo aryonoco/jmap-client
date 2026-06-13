@@ -19,13 +19,13 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
-import jmap_client/mail/identity as jidentity
+import jmap_client/internal/mail/identity as jidentity
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tIdentitySetCrudLive:
+testCase tIdentitySetCrudLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): Stalwart 0.15.5 and James 3.9 implement the
     # full Identity/set surface. Cyrus 3.12.2 omits Identity/set
@@ -33,12 +33,7 @@ block tIdentitySetCrudLive:
     # implemented") and returns ``metUnknownMethod``. Each Identity/
     # set extract uses ``assertSuccessOrTypedError``; dependent steps
     # skip when an upstream extract surfaces a typed error.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let submissionAccountId = resolveSubmissionAccountId(session).expect(
         "resolveSubmissionAccountId[" & $target.kind & "]"
@@ -54,9 +49,12 @@ block tIdentitySetCrudLive:
     var createTbl = initTable[CreationId, IdentityCreate]()
     createTbl[createCid] = createIdent
     let (b1, createHandle) = addIdentitySet(
-      initRequestBuilder(), submissionAccountId, create = Opt.some(createTbl)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(createTbl),
     )
-    let resp1 = client.send(b1).expect("send Identity/set create[" & $target.kind & "]")
+    let resp1 =
+      client.send(b1.freeze()).expect("send Identity/set create[" & $target.kind & "]")
     # Cyrus 3.12.2 returns metUnknownMethod for the entire Identity/set
     # surface (``imap/jmap_mail.c:122-123`` — "Possibly to be
     # implemented"). The test exits below before reaching the b2
@@ -66,9 +64,10 @@ block tIdentitySetCrudLive:
     # post-b2 site below.
     case target.kind
     of ltkCyrus:
-      captureIfRequested(client, "identity-set-update-" & $target.kind).expect(
-        "captureIfRequested cyrus pre-error"
+      captureIfRequested(
+        recorder.lastResponseBody, "identity-set-update-" & $target.kind
       )
+        .expect("captureIfRequested cyrus pre-error")
     of ltkStalwart, ltkJames:
       discard
     let createExtract = resp1.get(createHandle)
@@ -84,7 +83,6 @@ block tIdentitySetCrudLive:
         assertOn target, false, "Identity/set must report a create result"
 
     if not createOk:
-      client.close()
       continue
 
     # --- Step 2: update — three arms in one IdentityUpdateSet -----------
@@ -102,12 +100,14 @@ block tIdentitySetCrudLive:
         "parseNonEmptyIdentityUpdates"
       )
     let (b2, updateHandle) = addIdentitySet(
-      initRequestBuilder(), submissionAccountId, update = Opt.some(updates)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      update = Opt.some(updates),
     )
-    let resp2 = client.send(b2).expect("send Identity/set update[" & $target.kind & "]")
-    captureIfRequested(client, "identity-set-update-" & $target.kind).expect(
-      "captureIfRequested"
-    )
+    let resp2 =
+      client.send(b2.freeze()).expect("send Identity/set update[" & $target.kind & "]")
+    captureIfRequested(recorder.lastResponseBody, "identity-set-update-" & $target.kind)
+      .expect("captureIfRequested")
     let updateExtract = resp2.get(updateHandle)
     var updateOk = false
     assertSuccessOrTypedError(target, updateExtract, {metUnknownMethod}):
@@ -121,18 +121,19 @@ block tIdentitySetCrudLive:
     if updateOk:
       # --- Step 3: read-back via Identity/get ----------------------------
       let (b3, getHandle) = addIdentityGet(
-        initRequestBuilder(), submissionAccountId, ids = directIds(@[identityId])
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        ids = directIds(@[identityId]),
       )
-      let resp3 = client.send(b3).expect("send Identity/get[" & $target.kind & "]")
+      let resp3 =
+        client.send(b3.freeze()).expect("send Identity/get[" & $target.kind & "]")
       let getResp =
         resp3.get(getHandle).expect("Identity/get extract[" & $target.kind & "]")
       assertOn target,
         getResp.list.len == 1,
         "Identity/get must return exactly one entry for the updated id (got " &
           $getResp.list.len & ")"
-      let updated = Identity.fromJson(getResp.list[0]).expect(
-          "parse Identity[" & $target.kind & "]"
-        )
+      let updated = getResp.list[0]
       assertOn target,
         updated.name == "phase-f step-31 renamed",
         "name must reflect the setName update (got " & updated.name & ")"
@@ -151,10 +152,12 @@ block tIdentitySetCrudLive:
 
     # --- Step 4: destroy ------------------------------------------------
     let (b4, destroyHandle) = addIdentitySet(
-      initRequestBuilder(), submissionAccountId, destroy = directIds(@[identityId])
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      destroy = directIds(@[identityId]),
     )
     let resp4 =
-      client.send(b4).expect("send Identity/set destroy[" & $target.kind & "]")
+      client.send(b4.freeze()).expect("send Identity/set destroy[" & $target.kind & "]")
     let destroyExtract = resp4.get(destroyHandle)
     assertSuccessOrTypedError(target, destroyExtract, {metUnknownMethod}):
       let setResp4 = success
@@ -163,4 +166,3 @@ block tIdentitySetCrudLive:
           outcome.isOk, "Identity/set destroy must succeed: " & outcome.error.rawType
       do:
         assertOn target, false, "Identity/set must report a destroy outcome"
-    client.close()

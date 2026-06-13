@@ -11,9 +11,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedMailboxQueryFilterSort:
+testCase tcapturedMailboxQueryFilterSort:
   let j = loadCapturedFixture("mailbox-query-filter-sort-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -28,4 +30,4 @@ block tcapturedMailboxQueryFilterSort:
     "filter name=phase-i 49 must surface at least three mailboxes (got " & $qr.ids.len &
       ")"
   for id in qr.ids:
-    doAssert string(id).len > 0, "every returned id must be non-empty"
+    doAssert ($id).len > 0, "every returned id must be non-empty"

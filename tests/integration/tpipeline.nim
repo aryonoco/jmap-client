@@ -13,31 +13,33 @@
 import std/json
 import std/tables
 
-import jmap_client/types
-import jmap_client/serialisation
-import jmap_client/methods
-import jmap_client/dispatch
-import jmap_client/builder
-import jmap_client/client
-import jmap_client/mail/mail_builders
-import jmap_client/mail/mailbox
+import jmap_client
+import jmap_client/internal/protocol/methods
+import jmap_client/internal/protocol/dispatch
+import jmap_client/internal/protocol/builder
+import jmap_client/internal/serialisation/serde_framework
+import jmap_client/internal/mail/mail_builders
+import jmap_client/internal/mail/mailbox
+import jmap_client/internal/types/envelope
 
 import ../massertions
 import ../mfixtures
 import ../mtest_entity
+import ../mtestblock
+import ../mtransport
 
 # ===========================================================================
 # A. Builder -> build -> Request JSON
 # ===========================================================================
 
-block builderToRequestJson:
+testCase builderToRequestJson:
   ## Build a GetRequest for TestWidget and verify Request JSON structure.
   ## ``initRequestBuilder`` pre-declares ``urn:ietf:params:jmap:core``
   ## (RFC 8620 §3.2 obligation) so the ``using`` set carries both core
   ## and the entity-specific URI.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   doAssert req.`using` == @["urn:ietf:params:jmap:core", "urn:test:widget"]
   assertLen req.methodCalls, 1
   doAssert req.methodCalls[0].name == mnMailboxGet
@@ -49,9 +51,10 @@ block builderToRequestJson:
 # B. Builder -> build -> Response -> get[T] (full round-trip)
 # ===========================================================================
 
-block fullRoundTrip:
+testCase fullRoundTrip:
   ## Build request, construct synthetic response, extract typed result.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
   let (_, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
   # Synthetic response with a GetResponse containing a TestWidget
   let getJson = %*{
@@ -61,7 +64,8 @@ block fullRoundTrip:
     "notFound": [],
   }
   let resp = makeTypedResponse("TestWidget/get", getJson, makeMcid("c0"))
-  let result = resp.get(gh)
+  let dr = makeDispatchedResponse(resp, bid)
+  let result = dr.get(gh)
   assertOk result
   let gr = result.get()
   doAssert gr.accountId == makeAccountId("A1")
@@ -72,17 +76,17 @@ block fullRoundTrip:
 # C. Multi-method pipeline with result references
 # ===========================================================================
 
-block multiMethodWithResultReference:
-  ## addQuery -> idsRef -> addGet with referenced ids.
-  let b0 = initRequestBuilder()
+testCase multiMethodWithResultReference:
+  ## addQuery -> reference -> addGet with referenced ids.
+  let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
   let (b1, qh) = addQuery[TestWidget, TestWidgetFilter, Comparator](
     b0, accountId = makeAccountId("A1")
   )
-  # Use type-safe idsRef -- auto-derives name "TestWidget/query"
-  let idsRefVal = qh.idsRef()
+  let idsRefVal = reference[seq[Id]](qh, mnEmailQuery, rpIds)
   let (b2, gh) =
     addGet[TestWidget](b1, accountId = makeAccountId("A1"), ids = Opt.some(idsRefVal))
-  let req = b2.build()
+  let req = b2.freeze().request
   assertLen req.methodCalls, 2
   doAssert req.methodCalls[0].name == mnEmailQuery
   doAssert req.methodCalls[1].name == mnMailboxGet
@@ -97,89 +101,88 @@ block multiMethodWithResultReference:
   # Construct synthetic multi-invocation response and extract both
   let queryJson = makeQueryResponseJson(accountId = "A1", queryState = "qs1")
   let getJson = makeGetResponseJson(accountId = "A1", state = "s1")
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(mnEmailQuery, queryJson, makeMcid("c0")),
       initInvocation(mnMailboxGet, getJson, makeMcid("c1")),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
-  assertOk resp.get(qh)
-  assertOk resp.get(gh)
+  let dr = makeDispatchedResponse(resp, bid)
+  assertOk dr.get(qh)
+  assertOk dr.get(gh)
 
 # ===========================================================================
 # D. Error pipeline
 # ===========================================================================
 
-block errorPipeline:
+testCase errorPipeline:
   ## Method error detection through the pipeline.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
   let (_, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
   let resp = makeErrorResponse("unknownMethod", makeMcid("c0"))
-  let result = resp.get(gh)
+  let dr = makeDispatchedResponse(resp, bid)
+  let result = dr.get(gh)
   assertErr result
-  doAssert result.error().errorType == metUnknownMethod
+  let ge = result.error()
+  doAssert ge.kind == gekMethod
+  doAssert ge.methodErr.kind == metUnknownMethod
 
 # ===========================================================================
 # E. Mixed success/error pipeline
 # ===========================================================================
 
-block mixedSuccessError:
+testCase mixedSuccessError:
   ## Two method calls: first succeeds, second returns error.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
   let (b1, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
   let (_, sh) = addMailboxSet(b1, accountId = makeAccountId("A1"))
   let getJson = makeGetResponseJson(accountId = "A1", state = "s1")
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(mnMailboxGet, getJson, makeMcid("c0")),
       parseInvocation("error", %*{"type": "stateMismatch"}, makeMcid("c1")).get(),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
-  assertOk resp.get(gh) # first succeeds
-  assertErr resp.get(sh) # second is error
-  doAssert resp.get(sh).error().errorType == metStateMismatch
+  let dr = makeDispatchedResponse(resp, bid)
+  assertOk dr.get(gh) # first succeeds
+  assertErr dr.get(sh) # second is error
+  let err2 = dr.get(sh).error()
+  doAssert err2.kind == gekMethod
+  doAssert err2.methodErr.kind == metStateMismatch
 
 # ===========================================================================
 # F. Builder -> send convenience (Layer 4 integration)
 # ===========================================================================
 
-block builderSendConvenience:
-  ## Verify client.send(builder) compiles and exercises pre-flight validation.
-  ## Uses setSessionForTest to inject a session with limits.
-  var client = initJmapClient(
-      sessionUrl = "https://example.com/jmap", bearerToken = "test-token"
-    )
-    .get()
-  # Inject a session so send() does not need network for session fetch
-  let sessionArgs = makeSessionArgs()
-  let session = parseSessionFromArgs(sessionArgs)
-  client.setSessionForTest(session)
-  # Build a simple echo request
-  let b0 = initRequestBuilder()
+testCase builderSendConvenience:
+  ## Verify client.send(builder.freeze()) compiles and exercises pre-flight
+  ## validation through a canned Transport. The default POST response is
+  ## parser-valid (empty methodResponses), so the send completes Ok.
+  let client = newClientWithSessionCaps(realisticCoreCaps())
+  let b0 = client.newBuilder()
   let (b1, _) = b0.addEcho(%*{"test": true})
-  # send(client, builder) will fail at HTTP POST (no real server), but
-  # the pre-flight validation and serialisation paths are exercised.
-  # We expect a transport error, not a panic or compile error.
-  let result = client.send(b1)
-  # The result should be an error (network failure), not a panic
-  assertErr result
+  let result = client.send(b1.freeze())
+  assertOk result
 
 # ===========================================================================
 # G. Query with filter (TestWidget)
 # ===========================================================================
 
-block queryWithFilter:
+testCase queryWithFilter:
   ## Build a query with TestWidgetFilter and verify filter serialisation.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
   let f = TestWidgetFilter(name: Opt.some("test"))
   let (b1, qh) = addQuery[TestWidget, TestWidgetFilter, Comparator](
     b0, accountId = makeAccountId("A1"), filter = Opt.some(filterCondition(f))
   )
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   let filterNode = args{"filter"}
   doAssert not filterNode.isNil
@@ -187,15 +190,17 @@ block queryWithFilter:
   # Extract from synthetic response
   let queryJson = makeQueryResponseJson(accountId = "A1", queryState = "qs1")
   let resp = makeTypedResponse("TestWidget/query", queryJson, makeMcid("c0"))
-  assertOk resp.get(qh)
+  let dr = makeDispatchedResponse(resp, bid)
+  assertOk dr.get(qh)
 
 # ===========================================================================
 # H. SetResponse with unified Result maps (Decision 3.9B)
 # ===========================================================================
 
-block setResponseUnifiedMaps:
+testCase setResponseUnifiedMaps:
   ## Build a set request and verify unified Result map extraction.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
   let (_, sh) = addMailboxSet(b0, accountId = makeAccountId("A1"))
   # Synthetic SetResponse with mixed success/failure. The ``created``
   # entry is a complete Mailbox wire object — typed ``SetResponse[Mailbox]``
@@ -235,19 +240,20 @@ block setResponseUnifiedMaps:
     "notDestroyed": {"w-keep": {"type": "notFound"}},
   }
   let resp = makeTypedResponse("Mailbox/set", setJson, makeMcid("c0"))
-  let result = resp.get(sh)
+  let dr = makeDispatchedResponse(resp, bid)
+  let result = dr.get(sh)
   assertOk result
   let sr = result.get()
   # Unified createResults: k1 ok, k2 err
   assertLen sr.createResults, 2
   doAssert sr.createResults[makeCreationId("k1")].isOk
   doAssert sr.createResults[makeCreationId("k2")].isErr
-  doAssert sr.createResults[makeCreationId("k2")].error().errorType == setForbidden
+  doAssert sr.createResults[makeCreationId("k2")].error().kind == setForbidden
   # Unified destroyResults: w-old ok, w-keep err
   assertLen sr.destroyResults, 2
   doAssert sr.destroyResults[makeId("w-old")].isOk
   doAssert sr.destroyResults[makeId("w-keep")].isErr
-  doAssert sr.destroyResults[makeId("w-keep")].error().errorType == setNotFound
+  doAssert sr.destroyResults[makeId("w-keep")].error().kind == setNotFound
 
 {.pop.} # params
 {.pop.} # objects

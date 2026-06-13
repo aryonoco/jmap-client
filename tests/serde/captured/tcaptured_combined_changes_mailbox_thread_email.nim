@@ -21,9 +21,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedCombinedChangesMailboxThreadEmail:
+testCase tcapturedCombinedChangesMailboxThreadEmail:
   let j = loadCapturedFixture("combined-changes-mailbox-thread-email-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 3

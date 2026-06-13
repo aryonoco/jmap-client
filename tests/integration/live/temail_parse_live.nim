@@ -38,12 +38,12 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailParseLive:
+testCase temailParseLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): the seed step uses inline-bodyValues for the
     # message/rfc822 attachment that James 3.9 rejects with
@@ -51,12 +51,7 @@ block temailParseLive:
     # parts) accept them. The library's ``/upload`` surface is
     # deliberately deferred; the seed-rejection arm exercises the
     # typed-error projection.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -76,44 +71,44 @@ block temailParseLive:
       innerBody, "seedForward",
     )
     if outerRes.isErr:
-      client.close()
       continue
     let outerId = outerRes.unsafeValue
 
-    let (bGet, getHandle) = addEmailGet(
-      initRequestBuilder(),
+    let (bGet, getHandle) = addPartialEmailGet(
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[outerId]),
-      properties = Opt.some(@["id", "attachments"]),
+      properties = parseNonEmptySeq(@[egpId, egpAttachments]).get(),
     )
-    let getRespOuter =
-      client.send(bGet).expect("send Email/get attachments[" & $target.kind & "]")
+    let getRespOuter = client.send(bGet.freeze()).expect(
+        "send Email/get attachments[" & $target.kind & "]"
+      )
     let getResp = getRespOuter.get(getHandle).expect(
         "Email/get attachments extract[" & $target.kind & "]"
       )
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let email =
-      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
-    assertOn target, email.attachments.len == 1, "expected exactly one attachment"
-    let attachment = email.attachments[0]
+    let email = getResp.list[0]
+    let attachments = email.attachments.valueOr(@[])
+    assertOn target, attachments.len == 1, "expected exactly one attachment"
+    let attachment = attachments[0]
     assertOn target,
       attachment.contentType == "message/rfc822",
       "attachment must be message/rfc822 (got " & attachment.contentType & ")"
     let blobId = attachment.blobId
-    assertOn target, string(blobId).len > 0, "attachment blobId must be non-empty"
+    assertOn target, ($blobId).len > 0, "attachment blobId must be non-empty"
 
     let (bParse, parseHandle) = addEmailParse(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       blobIds = @[blobId],
-      properties = Opt.some(@["bodyStructure", "subject", "from"]),
+      properties =
+        Opt.some(parseNonEmptySeq(@[egpBodyStructure, egpSubject, egpFrom]).get()),
     )
     let parseRespOuter =
-      client.send(bParse).expect("send Email/parse[" & $target.kind & "]")
-    captureIfRequested(client, "email-parse-rfc822-" & $target.kind).expect(
-      "captureIfRequested"
-    )
+      client.send(bParse.freeze()).expect("send Email/parse[" & $target.kind & "]")
+    captureIfRequested(recorder.lastResponseBody, "email-parse-rfc822-" & $target.kind)
+      .expect("captureIfRequested")
     let parseResp = parseRespOuter.get(parseHandle).expect(
         "Email/parse extract[" & $target.kind & "]"
       )
@@ -137,4 +132,3 @@ block temailParseLive:
         "parsed.fromAddr[0].email must equal innerEmail (got " & fromList[0].email & ")"
     do:
       assertOn target, false, "parsed map must contain entry for the requested blobId"
-    client.close()

@@ -20,7 +20,7 @@
 ##   4. ``attachments[0].blobId.string.len > 0`` — Stalwart assigns a
 ##      non-empty BlobId on creation, suitable for ``Email/parse`` in
 ##      Step 24.
-##   5. ``attachments[0].size == UnsignedInt(32)`` — the sentinel byte
+##   5. ``attachments[0].size == parseUnsignedInt(32).get()`` — the sentinel byte
 ##      count.
 ##
 ## Captures: ``email-multipart-mixed-attachment-stalwart`` after the
@@ -31,12 +31,12 @@
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailGetAttachmentsLive:
+testCase temailGetAttachmentsLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): RFC 8621 §4.6 lets a server require pre-
     # uploaded blob attachments and reject inline-bodyValues with
@@ -49,12 +49,7 @@ block temailGetAttachmentsLive:
     # projection has already fired inside ``seedMixedEmail`` (the
     # internal ``resp.get(setHandle).valueOr:`` site) — that is the
     # Cat-B error-arm assertion this test verifies.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -77,29 +72,30 @@ block temailGetAttachmentsLive:
       # Cat-B error arm — ``seededRes`` carries the rawType from the
       # method-level error (``invalidArguments`` for binary inline-
       # bodyValues rejection). Skip the dependent read-back assertions.
-      client.close()
       continue
     let seededId = seededRes.unsafeValue
 
-    let (b, getHandle) = addEmailGet(
-      initRequestBuilder(),
+    let (b, getHandle) = addPartialEmailGet(
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "attachments"]),
+      properties = parseNonEmptySeq(@[egpId, egpAttachments]).get(),
     )
-    let resp = client.send(b).expect("send Email/get attachments[" & $target.kind & "]")
-    captureIfRequested(client, "email-multipart-mixed-attachment-" & $target.kind)
+    let resp =
+      client.send(b.freeze()).expect("send Email/get attachments[" & $target.kind & "]")
+    captureIfRequested(
+      recorder.lastResponseBody, "email-multipart-mixed-attachment-" & $target.kind
+    )
       .expect("captureIfRequested")
     let getResp =
       resp.get(getHandle).expect("Email/get attachments extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let email =
-      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    let email = getResp.list[0]
+    let attachments = email.attachments.valueOr(@[])
     assertOn target,
-      email.attachments.len == 1,
-      "expected one attachment, got " & $email.attachments.len
-    let attachment = email.attachments[0]
+      attachments.len == 1, "expected one attachment, got " & $attachments.len
+    let attachment = attachments[0]
     assertOn target, attachment.isLeaf, "attachments[0] must be a leaf"
     assertOn target,
       attachment.disposition.isSome, "attachments[0].disposition must be present"
@@ -111,8 +107,7 @@ block temailGetAttachmentsLive:
       attachment.name.isSome and attachment.name.unsafeGet == attachmentName,
       "attachments[0].name must be the injected filename"
     assertOn target,
-      string(attachment.blobId).len > 0, "attachments[0].blobId must be non-empty"
+      ($attachment.blobId).len > 0, "attachments[0].blobId must be non-empty"
     assertOn target,
-      attachment.size == UnsignedInt(32),
+      attachment.size == parseUnsignedInt(32).get(),
       "attachments[0].size must be 32 (got " & $attachment.size & ")"
-    client.close()

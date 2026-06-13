@@ -1,6 +1,6 @@
 ---
 name: comment-base
-description: "Universal code commenting principles — comment 'why' not 'what', eliminate AI anti-patterns, enforce British English. Shared foundation referenced by all language-specific commenting skills."
+description: "Universal commenting principles — why-not-what, RFC-section-only external refs, no design-doc cross-refs, no AI-era hedging, British English. Apply whenever rewriting, reviewing, or auditing code comments in any language."
 user-invocable: false
 ---
 
@@ -47,8 +47,22 @@ All comments must use British English spelling exclusively:
 - "re" not "er" (centre, metre — but "computer", "parameter" are unchanged)
 - "ou" not "o" (colour, behaviour, favour, honour)
 
-Variable names, function names, identifiers, and string literals must NEVER be changed,
-even if they use American English spelling. This is a zero-functional-changes constraint.
+Variable names, function names, identifiers, and string literals must
+never be changed, even if they use American English spelling, because
+the zero-functional-changes constraint prevents any logical drift
+between rewrite passes. Renaming an identifier is a code change, not a
+comment change, and is out of scope for this skill.
+
+## External references
+
+Comments may cite **only** RFC sections. Never reference design docs,
+architecture docs, decision logs, hypothesis catalogues, requirement
+numbers, phase markers, or step numbers from project-internal
+documentation. See [design-refs.md](design-refs.md) for the full
+detection + rewrite ruleset with worked examples.
+
+The only permitted external citation form is `RFC NNNN §X.Y`, placed
+inline next to the implementing step.
 
 ## Tone
 
@@ -73,3 +87,58 @@ When invoked, the language-specific skill will:
 4. **Edit comments in place** — use the Edit tool to modify only comment text.
    Never use the Write tool to overwrite an entire file.
 5. **Re-read modified files** — confirm no functional changes were introduced.
+
+## Gotchas
+
+False positives and load-bearing-content failure modes the skill must
+avoid.
+
+### Domain constraints read like "what"
+
+`# 1-255 octets per RFC 8620 §1.2` looks like a "what" comment but is
+actually a "why" anchor — the constraint comes from outside the code,
+the code only enforces it. Preserve. Detection: the comment cites an
+RFC section.
+
+### Load-bearing boundary phrases survive doc-ref stripping
+
+The following phrases carry architectural meaning and must survive
+even when a design-doc reference is stripped from the same line:
+"sole translation boundary", "imperative shell boundary", "functional
+core", "smart constructor", "module-private", "sealed accessor",
+"Postel-strict / Postel-receive", "strict client-side constructor",
+"lenient server-side constructor".
+
+### Domain vocabulary is not marketing
+
+The following words look like AI marketing but are domain terms in
+this codebase: "canonical form" (RFC normalisation), "idempotent"
+(JMAP method property), "lossless" (round-trip serialisation),
+"unidirectional" (toJson-only / fromJson-only types), "borrowed"
+(distinct-type operations), "exhaustive" (sum-type discrimination).
+Preserve.
+
+### RFC 2119 keywords are technical, not imperatives
+
+`MUST`, `MUST NOT`, `SHOULD`, `SHOULD NOT`, `MAY`, `NEVER` adjacent
+to an RFC citation are RFC 2119 normative keywords. They look like
+ALL-CAPS imperatives but have specific technical meaning. Preserve.
+Detection: the keyword appears within ~30 characters of `RFC NNNN`.
+
+### Comments under `{.experimental: "strictCaseObjects".}`
+
+A "safe because" invariant comment beside a variant-field access is
+informational only — the strict pragma enforces the discriminator
+proof at compile time. Do not rewrite the comment to claim *the
+comment* is what makes the code safe; the compiler does.
+
+### Stale invariant comments after refactor
+
+Comments asserting an invariant must be re-verified against the
+current code before being preserved. An invariant comment that no
+longer holds is worse than no comment.
+
+## References
+
+- [anti-patterns.md](anti-patterns.md) — 13-pattern detection checklist
+- [design-refs.md](design-refs.md) — design-doc reference strip + reword rules

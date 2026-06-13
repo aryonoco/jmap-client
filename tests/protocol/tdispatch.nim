@@ -9,14 +9,18 @@
 import std/json
 import std/tables
 
-import jmap_client/types
-import jmap_client/serialisation
-import jmap_client/entity
-import jmap_client/methods
-import jmap_client/dispatch
+import jmap_client
+import jmap_client/internal/types/envelope
+import jmap_client/internal/protocol/entity
+import jmap_client/internal/protocol/methods
+import jmap_client/internal/protocol/dispatch
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_diagnostics
+import jmap_client/internal/serialisation/serde_helpers
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # ---------------------------------------------------------------------------
 # Mock entity types (local -- compile-time verification only)
@@ -31,8 +35,8 @@ type MockFoo = object
 proc methodEntity*(T: typedesc[MockFoo]): MethodEntity =
   meTest
 
-proc capabilityUri*(T: typedesc[MockFoo]): string =
-  "urn:test:mockfoo"
+proc capabilityUri*(T: typedesc[MockFoo]): CapabilityUri =
+  parseCapabilityUri("urn:test:mockfoo").get()
 
 proc getMethodName*(T: typedesc[MockFoo]): MethodName =
   ## Aliased to mnMailboxGet; the dispatch tests exercise handle-type
@@ -43,32 +47,14 @@ proc getMethodName*(T: typedesc[MockFoo]): MethodName =
 proc changesMethodName*(T: typedesc[MockFoo]): MethodName =
   mnMailboxChanges
 
+func fromJson*(
+    T: typedesc[MockFoo], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[MockFoo, SerdeViolation] =
+  discard $T
+  ?expectKind(node, JObject, path)
+  ok(MockFoo())
+
 registerJmapEntity(MockFoo)
-
-type MockFilter = object
-
-type MockQueryable = object
-
-proc methodEntity*(T: typedesc[MockQueryable]): MethodEntity =
-  meTest
-
-proc capabilityUri*(T: typedesc[MockQueryable]): string =
-  "urn:test:mockqueryable"
-
-proc queryMethodName*(T: typedesc[MockQueryable]): MethodName =
-  mnEmailQuery
-
-proc queryChangesMethodName*(T: typedesc[MockQueryable]): MethodName =
-  mnEmailQueryChanges
-
-template filterType*(T: typedesc[MockQueryable]): typedesc =
-  MockFilter
-
-func toJson(c: MockFilter): JsonNode =
-  newJObject()
-
-registerJmapEntity(MockQueryable)
-registerQueryableEntity(MockQueryable)
 
 {.pop.} # params
 {.pop.} # objects
@@ -78,61 +64,52 @@ registerQueryableEntity(MockQueryable)
 # A. Handle operations
 # ===========================================================================
 
-block handleEquality:
-  ## Two handles with the same call ID are equal.
-  let h1 = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  let h2 = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
+testCase handleEquality:
+  ## Two handles with the same call ID and brand are equal.
+  let h1 = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
+  let h2 = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   doAssert h1 == h2
 
-block handleToString:
+testCase handleToString:
   ## String representation produces the call ID string.
-  let h = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
+  let h = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   doAssert $h == "c0"
 
-block handleHash:
+testCase handleHash:
   ## Hash is consistent with equality.
-  let h1 = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  let h2 = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
+  let h1 = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
+  let h2 = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   doAssert hash(h1) == hash(h2)
 
-block callIdAccessor:
+testCase callIdAccessor:
   ## callId returns the underlying MethodCallId.
   let mcid = makeMcid("c0")
-  let h = ResponseHandle[GetResponse[MockFoo]](mcid)
+  let h = makeResponseHandle[GetResponse[MockFoo]](mcid)
   doAssert callId(h) == mcid
 
 # ===========================================================================
 # B. get[T] happy path (callback overload)
 # ===========================================================================
 
-block getHappyPath:
+testCase getHappyPath:
   ## Response with valid GetResponse JSON at c0, get with callback returns ok.
   let resp = makeTypedResponse("MockFoo/get", makeGetResponseJson(), makeMcid("c0"))
-  let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = resp.get(handle, fromGetResponse)
+  let dr = makeDispatchedResponse(resp)
+  let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
+  let result = dr.get(handle)
   assertOk result
 
-block getExtractsCorrectInvocation:
+testCase getExtractsCorrectInvocation:
   ## Response with multiple invocations (c0, c1); handle c1 extracts the right one.
   let inv0 =
     initInvocation(mnMailboxGet, makeGetResponseJson("acct0", "s0"), makeMcid("c0"))
   let inv1 =
     initInvocation(mnMailboxGet, makeGetResponseJson("acct1", "s1"), makeMcid("c1"))
-  let resp = Response(
-    methodResponses: @[inv0, inv1],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
-  )
-  let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c1"))
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = resp.get(handle, fromGetResponse)
+  let resp =
+    initResponse(@[inv0, inv1], Opt.none(Table[CreationId, Id]), makeState("rs1"))
+  let dr = makeDispatchedResponse(resp)
+  let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c1"))
+  let result = dr.get(handle)
   assertOk result
   let gr = result.get()
   doAssert gr.accountId == makeAccountId("acct1")
@@ -142,192 +119,150 @@ block getExtractsCorrectInvocation:
 # C. get[T] error cases (callback overload)
 # ===========================================================================
 
-block getNotFound:
-  ## Call ID c99 not in response produces err with metServerFail.
+testCase getNotFound:
+  ## Call ID c99 not in response produces err(gekMethod) with metServerFail.
   let resp = makeTypedResponse("MockFoo/get", makeGetResponseJson(), makeMcid("c0"))
-  let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c99"))
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = resp.get(handle, fromGetResponse)
+  let dr = makeDispatchedResponse(resp)
+  let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c99"))
+  let result = dr.get(handle)
   assertErr result
-  doAssert result.error().errorType == metServerFail
+  let ge = result.error()
+  doAssert ge.kind == gekMethod
+  doAssert ge.methodErr.kind == metServerFail
 
-block getMethodError:
-  ## Invocation name is "error" with type "unknownMethod" produces err with metUnknownMethod.
+testCase getMethodError:
+  ## Invocation name is "error" with type "unknownMethod" produces err(gekMethod)
+  ## carrying metUnknownMethod.
   let resp = makeErrorResponse("unknownMethod", makeMcid("c0"))
-  let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = resp.get(handle, fromGetResponse)
+  let dr = makeDispatchedResponse(resp)
+  let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
+  let result = dr.get(handle)
   assertErr result
-  doAssert result.error().errorType == metUnknownMethod
-  doAssert result.error().rawType == "unknownMethod"
+  let ge = result.error()
+  doAssert ge.kind == gekMethod
+  doAssert ge.methodErr.kind == metUnknownMethod
+  doAssert ge.methodErr.rawType == "unknownMethod"
 
-block getMalformedErrorResponse:
-  ## Error invocation with non-object arguments produces err with metServerFail.
+testCase getMalformedErrorResponse:
+  ## Error invocation with non-object arguments produces err(gekMethod) with metServerFail.
   let malformedInv = parseInvocation("error", newJArray(), makeMcid("c0")).get()
-  let resp = Response(
-    methodResponses: @[malformedInv],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
-  )
-  let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = resp.get(handle, fromGetResponse)
+  let resp =
+    initResponse(@[malformedInv], Opt.none(Table[CreationId, Id]), makeState("rs1"))
+  let dr = makeDispatchedResponse(resp)
+  let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
+  let result = dr.get(handle)
   assertErr result
-  doAssert result.error().errorType == metServerFail
+  let ge = result.error()
+  doAssert ge.kind == gekMethod
+  doAssert ge.methodErr.kind == metServerFail
 
-block getValidationError:
-  ## fromArgs returns err(ValidationError) which is converted to MethodError with metServerFail.
+testCase getValidationError:
+  ## fromArgs returns err(ValidationError) which is converted to MethodError with metServerFail,
+  ## then lifted to GetError(gekMethod).
   let resp = makeTypedResponse("MockFoo/get", %*{"invalid": true}, makeMcid("c0"))
-  let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = resp.get(handle, fromGetResponse)
+  let dr = makeDispatchedResponse(resp)
+  let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
+  let result = dr.get(handle)
   assertErr result
-  let me = result.error()
-  doAssert me.errorType == metServerFail
+  let ge = result.error()
+  doAssert ge.kind == gekMethod
+  let me = ge.methodErr
+  doAssert me.kind == metServerFail
   doAssert me.extras.isSome
   let extras = me.extras.get()
   doAssert extras.kind == JObject
   doAssert extras{"typeName"} != nil
   doAssert extras{"value"} != nil
 
+testCase getHandleMismatch:
+  ## A handle issued by builder A applied to a DispatchedResponse from
+  ## builder B returns err(gekHandleMismatch) with the two brands and
+  ## the handle's callId in the diagnostic payload.
+  let resp = makeTypedResponse("MockFoo/get", makeGetResponseJson(), makeMcid("c0"))
+  let drBrand = makeBuilderId(0x1234'u64, 1'u64)
+  let handleBrand = makeBuilderId(0x1234'u64, 2'u64) # same client, different serial
+  let dr = makeDispatchedResponse(resp, drBrand)
+  let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"), handleBrand)
+  let result = dr.get(handle)
+  assertErr result
+  let ge = result.error()
+  doAssert ge.kind == gekHandleMismatch
+  doAssert ge.expected == drBrand
+  doAssert ge.actual == handleBrand
+  doAssert ge.callId == makeMcid("c0")
+
+testCase getHandleMismatchCrossBuilderSameClient:
+  ## A6 — cross-builder within the same JmapClient. Two newBuilder() calls
+  ## mint serial=0 and serial=1 sharing the same clientBrand; a handle
+  ## from the first builder applied to the second's dispatched response
+  ## returns err(gekHandleMismatch) with differing serial halves but
+  ## matching clientBrand. Mirrors the failure mode the A6 brand check
+  ## was designed to catch.
+  const clientBrand = 0x9ABCDEF012345678'u64
+  let bid0 = makeBuilderId(clientBrand, 0'u64) # first newBuilder()
+  let bid1 = makeBuilderId(clientBrand, 1'u64) # second newBuilder()
+  doAssert bid0.clientBrand == bid1.clientBrand
+  doAssert bid0.serial != bid1.serial
+  let resp = makeTypedResponse("MockFoo/get", makeGetResponseJson(), makeMcid("c0"))
+  let dr = makeDispatchedResponse(resp, bid1)
+  let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"), bid0)
+  let result = dr.get(handle)
+  assertErr result
+  let ge = result.error()
+  doAssert ge.kind == gekHandleMismatch
+  doAssert ge.expected.clientBrand == clientBrand
+  doAssert ge.actual.clientBrand == clientBrand
+  doAssert ge.expected.serial == 1'u64
+  doAssert ge.actual.serial == 0'u64
+
+testCase getHandleMismatchCrossClient:
+  ## A6 — cross-client across two JmapClient instances. Each client
+  ## draws its own random clientBrand at init; a handle from client A's
+  ## builder applied to a DispatchedResponse from client B returns
+  ## err(gekHandleMismatch) with differing clientBrand halves. Models
+  ## the multi-account email client scenario the composite brand was
+  ## designed to catch.
+  let bidA = makeBuilderId(0xAAAA_AAAA_AAAA_AAAA'u64, 0'u64) # client A's first builder
+  let bidB = makeBuilderId(0xBBBB_BBBB_BBBB_BBBB'u64, 0'u64) # client B's first builder
+  doAssert bidA.clientBrand != bidB.clientBrand
+  let resp = makeTypedResponse("MockFoo/get", makeGetResponseJson(), makeMcid("c0"))
+  let dr = makeDispatchedResponse(resp, bidB) # response from client B
+  let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"), bidA)
+  let result = dr.get(handle)
+  assertErr result
+  let ge = result.error()
+  doAssert ge.kind == gekHandleMismatch
+  doAssert ge.expected.clientBrand == 0xBBBB_BBBB_BBBB_BBBB'u64
+  doAssert ge.actual.clientBrand == 0xAAAA_AAAA_AAAA_AAAA'u64
+
 # ===========================================================================
 # D. get[T] for Echo (JsonNode) with callback
 # ===========================================================================
 
-block getEchoHappyPath:
-  ## Response with Core/echo invocation, trivial fromArgs callback returns ok(JsonNode).
+testCase getEchoHappyPath:
+  ## Response with Core/echo invocation. ``JsonNode.fromJson`` is the
+  ## pass-through identity shim in ``methods.nim`` so the handle parses
+  ## back the raw arguments unchanged.
   let echoArgs = %*{"tag": "hello"}
   let resp = makeTypedResponse("Core/echo", echoArgs, makeMcid("c0"))
-  let handle = ResponseHandle[JsonNode](makeMcid("c0"))
-  let echoParser = proc(
-      n: JsonNode
-  ): Result[JsonNode, SerdeViolation] {.noSideEffect, raises: [].} =
-    ok(n)
-  let result = resp.get(handle, echoParser)
+  let dr = makeDispatchedResponse(resp)
+  let handle = makeResponseHandle[JsonNode](makeMcid("c0"))
+  let result = dr.get(handle)
   assertOk result
   doAssert result.get(){"tag"}.getStr("") == "hello"
-
-# ===========================================================================
-# E. serdeToMethodError
-# ===========================================================================
-
-block serdeToMethodErrorPreservation:
-  ## Verify errorType is metServerFail, description is the translated
-  ## message, and extras is a JObject containing typeName and value keys.
-  ## An ``svkFieldParserFailed`` wrapping an inner ValidationError preserves
-  ## the inner typeName/value losslessly through the translator.
-  let ve = validationError("AccountId", "length must be 1-255 octets", "")
-  let sv = SerdeViolation(kind: svkFieldParserFailed, path: emptyJsonPath(), inner: ve)
-  let me = serdeToMethodError("Wrapper")(sv)
-  doAssert me.errorType == metServerFail
-  doAssert me.rawType == "serverFail"
-  doAssert me.description.isSome
-  doAssert me.description.get() == "length must be 1-255 octets"
-  doAssert me.extras.isSome
-  let extras = me.extras.get()
-  doAssert extras.kind == JObject
-  doAssert extras{"typeName"}.getStr("") == "AccountId"
-  doAssert extras{"value"}.getStr("?") == ""
-
-# ===========================================================================
-# F. Type-safe reference functions
-# ===========================================================================
-
-block idsRefOnQueryHandle:
-  ## ResponseHandle[QueryResponse[MockQueryable]] produces Referencable with
-  ## path /ids. The mock's queryMethodName resolves to mnEmailQuery.
-  let handle = ResponseHandle[QueryResponse[MockQueryable]](makeMcid("c0"))
-  let r = idsRef(handle)
-  doAssert r.kind == rkReference
-  doAssert r.reference.path == rpIds
-  doAssert r.reference.name == mnEmailQuery
-  doAssert r.reference.resultOf == makeMcid("c0")
-
-block listIdsRefOnGetHandle:
-  ## ResponseHandle[GetResponse[MockFoo]] produces Referencable with
-  ## path /list/*/id. The mock's getMethodName resolves to mnMailboxGet.
-  let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  let r = listIdsRef(handle)
-  doAssert r.kind == rkReference
-  doAssert r.reference.path == rpListIds
-  doAssert r.reference.name == mnMailboxGet
-  doAssert r.reference.resultOf == makeMcid("c0")
-
-block addedIdsRefOnQueryChangesHandle:
-  ## ResponseHandle[QueryChangesResponse[MockQueryable]] produces Referencable
-  ## with path /added/*/id. queryChangesMethodName resolves to mnEmailQueryChanges.
-  let handle = ResponseHandle[QueryChangesResponse[MockQueryable]](makeMcid("c0"))
-  let r = addedIdsRef(handle)
-  doAssert r.kind == rkReference
-  doAssert r.reference.path == rpAddedIds
-  doAssert r.reference.name == mnEmailQueryChanges
-  doAssert r.reference.resultOf == makeMcid("c0")
-
-block idsRefRejectsGetHandle:
-  ## A GetResponse handle cannot call idsRef (type-safe rejection).
-  let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  assertNotCompiles idsRef(handle)
-
-block listIdsRefRejectsQueryHandle:
-  ## A QueryResponse handle cannot call listIdsRef (type-safe rejection).
-  let handle = ResponseHandle[QueryResponse[MockQueryable]](makeMcid("c0"))
-  assertNotCompiles listIdsRef(handle)
-
-block createdRefOnChangesHandle:
-  ## ResponseHandle[ChangesResponse[MockFoo]] produces Referencable with
-  ## path /created. changesMethodName resolves to mnMailboxChanges.
-  let handle = ResponseHandle[ChangesResponse[MockFoo]](makeMcid("c0"))
-  let r = createdRef(handle)
-  doAssert r.kind == rkReference
-  doAssert r.reference.path == rpCreated
-  doAssert r.reference.name == mnMailboxChanges
-  doAssert r.reference.resultOf == makeMcid("c0")
-
-block updatedRefOnChangesHandle:
-  ## ResponseHandle[ChangesResponse[MockFoo]] produces Referencable with
-  ## path /updated. changesMethodName resolves to mnMailboxChanges.
-  let handle = ResponseHandle[ChangesResponse[MockFoo]](makeMcid("c0"))
-  let r = updatedRef(handle)
-  doAssert r.kind == rkReference
-  doAssert r.reference.path == rpUpdated
-  doAssert r.reference.name == mnMailboxChanges
-  doAssert r.reference.resultOf == makeMcid("c0")
-
-block createdRefRejectsGetHandle:
-  ## A GetResponse handle cannot call createdRef (type-safe rejection).
-  let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  assertNotCompiles createdRef(handle)
-
-block createdRefRejectsQueryHandle:
-  ## A QueryResponse handle cannot call createdRef (type-safe rejection).
-  let handle = ResponseHandle[QueryResponse[MockQueryable]](makeMcid("c0"))
-  assertNotCompiles createdRef(handle)
-
-block updatedRefRejectsSetHandle:
-  ## A SetResponse handle cannot call updatedRef (type-safe rejection).
-  let handle = ResponseHandle[SetResponse[MockFoo]](makeMcid("c0"))
-  assertNotCompiles updatedRef(handle)
 
 # ===========================================================================
 # G. Generic reference (escape hatch)
 # ===========================================================================
 
-block referenceConstruction:
-  ## Generic reference produces correct ResultReference with matching fields.
-  let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  let rr = reference(handle, mnEmailQuery, rpIds)
+testCase referenceConstruction:
+  ## Generic reference produces a reference-form Referencable whose
+  ## ResultReference carries the matching fields. ``U`` is explicit because
+  ## it appears only in the return type (A30b).
+  let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
+  let r = reference[seq[Id]](handle, mnEmailQuery, rpIds)
+  doAssert r.kind == rkReference
+  let rr = r.asReference.get()
   doAssert rr.resultOf == makeMcid("c0")
   doAssert rr.name == mnEmailQuery
   doAssert rr.path == rpIds

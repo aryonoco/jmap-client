@@ -49,23 +49,18 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailImportAlreadyExistsLive:
+testCase temailImportAlreadyExistsLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): the seed step uses inline-bodyValues that
     # James 3.9 rejects with ``invalidArguments``; Stalwart 0.15.5 and
     # Cyrus 3.12.2 (text/* parts) accept them. RFC 8621 §4.8 makes
     # dedup permissive — Stalwart and Cyrus take the MAY-permits path.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -84,7 +79,6 @@ block temailImportAlreadyExistsLive:
       attachmentBytes, "seed28src",
     )
     if sourceRes.isErr:
-      client.close()
       continue
     let sourceId = sourceRes.unsafeValue
     let attachmentBlobId = getFirstAttachmentBlobId(client, mailAccountId, sourceId)
@@ -107,10 +101,12 @@ block temailImportAlreadyExistsLive:
     let firstMap = initNonEmptyEmailImportMap(@[(firstCid, firstItem)]).expect(
         "initNonEmptyEmailImportMap first"
       )
-    let (bFirst, firstHandle) =
-      addEmailImport(initRequestBuilder(), mailAccountId, emails = firstMap)
-    let respFirst =
-      client.send(bFirst).expect("send Email/import first[" & $target.kind & "]")
+    let (bFirst, firstHandle) = addEmailImport(
+      initRequestBuilder(makeBuilderId()), mailAccountId, emails = firstMap
+    )
+    let respFirst = client.send(bFirst.freeze()).expect(
+        "send Email/import first[" & $target.kind & "]"
+      )
     let firstResp = respFirst.get(firstHandle).expect(
         "Email/import first extract[" & $target.kind & "]"
       )
@@ -130,7 +126,6 @@ block temailImportAlreadyExistsLive:
     do:
       assertOn target, false, "first Email/import must report an outcome for import28a"
     if not firstOk:
-      client.close()
       continue
 
     # --- 3. Second Email/import with identical dedup tuple ----------------
@@ -145,13 +140,16 @@ block temailImportAlreadyExistsLive:
     let secondMap = initNonEmptyEmailImportMap(@[(secondCid, secondItem)]).expect(
         "initNonEmptyEmailImportMap second"
       )
-    let (bSecond, secondHandle) =
-      addEmailImport(initRequestBuilder(), mailAccountId, emails = secondMap)
-    let respSecond =
-      client.send(bSecond).expect("send Email/import second[" & $target.kind & "]")
-    captureIfRequested(client, "email-import-no-dedup-" & $target.kind).expect(
-      "captureIfRequested"
+    let (bSecond, secondHandle) = addEmailImport(
+      initRequestBuilder(makeBuilderId()), mailAccountId, emails = secondMap
     )
+    let respSecond = client.send(bSecond.freeze()).expect(
+        "send Email/import second[" & $target.kind & "]"
+      )
+    captureIfRequested(
+      recorder.lastResponseBody, "email-import-no-dedup-" & $target.kind
+    )
+      .expect("captureIfRequested")
     let secondResp = respSecond.get(secondHandle).expect(
         "Email/import second extract[" & $target.kind & "]"
       )
@@ -170,19 +168,20 @@ block temailImportAlreadyExistsLive:
       assertOn target, false, "second Email/import must report an outcome for import28b"
     if secondOk:
       assertOn target,
-        string(firstImportedId) != string(secondImportedId),
+        $firstImportedId != $secondImportedId,
         "RFC 8621 §4.8 mandates separate ids for permitted duplicates: " &
-          "firstImportedId=" & string(firstImportedId) & " == secondImportedId=" &
-          string(secondImportedId)
+          "firstImportedId=" & $firstImportedId & " == secondImportedId=" &
+          $secondImportedId
 
     # --- 4. Cleanup: destroy [seed, first, second] ------------------------
     let (bClean, cleanHandle) = addEmailSet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       destroy = directIds(@[sourceId, firstImportedId, secondImportedId]),
     )
-    let respClean =
-      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let respClean = client.send(bClean.freeze()).expect(
+        "send Email/set cleanup[" & $target.kind & "]"
+      )
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
@@ -191,11 +190,8 @@ block temailImportAlreadyExistsLive:
       cleanResp.destroyResults.withValue(cleanupId, outcome):
         assertOn target,
           outcome.isOk,
-          "cleanup destroy of " & string(cleanupId) & " must succeed: " &
-            outcome.error.rawType
+          "cleanup destroy of " & $cleanupId & " must succeed: " & outcome.error.rawType
         destroyed = true
       do:
-        assertOn target,
-          false, "cleanup must report an outcome for " & string(cleanupId)
+        assertOn target, false, "cleanup must report an outcome for " & $cleanupId
       assertOn target, destroyed
-    client.close()

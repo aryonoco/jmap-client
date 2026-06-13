@@ -13,15 +13,16 @@
 
 import jmap_client
 import ./mloader
+import ../../mtestblock
 
-block tcapturedRequestErrorNotRequest:
+testCase tcapturedRequestErrorNotRequest:
   forEachCapturedServer("request-error-not-request", j):
     let re = RequestError.fromJson(j).expect("RequestError.fromJson")
     doAssert re.rawType == "urn:ietf:params:jmap:error:notRequest",
       "Stalwart returns notRequest for top-level non-Request JSON; got " & re.rawType
-    doAssert re.errorType == retNotRequest,
-      "errorType must match parseRequestErrorType(rawType); got " & $re.errorType
-    doAssert re.errorType == parseRequestErrorType(re.rawType),
+    doAssert re.kind == retNotRequest,
+      "errorType must match parseRequestErrorKind(rawType); got " & $re.kind
+    doAssert re.kind == parseRequestErrorKind(re.rawType),
       "errorType / rawType must be derived consistently"
     # ``status`` mandated by RFC 7807 §3.1; the specific 4xx code is
     # server-discretionary. ``detail`` is RFC 7807 §3.1 optional —

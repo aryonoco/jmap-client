@@ -36,12 +36,12 @@
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tmailboxQueryChangesLive:
+testCase tmailboxQueryChangesLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises Mailbox/query and
     # Mailbox/queryChanges. RFC 8620 §5.5 / §5.6 make most properties
@@ -51,12 +51,7 @@ block tmailboxQueryChangesLive:
     # ``FilterOperator``, ``sort``, ``position``/``anchor``/...,
     # ``calculateTotal``, ``sortAsTree``). Each ``assertSuccessOrTypedError``
     # site exercises the typed-error projection contract uniformly.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -65,14 +60,15 @@ block tmailboxQueryChangesLive:
     # The full live suite shares a Stalwart instance. The test asserts on
     # *deltas* — the captured baseline queryState, then the new added
     # entry — not on absolute counts.
-    let (b1, queryHandle) = addMailboxQuery(initRequestBuilder(), mailAccountId)
-    let resp1 =
-      client.send(b1).expect("send Mailbox/query baseline[" & $target.kind & "]")
+    let (b1, queryHandle) =
+      addMailboxQuery(initRequestBuilder(makeBuilderId()), mailAccountId)
+    let resp1 = client.send(b1.freeze()).expect(
+        "send Mailbox/query baseline[" & $target.kind & "]"
+      )
     let queryExtract = resp1.get(queryHandle)
     if queryExtract.isErr:
       # Cat-B error arm — server rejected the no-filter Mailbox/query
       # shape (e.g. James). The typed-error projection has fired.
-      client.close()
       continue
     let queryResp = queryExtract.unsafeValue
     let queryState1 = queryResp.queryState
@@ -84,28 +80,30 @@ block tmailboxQueryChangesLive:
 
     # --- With-total leg: Mailbox/queryChanges with calculateTotal ------
     let (b2, qcHandle) = addMailboxQueryChanges(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       sinceQueryState = queryState1,
       calculateTotal = true,
     )
-    let resp2 = client.send(b2).expect(
+    let resp2 = client.send(b2.freeze()).expect(
         "send Mailbox/queryChanges with-total[" & $target.kind & "]"
       )
-    captureIfRequested(client, "mailbox-query-changes-with-total-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "mailbox-query-changes-with-total-" & $target.kind
+    )
       .expect("captureIfRequested with-total")
     let qcr = resp2.get(qcHandle).expect(
         "Mailbox/queryChanges with-total extract[" & $target.kind & "]"
       )
     assertOn target,
-      string(qcr.oldQueryState) == string(queryState1),
+      $qcr.oldQueryState == $queryState1,
       "oldQueryState must echo the supplied baseline"
     assertOn target,
       qcr.total.isSome,
       "calculateTotal=true must surface a total (got " & $qcr.total & ")"
     let totalVal = qcr.total.get()
     for item in qcr.added:
-      assertOn target, string(item.id).len > 0, "every added.id must be non-empty"
+      assertOn target, ($item.id).len > 0, "every added.id must be non-empty"
       # The ``index < total`` invariant only holds when the server
       # reports an accurate total. Cyrus 3.12.2 returns ``total: 0``
       # for Mailbox/queryChanges with calculateTotal=true even when
@@ -113,7 +111,7 @@ block tmailboxQueryChangesLive:
       # not a client-library bug. The wire-shape parse is the
       # universal client contract; the bound check runs only when
       # the server populated total.
-      if totalVal > UnsignedInt(0):
+      if totalVal > parseUnsignedInt(0).get():
         assertOn target,
           item.index < totalVal,
           "added.index must fall within the new query's bounds (got " & $item.index &
@@ -131,13 +129,15 @@ block tmailboxQueryChangesLive:
     # explicitly ``Opt.none`` — RFC 8620 §5.6: ``total`` is only present
     # when ``calculateTotal: true`` was sent.
     let (b3, qcNoTotalHandle) = addMailboxQueryChanges(
-      initRequestBuilder(), mailAccountId, sinceQueryState = queryState1
+      initRequestBuilder(makeBuilderId()), mailAccountId, sinceQueryState = queryState1
     )
-    let resp3 =
-      client.send(b3).expect("send Mailbox/queryChanges no-total[" & $target.kind & "]")
-    captureIfRequested(client, "mailbox-query-changes-no-total-" & $target.kind).expect(
-      "captureIfRequested no-total"
+    let resp3 = client.send(b3.freeze()).expect(
+        "send Mailbox/queryChanges no-total[" & $target.kind & "]"
+      )
+    captureIfRequested(
+      recorder.lastResponseBody, "mailbox-query-changes-no-total-" & $target.kind
     )
+      .expect("captureIfRequested no-total")
     let qcrNoTotalExtract = resp3.get(qcNoTotalHandle)
     if qcrNoTotalExtract.isOk:
       # RFC 8620 §5.6: some servers (Cyrus 3.12.2) populate ``total``
@@ -145,11 +145,12 @@ block tmailboxQueryChangesLive:
       # acceptable wire shapes.
       discard qcrNoTotalExtract.unsafeValue
     else:
-      let methodErr = qcrNoTotalExtract.unsafeError
+      let getErr = qcrNoTotalExtract.unsafeError
+      doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
+      let methodErr = getErr.methodErr
       assertOn target,
-        methodErr.errorType in {
+        methodErr.kind in {
           metInvalidArguments, metUnsupportedFilter, metCannotCalculateChanges,
           metUnknownMethod,
         },
         "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
-    client.close()

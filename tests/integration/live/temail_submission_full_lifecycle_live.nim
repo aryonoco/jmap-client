@@ -17,12 +17,12 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tEmailSubmissionFullLifecycleLive:
+testCase tEmailSubmissionFullLifecycleLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): full CRUD lifecycle exercises every
     # EmailSubmission/set arm. Stalwart 0.15.5 and Cyrus 3.12.2 implement
@@ -30,12 +30,7 @@ block tEmailSubmissionFullLifecycleLive:
     # submission records (``update``/``destroy``/``get`` surface as
     # typed errors). Each ``assertSuccessOrTypedError`` site exercises
     # the typed-error projection contract uniformly.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -59,7 +54,7 @@ block tEmailSubmissionFullLifecycleLive:
         "Phase G Step 42 — full CRUD lifecycle.", "draft42",
       )
       .expect("seedDraftEmail[" & $target.kind & "]")
-    let holdSeconds = parseHoldForSeconds(UnsignedInt(300)).expect(
+    let holdSeconds = parseHoldForSeconds(parseUnsignedInt(300).get()).expect(
         "parseHoldForSeconds[" & $target.kind & "]"
       )
     let envelope = buildEnvelopeWithHoldFor(
@@ -75,10 +70,13 @@ block tEmailSubmissionFullLifecycleLive:
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
     let (b3, subHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, create = Opt.some(subTbl)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(subTbl),
     )
-    let resp3 =
-      client.send(b3).expect("send EmailSubmission/set HOLDFOR[" & $target.kind & "]")
+    let resp3 = client.send(b3.freeze()).expect(
+        "send EmailSubmission/set HOLDFOR[" & $target.kind & "]"
+      )
     let subSetExtract = resp3.get(subHandle)
     var submissionId: Id
     var createOk = false
@@ -94,13 +92,11 @@ block tEmailSubmissionFullLifecycleLive:
         assertOn target, false, "EmailSubmission/set must report a create outcome"
 
     if not createOk:
-      client.close()
       continue
 
     # --- Poll until usPending --------------------------------------------
     let pendingRes = pollSubmissionPending(client, submissionAccountId, submissionId)
     if pendingRes.isErr:
-      client.close()
       continue
     let pendingSubmission = pendingRes.unsafeValue
 
@@ -110,9 +106,11 @@ block tEmailSubmissionFullLifecycleLive:
         "parseNonEmptyEmailSubmissionUpdates"
       )
     let (b4, updateHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, update = Opt.some(updates)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      update = Opt.some(updates),
     )
-    let resp4 = client.send(b4).expect(
+    let resp4 = client.send(b4.freeze()).expect(
         "send EmailSubmission/set update cancel[" & $target.kind & "]"
       )
     let updateExtract = resp4.get(updateHandle)
@@ -129,16 +127,20 @@ block tEmailSubmissionFullLifecycleLive:
           false, "EmailSubmission/set update must report an outcome for submissionId"
 
     if not updateOk:
-      client.close()
       continue
 
     # --- Destroy — destroy via Destroy arm -------------------------------
     let (b5, destroyHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, destroy = directIds(@[submissionId])
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      destroy = directIds(@[submissionId]),
     )
-    let resp5 =
-      client.send(b5).expect("send EmailSubmission/set destroy[" & $target.kind & "]")
-    captureIfRequested(client, "email-submission-destroy-canceled-" & $target.kind)
+    let resp5 = client.send(b5.freeze()).expect(
+        "send EmailSubmission/set destroy[" & $target.kind & "]"
+      )
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-destroy-canceled-" & $target.kind
+    )
       .expect("captureIfRequested")
     let destroyExtract = resp5.get(destroyHandle)
     var destroyOk = false
@@ -154,14 +156,15 @@ block tEmailSubmissionFullLifecycleLive:
           false, "EmailSubmission/set destroy must report an outcome for submissionId"
 
     if not destroyOk:
-      client.close()
       continue
 
     # --- Re-fetch and confirm absence ------------------------------------
     let (b6, getHandle) = addEmailSubmissionGet(
-      initRequestBuilder(), submissionAccountId, ids = directIds(@[submissionId])
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      ids = directIds(@[submissionId]),
     )
-    let resp6 = client.send(b6).expect(
+    let resp6 = client.send(b6.freeze()).expect(
         "send EmailSubmission/get post-destroy[" & $target.kind & "]"
       )
     let getExtract = resp6.get(getHandle)
@@ -174,4 +177,3 @@ block tEmailSubmissionFullLifecycleLive:
       assertOn target,
         submissionId in getResp.notFound,
         "destroyed submissionId must surface in EmailSubmission/get notFound"
-    client.close()

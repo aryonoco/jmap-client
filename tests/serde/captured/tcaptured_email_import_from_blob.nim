@@ -12,9 +12,11 @@
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailImportFromBlob:
+testCase tcapturedEmailImportFromBlob:
   let j = loadCapturedFixture("email-import-from-blob-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -27,8 +29,7 @@ block tcapturedEmailImportFromBlob:
   importResp.createResults.withValue(cid, outcome):
     doAssert outcome.isOk,
       "import27 must be Ok (got rawType=" & outcome.error.rawType & ")"
-    doAssert string(outcome.unsafeValue.id).len > 0,
-      "imported email id must be non-empty"
+    doAssert ($outcome.unsafeValue.id).len > 0, "imported email id must be non-empty"
     sawOk = true
   do:
     doAssert false, "Email/import must report an outcome for creation id import27"

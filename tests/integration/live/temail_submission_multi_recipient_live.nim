@@ -17,12 +17,12 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tEmailSubmissionMultiRecipientLive:
+testCase tEmailSubmissionMultiRecipientLive:
   forEachLiveTarget(target):
     # Cat-D (Phase L §0): asymmetric verification of the same client-
     # side outcome (the multi-recipient submission delivered) using
@@ -33,12 +33,7 @@ block tEmailSubmissionMultiRecipientLive:
     # (`imap/jmap_mail_submission.c:1200-1201`); James 3.9 has no
     # EmailSubmission/get. Both verify delivery via per-recipient
     # inbox arrival.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -84,9 +79,12 @@ block tEmailSubmissionMultiRecipientLive:
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
     let (b3, subHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, create = Opt.some(subTbl)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(subTbl),
     )
-    let resp3 = client.send(b3).expect("send EmailSubmission/set[" & $target.kind & "]")
+    let resp3 =
+      client.send(b3.freeze()).expect("send EmailSubmission/set[" & $target.kind & "]")
     let subSetResp =
       resp3.get(subHandle).expect("EmailSubmission/set extract[" & $target.kind & "]")
     var submissionId: Id
@@ -109,12 +107,16 @@ block tEmailSubmissionMultiRecipientLive:
           "pollSubmissionDelivery"
         )
       let (b4, getHandle) = addEmailSubmissionGet(
-        initRequestBuilder(), submissionAccountId, ids = directIds(@[submissionId])
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        ids = directIds(@[submissionId]),
       )
-      let resp4 =
-        client.send(b4).expect("send EmailSubmission/get[" & $target.kind & "]")
+      let resp4 = client.send(b4.freeze()).expect(
+          "send EmailSubmission/get[" & $target.kind & "]"
+        )
       captureIfRequested(
-        client, "email-submission-multi-recipient-delivery-" & $target.kind
+        recorder.lastResponseBody,
+        "email-submission-multi-recipient-delivery-" & $target.kind,
       )
         .expect("captureIfRequested[" & $target.kind & "]")
       let getResp =
@@ -123,9 +125,7 @@ block tEmailSubmissionMultiRecipientLive:
         getResp.list.len == 1,
         "EmailSubmission/get must return exactly one entry (got " & $getResp.list.len &
           ")"
-      let any = AnyEmailSubmission.fromJson(getResp.list[0]).expect(
-          "AnyEmailSubmission.fromJson[" & $target.kind & "]"
-        )
+      let any = getResp.list[0]
       let finalOpt = any.asFinal()
       assertOn target,
         finalOpt.isSome,
@@ -134,7 +134,7 @@ block tEmailSubmissionMultiRecipientLive:
       assertOn target,
         sub.deliveryStatus.isSome,
         "Stalwart must populate deliveryStatus once delivery is final"
-      let dsMap = (Table[RFC5321Mailbox, DeliveryStatus])(sub.deliveryStatus.unsafeGet)
+      let dsMap = sub.deliveryStatus.unsafeGet.toTable
       assertOn target,
         dsMap.len == 2,
         "two-recipient envelope (bob, alice-self) must produce two deliveryStatus " &
@@ -153,12 +153,12 @@ block tEmailSubmissionMultiRecipientLive:
         "deliveryStatus must carry an entry keyed by alice@example.com"
       let bobEntry = dsMap[bobMailbox]
       assertOn target,
-        bobEntry.smtpReply.replyCode == ReplyCode(250),
+        bobEntry.smtpReply.replyCode.toUint16 == 250'u16,
         "bob's local-queue SMTP reply must carry code 250 (got " &
           $bobEntry.smtpReply.replyCode & ")"
       let aliceEntry = dsMap[aliceMailbox]
       assertOn target,
-        aliceEntry.smtpReply.replyCode == ReplyCode(250),
+        aliceEntry.smtpReply.replyCode.toUint16 == 250'u16,
         "alice-self's local-queue SMTP reply must carry code 250 (got " &
           $aliceEntry.smtpReply.replyCode & ")"
     of ltkJames, ltkCyrus:
@@ -172,13 +172,13 @@ block tEmailSubmissionMultiRecipientLive:
       let inbox = resolveInboxId(client, mailAccountId).expect(
           "resolveInboxId[" & $target.kind & "]"
         )
-      let budget = (if target.kind == ltkCyrus: 30000 else: 5000) * liveBudgetMul
+      let budget = (if target.kind == ltkCyrus: 60000 else: 5000) * liveBudgetMul
       discard pollEmailDeliveryToInbox(
           client, mailAccountId, inbox, subjectKey, budgetMs = budget
         )
         .expect("pollEmailDeliveryToInbox alice-self[" & $target.kind & "]")
       captureIfRequested(
-        client, "email-submission-multi-recipient-delivery-" & $target.kind
+        recorder.lastResponseBody,
+        "email-submission-multi-recipient-delivery-" & $target.kind,
       )
         .expect("captureIfRequested[" & $target.kind & "]")
-    client.close()

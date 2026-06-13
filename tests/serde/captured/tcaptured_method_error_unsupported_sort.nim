@@ -12,9 +12,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedMethodErrorUnsupportedSort:
+testCase tcapturedMethodErrorUnsupportedSort:
   let j = loadCapturedFixture("method-error-unsupported-sort-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -24,7 +26,7 @@ block tcapturedMethodErrorUnsupportedSort:
   let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
   doAssert me.rawType == "unsupportedSort",
     "Stalwart returns the canonical 'unsupportedSort' rawType, got " & me.rawType
-  doAssert me.errorType == metUnsupportedSort,
-    "errorType must project to metUnsupportedSort, got " & $me.errorType
-  doAssert me.errorType == parseMethodErrorType(me.rawType),
+  doAssert me.kind == metUnsupportedSort,
+    "errorType must project to metUnsupportedSort, got " & $me.kind
+  doAssert me.kind == parseMethodErrorKind(me.rawType),
     "errorType / rawType must be derived consistently"

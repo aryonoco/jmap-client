@@ -33,25 +33,26 @@ import std/tables
 
 import results
 
-import jmap_client/identifiers
-import jmap_client/mail/email_submission
-import jmap_client/mail/serde_email_submission
-import jmap_client/mail/serde_submission_envelope
-import jmap_client/mail/submission_atoms
-import jmap_client/mail/submission_mailbox
-import jmap_client/mail/submission_param
-import jmap_client/mail/submission_status
-import jmap_client/primitives
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/mail/email_submission
+import jmap_client/internal/mail/serde_email_submission
+import jmap_client/internal/mail/serde_submission_envelope
+import jmap_client/internal/types/submission_atoms
+import jmap_client/internal/mail/submission_mailbox
+import jmap_client/internal/mail/submission_param
+import jmap_client/internal/mail/submission_status
+import jmap_client/internal/types/primitives
 
 import ../massertions
 import ../mfixtures
 import ../mproperty
+import ../mtestblock
 
 # =============================================================================
 # A — parseRFC5321Mailbox totality
 # =============================================================================
 
-block propRFC5321MailboxTotality: # A
+testCase propRFC5321MailboxTotality: # A
   ## Property: ``parseRFC5321Mailbox`` is total — every ``string`` input
   ## returns ``Ok`` xor ``Err``, never panicking. ``Result[_, _]`` encodes
   ## the disjunction at the type level; the assertion is operational —
@@ -80,7 +81,7 @@ block propRFC5321MailboxTotality: # A
 # B — parseRFC5321Mailbox strict/lenient superset
 # =============================================================================
 
-block propRFC5321MailboxStrictLenientSuperset: # B
+testCase propRFC5321MailboxStrictLenientSuperset: # B
   ## Property: bounded strict ⊆ lenient (Postel's law, G7). For inputs
   ## within the common length ceiling (``raw.len <= 255``), every
   ## strict-accepted input is also lenient-accepted:
@@ -127,7 +128,7 @@ func wireKeyOf(key: SubmissionParamKey): string =
       spkHoldUntil, spkBy, spkMtPriority:
     $key.kind
 
-block propSubmissionParamsInsertionOrderRoundTrip: # C
+testCase propSubmissionParamsInsertionOrderRoundTrip: # C
   ## Property: ``toJson(SubmissionParams)`` emits wire keys in the
   ## OrderedTable's insertion order — the backing structure's contract
   ## (``OrderedTable`` preserves insertion order) must survive
@@ -137,7 +138,7 @@ block propSubmissionParamsInsertionOrderRoundTrip: # C
     let sp = rng.genSubmissionParams(trial)
     lastInput = $sp
     var expected: seq[string] = @[]
-    for key in (OrderedTable[SubmissionParamKey, SubmissionParam](sp)).keys:
+    for key in sp.toOrderedTable.keys:
       expected.add(wireKeyOf(key))
     let wire = sp.toJson()
     var actual: seq[string] = @[]
@@ -151,7 +152,7 @@ block propSubmissionParamsInsertionOrderRoundTrip: # C
 # D — SubmissionParamKey identity algebra (biconditional)
 # =============================================================================
 
-block propSubmissionParamKeyIdentity: # D
+testCase propSubmissionParamKeyIdentity: # D
   ## Property: ``paramKey(p1) == paramKey(p2)`` iff ``p1.kind == p2.kind``
   ## and — for the ``spkExtension`` arm — ``p1.extName == p2.extName``.
   ## Biconditional: both forward (equal keys imply shared discriminants)
@@ -167,7 +168,7 @@ block propSubmissionParamKeyIdentity: # D
     let kindsMatch = p1.kind == p2.kind
     let extsMatch =
       if p1.kind == spkExtension and p2.kind == spkExtension:
-        p1.extName == p2.extName
+        p1.asExtension.get()[0] == p2.asExtension.get()[0]
       else:
         true
     let keysEq = submissionParamKeyEq(k1, k2)
@@ -182,7 +183,7 @@ block propSubmissionParamKeyIdentity: # D
 # E — AnyEmailSubmission.fromJson state dispatch (pivoted from round-trip)
 # =============================================================================
 
-block propAnyEmailSubmissionStateDispatch: # E
+testCase propAnyEmailSubmissionStateDispatch: # E
   ## Property: ``AnyEmailSubmission.fromJson(wire)`` dispatches to the
   ## phantom branch named by the wire ``undoStatus`` token, and the
   ## three Pattern-A sealed accessors (``asPending``, ``asFinal``,
@@ -236,7 +237,7 @@ block propAnyEmailSubmissionStateDispatch: # E
 # F — cancelUpdate(EmailSubmission[usPending]).kind is esuSetUndoStatusToCanceled
 # =============================================================================
 
-block propCancelUpdateKindInvariant: # F
+testCase propCancelUpdateKindInvariant: # F
   ## Property: ``cancelUpdate`` applied to any ``EmailSubmission[usPending]``
   ## produces an ``EmailSubmissionUpdate`` with
   ## ``kind == esuSetUndoStatusToCanceled``. Value-level companion to the
@@ -256,7 +257,7 @@ block propCancelUpdateKindInvariant: # F
 # G — NonEmptyEmailSubmissionUpdates rejects duplicate Id keys
 # =============================================================================
 
-block propNonEmptyEmailSubmissionUpdatesDuplicateId: # G
+testCase propNonEmptyEmailSubmissionUpdatesDuplicateId: # G
   ## Property: if the input ``openArray`` contains a duplicate ``Id`` key,
   ## ``parseNonEmptyEmailSubmissionUpdates`` returns ``Err`` with at least
   ## one accumulated ``ValidationError``. Pins the G17 decision that the
@@ -270,9 +271,9 @@ block propNonEmptyEmailSubmissionUpdatesDuplicateId: # G
   ##   * trial 3 — interleaved cluster of two duplicated Ids
   ##   * trial >= 4 — random: 2..8 entries with one planted duplicate
   checkProperty "parseNonEmptyEmailSubmissionUpdates rejects duplicate Ids":
-    let idA = Id("sub-a")
-    let idB = Id("sub-b")
-    let idC = Id("sub-c")
+    let idA = parseIdFromServer("sub-a").get()
+    let idB = parseIdFromServer("sub-b").get()
+    let idC = parseIdFromServer("sub-c").get()
     let u = rng.genEmailSubmissionUpdate(-1)
     var pairs: seq[(Id, EmailSubmissionUpdate)] = @[]
     case trial
@@ -286,10 +287,10 @@ block propNonEmptyEmailSubmissionUpdatesDuplicateId: # G
       pairs = @[(idA, u), (idB, u), (idA, u), (idB, u), (idA, u)]
     else:
       let size = rng.rand(2 .. 8)
-      let dupId = Id("dup-" & $rng.rand(0 .. 999))
+      let dupId = parseIdFromServer("dup-" & $rng.rand(0 .. 999)).get()
       pairs = newSeq[(Id, EmailSubmissionUpdate)](size)
       for i in 0 ..< size:
-        pairs[i] = (Id("k-" & $i), u)
+        pairs[i] = (parseIdFromServer("k-" & $i).get(), u)
       let pos = rng.rand(1 ..< size)
       pairs[0] = (dupId, u)
       pairs[pos] = (dupId, u)
@@ -303,7 +304,7 @@ block propNonEmptyEmailSubmissionUpdatesDuplicateId: # G
 # H — ParsedDeliveredState / ParsedDisplayedState rawBacking byte-equality
 # =============================================================================
 
-block propParsedDeliveredStateRawBackingRoundTrip: # H
+testCase propParsedDeliveredStateRawBackingRoundTrip: # H
   ## Property: for every input ``raw``, ``parseDeliveredState(raw).rawBacking``
   ## and ``parseDisplayedState(raw).rawBacking`` are byte-exactly equal to
   ## ``raw``. Pins the G10/G11 decision that the ``dsOther``/``dpOther``
@@ -355,7 +356,7 @@ block propParsedDeliveredStateRawBackingRoundTrip: # H
 # I — parseSmtpReply digit-boundary scan (RFC 5321 §4.2 grammar)
 # =============================================================================
 
-block propParseSmtpReplyDigitBoundary: # I
+testCase propParseSmtpReplyDigitBoundary: # I
   ## Property: ``parseSmtpReply`` accepts iff the Reply-code obeys
   ## RFC 5321 §4.2 digit ranges (``d1 in 2..5``, ``d2 in 0..5``,
   ## ``d3 in 0..9``) AND the separator/multi-line structure is

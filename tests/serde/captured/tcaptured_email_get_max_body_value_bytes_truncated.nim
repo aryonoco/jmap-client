@@ -12,11 +12,13 @@
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
 const TruncationCap = 64
 
-block tcapturedEmailGetMaxBodyValueBytesTruncated:
+testCase tcapturedEmailGetMaxBodyValueBytesTruncated:
   forEachCapturedServer("email-get-max-body-value-bytes-truncated", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 1
@@ -26,7 +28,7 @@ block tcapturedEmailGetMaxBodyValueBytesTruncated:
     let getResp =
       GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
     doAssert getResp.list.len == 1, "captured Email/get must carry one record"
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    let email = getResp.list[0]
     doAssert email.bodyValues.len >= 1,
       "fetchBodyValues=bvsText must populate at least the text leaf"
     var anyTruncated = false
@@ -34,7 +36,7 @@ block tcapturedEmailGetMaxBodyValueBytesTruncated:
       doAssert bv.value.len <= TruncationCap,
         "bodyValue under maxBodyValueBytes=" & $TruncationCap &
           " must satisfy value.len <= cap (got " & $bv.value.len & " for partId=" &
-          string(partId) & ")"
+          $partId & ")"
       if bv.isTruncated:
         anyTruncated = true
     doAssert anyTruncated,

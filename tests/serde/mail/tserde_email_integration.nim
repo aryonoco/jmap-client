@@ -11,29 +11,31 @@
 import std/json
 import std/tables
 
-import jmap_client/mail/email
-import jmap_client/mail/headers
-import jmap_client/mail/keyword
-import jmap_client/mail/addresses
-import jmap_client/mail/mail_filters
-import jmap_client/mail/mail_entities
-import jmap_client/mail/mail_builders
-import jmap_client/mail/mail_methods
-import jmap_client/mail/serde_email
-import jmap_client/mail/serde_mail_filters
-import jmap_client/builder
-import jmap_client/framework
-import jmap_client/primitives
-import jmap_client/validation
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/headers
+import jmap_client/internal/mail/keyword
+import jmap_client/internal/mail/addresses
+import jmap_client/internal/mail/mail_filters
+import jmap_client/internal/mail/mail_entities
+import jmap_client/internal/mail/mail_builders
+import jmap_client/internal/mail/mail_methods
+import jmap_client/internal/mail/serde_email
+import jmap_client/internal/mail/serde_mail_filters
+import jmap_client/internal/protocol/builder
+import jmap_client/internal/types/framework
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/envelope
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # =============================================================================
 # A. Shared Helper Parity (scenario 132)
 # =============================================================================
 
-block sharedHelperParity: # scenario 132
+testCase sharedHelperParity: # scenario 132
   ## Identical JSON fed to emailFromJson and parsedEmailFromJson — shared
   ## field groups (convenience headers, body, dynamic headers) must produce
   ## identical results.
@@ -94,7 +96,7 @@ block sharedHelperParity: # scenario 132
 # B. Email Round-Trip with Dynamic Headers (scenario 133)
 # =============================================================================
 
-block emailRoundTripWithDynamicHeaders: # scenario 133
+testCase emailRoundTripWithDynamicHeaders: # scenario 133
   ## emailFromJson(email.toJson()) == email for a fully-populated Email
   ## including entries in both requestedHeaders and requestedHeadersAll.
   var e = makeEmail()
@@ -140,7 +142,7 @@ block emailRoundTripWithDynamicHeaders: # scenario 133
 # C. Dynamic Header Phase 2 Round-Trip (scenario 134)
 # =============================================================================
 
-block dynamicHeaderPhase2RoundTrip: # scenario 134
+testCase dynamicHeaderPhase2RoundTrip: # scenario 134
   ## JSON with both :all and non-:all header:* keys -> emailFromJson ->
   ## Email.toJson -> keys preserved with correct (lowercase) names and values.
   var j = makeEmailJson()
@@ -172,7 +174,7 @@ block dynamicHeaderPhase2RoundTrip: # scenario 134
 # D. Builder Body Fetch Options Parity (scenario 135)
 # =============================================================================
 
-block builderBodyFetchOptionsParity: # scenario 135
+testCase builderBodyFetchOptionsParity: # scenario 135
   ## addEmailGet and addEmailParse with identical non-default
   ## EmailBodyFetchOptions produce identical body-related keys in request args.
   let opts = EmailBodyFetchOptions(
@@ -181,17 +183,17 @@ block builderBodyFetchOptionsParity: # scenario 135
   )
 
   # Build Email/get request
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailGet(makeAccountId("a1"), bodyFetchOptions = opts)
-  let getReq = b1.build()
+  let getReq = b1.freeze().request
   let getArgs = getReq.methodCalls[0].arguments
 
   # Build Email/parse request
-  let b2 = initRequestBuilder()
+  let b2 = initRequestBuilder(makeBuilderId())
   let (b3, _) = b2.addEmailParse(
     makeAccountId("a1"), @[makeBlobId("blob1")], bodyFetchOptions = opts
   )
-  let parseReq = b3.build()
+  let parseReq = b3.freeze().request
   let parseArgs = parseReq.methodCalls[0].arguments
 
   # bvsTextAndHtml -> both fetchTextBodyValues and fetchHTMLBodyValues true
@@ -216,7 +218,7 @@ block builderBodyFetchOptionsParity: # scenario 135
 # E. Builder–Filter Chain (scenario 136)
 # =============================================================================
 
-block builderFilterChain: # scenario 136
+testCase builderFilterChain: # scenario 136
   ## addEmailQuery with non-trivial EmailFilterCondition -> serialised filter
   ## in request args matches EmailFilterCondition.toJson output.
   var fc = makeEmailFilterCondition()
@@ -227,9 +229,9 @@ block builderFilterChain: # scenario 136
   let leafFilter = filterCondition(fc)
 
   # Build request via addEmailQuery
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), filter = Opt.some(leafFilter))
-  let req = b1.build()
+  let req = b1.freeze().request
   let argsFilter = req.methodCalls[0].arguments{"filter"}
   doAssert argsFilter != nil, "filter must be present in request args"
   doAssert argsFilter.kind == JObject, "filter must be JObject"

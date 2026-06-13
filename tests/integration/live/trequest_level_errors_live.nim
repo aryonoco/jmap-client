@@ -2,16 +2,18 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## LIBRARY CONTRACT: ``RequestError.fromJson`` projects every wire
-## URI Stalwart returns into the closed ``RequestErrorType`` enum
+## URI Stalwart returns into the closed ``RequestErrorKind`` enum
 ## AND preserves the URI losslessly in ``rawType``.
-## ``parseRequestErrorType`` is total: unknown URIs project to
+## ``parseRequestErrorKind`` is total: unknown URIs project to
 ## ``retUnknown`` with the URI captured in ``rawType``.
-## ``classifyHttpResponse`` routes request-level JMAP errors into the
-## ``cekRequest`` arm of ``ClientError``, distinct from transport-layer
-## errors.
+## The internal classify pipeline routes request-level JMAP errors
+## into the ``cekRequest`` arm of ``ClientError``, distinct from
+## transport-layer errors.
 ##
-## Phase J Step 61.  Four sequential ``sendRawHttpForTesting`` calls
-## drive Stalwart through four request-level rejection scenarios.
+## Phase J Step 61.  Four sequential adversarial POSTs drive Stalwart
+## through four request-level rejection scenarios via the test-side
+## ``postRawJmap`` helper, which composes only the public Transport
+## API and the H10-permitted internal classify helper.
 ##
 ## **Library-contract vs server-compliance separation.**  This live
 ## test asserts the library's projection contract — closed-enum
@@ -20,52 +22,38 @@
 ## Stalwart's empirical URI choices are pinned byte-for-byte by the
 ## four captured fixtures; the parser-only replay tests under
 ## ``tests/serde/captured/`` assert the captured bytes round-trip
-## back to the same parsed shape.  This separation matters: a
-## Stalwart-side change cannot silently break a library-contract
-## test, and a library regression cannot be masked by a server-side
-## compensation.
+## back to the same parsed shape.
 ##
 ## **Empirical pin (Stalwart 0.15.5).**  For non-JSON input,
 ## Stalwart returns ``urn:ietf:params:jmap:error:notRequest`` rather
 ## than the RFC 8620 §3.6.1-mandated ``notJSON``.  This is a
 ## Stalwart-side deviation from RFC; the library projects whichever
-## URI Stalwart sends.  Sub-test 1 below therefore asserts the
-## library's projection contract, not Stalwart's RFC compliance.
-## See the captured fixture ``request-error-not-json-stalwart.json``
-## for the durable record.
+## URI Stalwart sends.
 
-import std/json
 import std/strutils
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block trequestLevelErrorsLive:
+testCase trequestLevelErrorsLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    let client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
-    discard client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
 
     # Sub-test 1: non-JSON input.  Strict library-contract assertions:
     # the response must arrive on the cekRequest arm; rawType must be
     # losslessly preserved and shaped as a JMAP error URI; errorType
-    # must project into the closed RequestErrorType enum.
-    #
-    # Stalwart 0.15.5 returns ``notRequest`` rather than the RFC 8620
-    # §3.6.1-mandated ``notJSON`` here — that's a Stalwart deviation
-    # from RFC.  The captured fixture pins Stalwart's empirical
-    # choice; the replay test asserts it byte-for-byte.
+    # must project into the closed RequestErrorKind enum.
     block notJsonCase:
-      let res = client.sendRawHttpForTesting("this is not JSON")
-      captureIfRequested(client, "request-error-not-json-" & $target.kind).expect(
+      let (respBody, res) =
+        postRawJmap(target, session, "this is not JSON", target.aliceCredential)
+      captureIfRequested(respBody, "request-error-not-json-" & $target.kind).expect(
         "captureIfRequested notJSON"
       )
       assertOn target, res.isErr, "expected RequestError on non-JSON body"
@@ -79,24 +67,17 @@ block trequestLevelErrorsLive:
         ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
         "rawType must be a JMAP error URI, got " & ce.request.rawType
       assertOn target,
-        ce.request.errorType in
+        ce.request.kind in
           {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
-        "errorType must project into the closed RequestErrorType enum, got " &
-          $ce.request.errorType
+        "errorType must project into the closed RequestErrorKind enum, got " &
+          $ce.request.kind
 
     # Sub-test 2: well-formed JSON that does not match the Request
-    # type signature.  Top-level array `[1,2,3]` is a hard structural
-    # mismatch — RFC 8620 §3.3 mandates a top-level Request object
-    # with ``using`` and ``methodCalls`` fields.  A bare object like
-    # ``{"foo":"bar"}`` is insufficient: Stalwart 0.15.5 accepts
-    # missing ``using``/``methodCalls`` as defaults and returns an
-    # empty 200 success.  Top-level array forces structural rejection.
-    #
-    # Strict library-contract assertions: cekRequest arm; rawType
-    # losslessly preserved + URI-shaped; errorType in closed enum.
+    # type signature.
     block notRequestCase:
-      let res = client.sendRawHttpForTesting("[1,2,3]")
-      captureIfRequested(client, "request-error-not-request-" & $target.kind).expect(
+      let (respBody, res) =
+        postRawJmap(target, session, "[1,2,3]", target.aliceCredential)
+      captureIfRequested(respBody, "request-error-not-request-" & $target.kind).expect(
         "captureIfRequested notRequest"
       )
       assertOn target, res.isErr, "expected RequestError on top-level-array body"
@@ -110,23 +91,17 @@ block trequestLevelErrorsLive:
         ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
         "rawType must be a JMAP error URI, got " & ce.request.rawType
       assertOn target,
-        ce.request.errorType in
+        ce.request.kind in
           {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
-        "errorType must project into the closed RequestErrorType enum, got " &
-          $ce.request.errorType
+        "errorType must project into the closed RequestErrorKind enum, got " &
+          $ce.request.kind
 
     # Sub-test 3: request envelope claiming a capability URI the
-    # server does not advertise.  RFC 8620 §3.6.1 mandates
-    # ``unknownCapability`` here.  Stalwart 0.15.5 collapses this
-    # case to ``notRequest`` along with the other malformed-Request
-    # scenarios — another Stalwart deviation from RFC.
-    #
-    # Strict library-contract assertions only — captured fixture
-    # pins Stalwart's empirical URI choice byte-for-byte.
+    # server does not advertise.
     block unknownCapabilityCase:
       const body = """{"using":["urn:test:phase-j:bogus"],"methodCalls":[]}"""
-      let res = client.sendRawHttpForTesting(body)
-      captureIfRequested(client, "request-error-unknown-capability-" & $target.kind)
+      let (respBody, res) = postRawJmap(target, session, body, target.aliceCredential)
+      captureIfRequested(respBody, "request-error-unknown-capability-" & $target.kind)
         .expect("captureIfRequested unknownCapability")
       assertOn target, res.isErr, "expected RequestError on unknown capability URI"
       let ce = res.error
@@ -139,34 +114,23 @@ block trequestLevelErrorsLive:
         ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
         "rawType must be a JMAP error URI, got " & ce.request.rawType
       assertOn target,
-        ce.request.errorType in
+        ce.request.kind in
           {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
-        "errorType must project into the closed RequestErrorType enum, got " &
-          $ce.request.errorType
+        "errorType must project into the closed RequestErrorKind enum, got " &
+          $ce.request.kind
 
-    # Sub-test 4: oversized request body.  A Core/echo invocation
-    # with a 12 MiB ASCII payload, well past Stalwart's 10 MiB
-    # maxSizeRequest default.  Strict library-contract assertions
-    # only — Stalwart's specific URI choice among the five enum
-    # variants is captured but not asserted live; the replay test
-    # pins it byte-for-byte.
+    # Sub-test 4: oversized request body — exceeds server's advertised
+    # ``maxSizeRequest``.
     block limitCase:
-      # Derive the over-limit body from the server's advertised
-      # ``maxSizeRequest`` so every server is exercised at its own
-      # boundary. Stalwart and James advertise 10 MB; Cyrus 3.12.2
-      # advertises 50 MB. Hardcoding e.g. 12 MB would slip past
-      # Cyrus's limit and miss the rejection path.
-      let sessionOpt = client.session()
-      assertOn target, sessionOpt.isSome, "session must be cached after fetchSession"
-      let maxSize = int(sessionOpt.unsafeGet.coreCapabilities().maxSizeRequest)
+      let maxSize = session.coreCapabilities().maxSizeRequest.toInt64.int
       let oversize = maxSize + 1024
       let blob = "x".repeat(oversize)
       const prefix =
         """{"using":["urn:ietf:params:jmap:core"],"methodCalls":[["Core/echo",{"blob":""""
       const suffix = """"},"c0"]]}"""
       let body = prefix & blob & suffix
-      let res = client.sendRawHttpForTesting(body)
-      captureIfRequested(client, "request-error-limit-" & $target.kind).expect(
+      let (respBody, res) = postRawJmap(target, session, body, target.aliceCredential)
+      captureIfRequested(respBody, "request-error-limit-" & $target.kind).expect(
         "captureIfRequested limit"
       )
       assertOn target, res.isErr, "expected RequestError on over-limit body"
@@ -180,9 +144,7 @@ block trequestLevelErrorsLive:
         ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
         "rawType must be a JMAP error URI, got " & ce.request.rawType
       assertOn target,
-        ce.request.errorType in
+        ce.request.kind in
           {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
-        "errorType must project into the closed RequestErrorType enum, got " &
-          $ce.request.errorType
-
-    client.close()
+        "errorType must project into the closed RequestErrorKind enum, got " &
+          $ce.request.kind

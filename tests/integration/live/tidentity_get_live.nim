@@ -24,18 +24,15 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tidentityGetLive:
+testCase tidentityGetLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    var client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let submissionAccountId = resolveSubmissionAccountId(session).expect(
         "resolveSubmissionAccountId[" & $target.kind & "]"
@@ -49,10 +46,12 @@ block tidentityGetLive:
     var createTbl = initTable[CreationId, IdentityCreate]()
     createTbl[cid] = create
     let (b1, setHandle) = addIdentitySet(
-      initRequestBuilder(), submissionAccountId, create = Opt.some(createTbl)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(createTbl),
     )
     let (b2, getHandle) = addIdentityGet(b1, submissionAccountId)
-    let resp = client.send(b2).expect("send[" & $target.kind & "]")
+    let resp = client.send(b2.freeze()).expect("send[" & $target.kind & "]")
 
     let setExtract = resp.get(setHandle)
     # Cat-B (Phase L §0): Cyrus 3.12.2 has no ``Identity/set`` and
@@ -67,9 +66,11 @@ block tidentityGetLive:
       let createResult = setResp.createResults[cid]
       assertOn target, createResult.isOk, "Identity/set must succeed for seeded address"
     else:
-      let methodErr = setExtract.unsafeError
+      let getErr = setExtract.unsafeError
+      doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
+      let methodErr = getErr.methodErr
       assertOn target,
-        methodErr.errorType == metUnknownMethod,
+        methodErr.kind == metUnknownMethod,
         "Identity/set must surface as metUnknownMethod when unimplemented (got " &
           methodErr.rawType & ")"
 
@@ -80,8 +81,7 @@ block tidentityGetLive:
     # parses both shapes (see ``serde_identity.nim``); the wire-shape
     # parse is the universal client-library contract.
     var sawAliceEmail = false
-    for node in gr.list:
-      let ident = Identity.fromJson(node).expect("parse Identity[" & $target.kind & "]")
+    for ident in gr.list:
       assertOn target,
         ident.id.len > 0, "every identity must carry a server-assigned id"
       if ident.email == "alice@example.com":
@@ -89,4 +89,3 @@ block tidentityGetLive:
     if setExtract.isOk:
       assertOn target,
         sawAliceEmail, "alice's seeded address must appear among her identities"
-    client.close()

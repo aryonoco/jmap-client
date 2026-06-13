@@ -32,18 +32,15 @@ import std/sets
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailQueryFilterSimpleLive:
+testCase temailQueryFilterSimpleLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    var client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -66,9 +63,10 @@ block temailQueryFilterSimpleLive:
 
     # --- Email/query with single-condition filter ------------------------
     let filter = filterCondition(EmailFilterCondition(subject: Opt.some("aardvark")))
-    let (b, queryHandle) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-    let resp = client.send(b).expect("send Email/query[" & $target.kind & "]")
+    let (b, queryHandle) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
+    )
+    let resp = client.send(b.freeze()).expect("send Email/query[" & $target.kind & "]")
     let queryResp =
       resp.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
     let hits = queryResp.ids.toHashSet
@@ -81,4 +79,3 @@ block temailQueryFilterSimpleLive:
     assertOn target,
       charlieId notin hits,
       "Email/query subject==\"aardvark\" must NOT include the seeded charlie id"
-    client.close()

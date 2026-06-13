@@ -30,24 +30,19 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailImportFromBlobLive:
+testCase temailImportFromBlobLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): the seed step uses inline-bodyValues for the
     # attachment that James 3.9 rejects with ``invalidArguments``;
     # Stalwart 0.15.5 and Cyrus 3.12.2 (text/* parts) accept them.
     # The library's ``/upload`` surface is deliberately deferred; the
     # seed-rejection arm exercises the typed-error projection.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -66,7 +61,6 @@ block temailImportFromBlobLive:
       attachmentBytes, "seed27src",
     )
     if sourceRes.isErr:
-      client.close()
       continue
     let sourceId = sourceRes.unsafeValue
     let attachmentBlobId = getFirstAttachmentBlobId(client, mailAccountId, sourceId)
@@ -84,13 +78,15 @@ block temailImportFromBlobLive:
     let importMap = initNonEmptyEmailImportMap(@[(importCid, importItem)]).expect(
         "initNonEmptyEmailImportMap"
       )
-    let (bImport, importHandle) =
-      addEmailImport(initRequestBuilder(), mailAccountId, emails = importMap)
-    let respImport =
-      client.send(bImport).expect("send Email/import[" & $target.kind & "]")
-    captureIfRequested(client, "email-import-from-blob-" & $target.kind).expect(
-      "captureIfRequested"
+    let (bImport, importHandle) = addEmailImport(
+      initRequestBuilder(makeBuilderId()), mailAccountId, emails = importMap
     )
+    let respImport =
+      client.send(bImport.freeze()).expect("send Email/import[" & $target.kind & "]")
+    captureIfRequested(
+      recorder.lastResponseBody, "email-import-from-blob-" & $target.kind
+    )
+      .expect("captureIfRequested")
     let importResp =
       respImport.get(importHandle).expect("Email/import extract[" & $target.kind & "]")
     var importedId: Id
@@ -108,18 +104,17 @@ block temailImportFromBlobLive:
     do:
       assertOn target, false, "Email/import must report an outcome for import27"
     if not importOk:
-      client.close()
       continue
 
     # --- 5. Verify imported email exists -----------------------------------
-    let (bGet, getHandle) = addEmailGet(
-      initRequestBuilder(),
+    let (bGet, getHandle) = addPartialEmailGet(
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[importedId]),
-      properties = Opt.some(@["id", "blobId"]),
+      properties = parseNonEmptySeq(@[egpId, egpBlobId]).get(),
     )
     let respGet =
-      client.send(bGet).expect("send Email/get imported[" & $target.kind & "]")
+      client.send(bGet.freeze()).expect("send Email/get imported[" & $target.kind & "]")
     let getResp =
       respGet.get(getHandle).expect("Email/get imported extract[" & $target.kind & "]")
     assertOn target,
@@ -127,10 +122,13 @@ block temailImportFromBlobLive:
 
     # --- 6. Cleanup: destroy [seed, imported] ------------------------------
     let (bClean, cleanHandle) = addEmailSet(
-      initRequestBuilder(), mailAccountId, destroy = directIds(@[sourceId, importedId])
+      initRequestBuilder(makeBuilderId()),
+      mailAccountId,
+      destroy = directIds(@[sourceId, importedId]),
     )
-    let respClean =
-      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let respClean = client.send(bClean.freeze()).expect(
+        "send Email/set cleanup[" & $target.kind & "]"
+      )
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
@@ -147,4 +145,3 @@ block temailImportFromBlobLive:
     do:
       assertOn target, false, "cleanup must report an outcome for importedId"
     assertOn target, seedDestroyed and importedDestroyed
-    client.close()

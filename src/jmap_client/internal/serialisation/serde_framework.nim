@@ -1,0 +1,212 @@
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2026 Aryan Ameri
+
+## Serialisation for JMAP framework types: FilterOperator, Comparator,
+## Filter[C], and AddedItem (RFC 8620 sections 5.5, 5.6).
+
+{.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
+
+import std/json
+
+import ./serde
+import ./serde_diagnostics
+import ./serde_helpers
+import ./serde_primitives
+import ../types
+
+# =============================================================================
+# FilterOperator
+# =============================================================================
+
+func toJson*(op: FilterOperator): JsonNode =
+  ## Serialise FilterOperator to its RFC string.
+  return %($op)
+
+func fromJson*(
+    T: typedesc[FilterOperator], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[FilterOperator, SerdeViolation] =
+  ## Deserialise a JSON string to FilterOperator. Not total — unknown
+  ## operators return ``svkEnumNotRecognised`` because the RFC defines
+  ## exactly three.
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JString, path)
+  let raw = node.getStr("")
+  case raw
+  of "AND":
+    return ok(foAnd)
+  of "OR":
+    return ok(foOr)
+  of "NOT":
+    return ok(foNot)
+  else:
+    return err(
+      SerdeViolation(
+        kind: svkEnumNotRecognised,
+        path: path,
+        enumTypeLabel: "FilterOperator",
+        rawValue: raw,
+      )
+    )
+
+# =============================================================================
+# Comparator
+# =============================================================================
+
+func toJson*(c: Comparator): JsonNode =
+  ## Serialise Comparator to JSON (RFC 8620 section 5.5). ``isAscending`` is
+  ## emitted per the comparator's ``direction`` (omitted for ``sdServerDefault``).
+  var node = %*{"property": $c.property}
+  emitSortDirection(node, c.direction)
+  for col in c.collation:
+    node["collation"] = %($col)
+  return node
+
+func fromJson*(
+    T: typedesc[Comparator], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[Comparator, SerdeViolation] =
+  ## Deserialise JSON to Comparator (RFC 8620 section 5.5).
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let propNode = ?fieldJString(node, "property", path)
+  let property = ?wrapInner(parsePropertyName(propNode.getStr("")), path / "property")
+  let ascNode = node{"isAscending"}
+  if not ascNode.isNil and ascNode.kind != JBool:
+    return err(
+      SerdeViolation(
+        kind: svkWrongKind,
+        path: path / "isAscending",
+        expectedKind: JBool,
+        actualKind: ascNode.kind,
+      )
+    )
+  # Strict on wrong-kind (above); the absent/true/false mapping is the shared
+  # ``sortDirectionFromWire`` translation — absent → ``sdServerDefault``.
+  let ascending =
+    if ascNode.isNil:
+      Opt.none(bool)
+    else:
+      Opt.some(ascNode.getBool(false))
+  let direction = sortDirectionFromWire(ascending)
+  let collNode = node{"collation"}
+  var collation = Opt.none(CollationAlgorithm)
+  if not collNode.isNil and collNode.kind == JString:
+    let raw = collNode.getStr("")
+    if raw.len > 0:
+      # Empty string is the RFC-default sentinel; treat as ``Opt.none``.
+      let alg = ?wrapInner(parseCollationAlgorithm(raw), path / "collation")
+      collation = Opt.some(alg)
+  return ok(parseComparator(property, direction, collation))
+
+# =============================================================================
+# Filter[C]
+# =============================================================================
+
+func toJson*[C](f: Filter[C]): JsonNode =
+  ## Serialise Filter[C] to JSON. Leaf condition ``C.toJson`` resolves via
+  ## ``mixin`` at the caller's instantiation scope — every entity that uses
+  ## ``Filter[C]`` must have ``C.toJson`` in import scope at the builder
+  ## call site. The recursive ``child.toJson()`` call dispatches back to
+  ## this overload for nested operator nodes (same-module lookup, no mixin
+  ## needed).
+  mixin toJson
+  case f.kind
+  of fkCondition:
+    return f.condition.toJson()
+  of fkOperator:
+    var conditions = newJArray()
+    for child in operands(f):
+      conditions.add(child.toJson())
+    return %*{"operator": $f.operator, "conditions": conditions}
+
+const MaxFilterDepth = 128
+  ## Maximum nesting depth for Filter[C].fromJson deserialisation.
+  ## Defence-in-depth guard against stack overflow (StackOverflowDefect is
+  ## uncatchable). 128 is generous for any realistic JMAP query while
+  ## preventing pathological nesting.
+  ## Note: std/json's parseJson has its own DepthLimit of 1000, but this
+  ## library's fromJson accepts pre-parsed JsonNode, so that limit does not
+  ## apply at this layer.
+
+func fromJsonImpl[C](
+    node: JsonNode,
+    fromCondition: proc(n: JsonNode, p: JsonPath): Result[C, SerdeViolation] {.
+      noSideEffect, raises: []
+    .},
+    depth: int,
+    path: JsonPath,
+): Result[Filter[C], SerdeViolation] =
+  ## Internal recursive helper with depth tracking.
+  ?expectKind(node, JObject, path)
+  if depth <= 0:
+    return
+      err(SerdeViolation(kind: svkDepthExceeded, path: path, maxDepth: MaxFilterDepth))
+  let opNode = node{"operator"}
+  if opNode.isNil:
+    let cond = ?fromCondition(node, path)
+    return ok(filterCondition(cond))
+  let op = ?FilterOperator.fromJson(opNode, path / "operator")
+  let conditionsNode = ?fieldJArray(node, "conditions", path)
+  var children: seq[Filter[C]] = @[]
+  for i, childNode in conditionsNode.getElems(@[]):
+    let child =
+      ?fromJsonImpl[C](childNode, fromCondition, depth - 1, path / "conditions" / i)
+    children.add(child)
+  # Arity tightening (B3): RFC 8620 §5.5 requires NOT to have exactly one
+  # operand and AND/OR one or more. A malformed server/client filter Errs here
+  # rather than silently constructing an illegal tree (Postel: reject the
+  # structurally invalid).
+  case op
+  of foNot:
+    ?expectLen(conditionsNode, 1, path / "conditions")
+    # expectLen proved exactly one element ⇒ children.len == 1.
+    return ok(filterNot(children[0]))
+  of foAnd, foOr:
+    if children.len == 0:
+      return err(
+        SerdeViolation(
+          kind: svkEmptyRequired,
+          path: path / "conditions",
+          emptyFieldLabel: "filter conditions",
+        )
+      )
+    # children non-empty (checked above) ⇒ the smart constructor cannot Err.
+    return
+      if op == foAnd:
+        ok(filterAnd(children).get())
+      else:
+        ok(filterOr(children).get())
+
+func fromJson*[C](
+    T: typedesc[Filter[C]],
+    node: JsonNode,
+    fromCondition: proc(n: JsonNode, p: JsonPath): Result[C, SerdeViolation] {.
+      noSideEffect, raises: []
+    .},
+    path: JsonPath = emptyJsonPath(),
+): Result[Filter[C], SerdeViolation] =
+  ## Deserialise JSON to Filter[C]. Caller provides condition deserialiser.
+  ## Dispatches on presence of "operator" key. Nesting depth is capped at
+  ## MaxFilterDepth to prevent stack overflow on pathological input.
+  discard $T # consumed for nimalyzer params rule
+  return fromJsonImpl[C](node, fromCondition, MaxFilterDepth, path)
+
+# =============================================================================
+# AddedItem
+# =============================================================================
+
+func toJson*(item: AddedItem): JsonNode =
+  ## Serialise AddedItem to JSON (RFC 8620 section 5.6).
+  return %*{"id": $item.id, "index": item.index.toInt64}
+
+func fromJson*(
+    T: typedesc[AddedItem], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[AddedItem, SerdeViolation] =
+  ## Deserialise JSON to AddedItem.
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let idNode = ?fieldJString(node, "id", path)
+  let id = ?Id.fromJson(idNode, path / "id")
+  let indexNode = ?fieldJInt(node, "index", path)
+  let index = ?UnsignedInt.fromJson(indexNode, path / "index")
+  return ok(initAddedItem(id, index))

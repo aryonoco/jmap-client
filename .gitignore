@@ -308,6 +308,10 @@ tests/*/t[a-z]*
 tests/*/*/t[a-z]*
 !tests/*/*/t*.nim
 !tests/testdata/captured/*.json
+# Snapshot contract files under tests/wire_contract/ are committed artefacts,
+# not compiled binaries — the t[a-z]* rule above otherwise swallows
+# `type-shapes.txt`.
+!tests/wire_contract/*.txt
 
 # Coverage (if added later)
 coverage/

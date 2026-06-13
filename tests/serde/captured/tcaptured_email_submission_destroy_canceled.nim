@@ -14,9 +14,11 @@
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailSubmissionDestroyCanceled:
+testCase tcapturedEmailSubmissionDestroyCanceled:
   let j = loadCapturedFixture("email-submission-destroy-canceled-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -33,5 +35,5 @@ block tcapturedEmailSubmissionDestroyCanceled:
     doAssert outcome.isOk,
       "destroy of canceled submission must be Ok (got rawType=" & outcome.error.rawType &
         ")"
-    doAssert string(id).len > 0, "destroyed submission id must be non-empty"
+    doAssert ($id).len > 0, "destroyed submission id must be non-empty"
   doAssert setResp.newState.isSome, "newState must be present in this fixture"

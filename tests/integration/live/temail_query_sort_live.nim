@@ -18,7 +18,7 @@
 ##  3. Ascending sort: filter on ``"stepfifteen"`` + sort by
 ##     ``pspSubject`` ascending. Filter the result to the seeded
 ##     corpus and assert relative order ``alpha → mike → zulu``.
-##  4. Descending sort: same filter + ``isAscending = Opt.some(false)``.
+##  4. Descending sort: same filter + ``direction = sdDescending``.
 ##     Assert relative order ``zulu → mike → alpha``.
 ##  5. Explicit-collation sub-test (conditional on
 ##     ``colls.len > 0``): pick the lexicographically-first advertised
@@ -35,18 +35,15 @@ import std/sets
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailQuerySortLive:
+testCase temailQuerySortLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    var client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -76,9 +73,9 @@ block temailQuerySortLive:
     let filter = filterCondition(EmailFilterCondition(subject: Opt.some("stepfifteen")))
 
     # --- Ascending sort by pspSubject -----------------------------------
-    let ascSort = @[plainComparator(pspSubject, isAscending = Opt.some(true))]
+    let ascSort = @[plainComparator(pspSubject, direction = sdAscending)]
     let (ba, ascHandle) = addEmailQuery(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       filter = Opt.some(filter),
       sort = Opt.some(ascSort),
@@ -90,7 +87,8 @@ block temailQuerySortLive:
     discard pollEmailQueryIndexed(target, mailAccountId, filter, corpus).expect(
         "pollEmailQueryIndexed asc[" & $target.kind & "]"
       )
-    let respA = client.send(ba).expect("send Email/query asc[" & $target.kind & "]")
+    let respA =
+      client.send(ba.freeze()).expect("send Email/query asc[" & $target.kind & "]")
     let ascResp =
       respA.get(ascHandle).expect("Email/query asc extract[" & $target.kind & "]")
     var ascSeeded: seq[Id] = @[]
@@ -107,14 +105,15 @@ block temailQuerySortLive:
         "; expected " & $(@[alphaId, mikeId, zuluId]) & ")"
 
     # --- Descending sort by pspSubject ----------------------------------
-    let descSort = @[plainComparator(pspSubject, isAscending = Opt.some(false))]
+    let descSort = @[plainComparator(pspSubject, direction = sdDescending)]
     let (bd, descHandle) = addEmailQuery(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       filter = Opt.some(filter),
       sort = Opt.some(descSort),
     )
-    let respD = client.send(bd).expect("send Email/query desc[" & $target.kind & "]")
+    let respD =
+      client.send(bd.freeze()).expect("send Email/query desc[" & $target.kind & "]")
     let descResp =
       respD.get(descHandle).expect("Email/query desc extract[" & $target.kind & "]")
     var descSeeded: seq[Id] = @[]
@@ -140,17 +139,18 @@ block temailQuerySortLive:
         )
       let collSort = @[
         plainComparator(
-          pspSubject, isAscending = Opt.some(true), collation = Opt.some(chosen)
+          pspSubject, direction = sdAscending, collation = Opt.some(chosen)
         )
       ]
       let (bc, collHandle) = addEmailQuery(
-        initRequestBuilder(),
+        initRequestBuilder(makeBuilderId()),
         mailAccountId,
         filter = Opt.some(filter),
         sort = Opt.some(collSort),
       )
-      let respC =
-        client.send(bc).expect("send Email/query collation[" & $target.kind & "]")
+      let respC = client.send(bc.freeze()).expect(
+          "send Email/query collation[" & $target.kind & "]"
+        )
       let collResp = respC.get(collHandle).expect(
           "Email/query collation extract[" & $target.kind & "]"
         )
@@ -163,4 +163,3 @@ block temailQuerySortLive:
         "explicit collation " & $chosen &
           " must round-trip ascending order alpha → mike → zulu (got " & $collSeeded &
           ")"
-    client.close()

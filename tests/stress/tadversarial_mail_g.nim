@@ -28,30 +28,30 @@ import std/times
 
 import results
 
-import jmap_client/dispatch
-import jmap_client/envelope
-import jmap_client/identifiers
-import jmap_client/methods_enum
-import jmap_client/primitives
+import jmap_client/internal/protocol/dispatch
+import jmap_client/internal/types/envelope
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/methods_enum
+import jmap_client/internal/types/primitives
 
-import jmap_client/mail/email_submission
-import jmap_client/mail/serde_email_submission
-import jmap_client/mail/serde_submission_envelope
-import jmap_client/mail/submission_atoms
-import jmap_client/mail/submission_builders
-import jmap_client/mail/submission_envelope
-import jmap_client/mail/submission_mailbox
-import jmap_client/mail/submission_param
-import jmap_client/mail/submission_status
+import jmap_client/internal/mail/email_submission
+import jmap_client/internal/mail/serde_email_submission
+import jmap_client/internal/mail/serde_submission_envelope
+import jmap_client/internal/types/submission_atoms
+import jmap_client/internal/mail/submission_envelope
+import jmap_client/internal/mail/submission_mailbox
+import jmap_client/internal/mail/submission_param
+import jmap_client/internal/mail/submission_status
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # =============================================================================
 # Block 1 — RFC 5321 Mailbox adversarial (§8.2.3 Block 1, 8 named cases)
 # =============================================================================
 
-block rfc5321MailboxAdversarialGroup:
+testCase rfc5321MailboxAdversarialGroup:
   block mailboxTrailingDotLocal:
     # RFC 5321 §4.1.2 Dot-string: local-part MUST NOT end with a bare dot.
     let res = parseRFC5321Mailbox("user.@example.com")
@@ -85,7 +85,7 @@ block rfc5321MailboxAdversarialGroup:
     # diverge here. Confirm both sides of the divergence.
     let mailboxRes = parseRFC5321Mailbox("user@[foo-:bar]")
     assertErr mailboxRes
-    let keywordRes = parseRFC5321Keyword("x-tag-")
+    let keywordRes = parseRFC5321Keyword("x-tag-").get()
     assertOk keywordRes
 
   block mailboxControlChar:
@@ -95,13 +95,13 @@ block rfc5321MailboxAdversarialGroup:
   block mailboxEmpty:
     let res = parseRFC5321Mailbox("")
     assertErr res
-    doAssert res.error.message.contains("must not be empty")
+    doAssert res.error.reason.contains("must not be empty")
 
 # =============================================================================
 # Block 2 — SubmissionParam wire adversarial (§8.2.3 Block 2, 10 named cases)
 # =============================================================================
 
-block submissionParamAdversarialGroup:
+testCase submissionParamAdversarialGroup:
   block paramRetUnknownValue:
     # DsnRetType is a closed enum; "BOTH" is not a variant.
     let wire = parseJson("""{"RET": "BOTH"}""")
@@ -113,13 +113,13 @@ block submissionParamAdversarialGroup:
     # SUCCESS/FAILURE/DELAY.
     let res = notifyParam({dnfNever, dnfSuccess})
     assertErr res
-    doAssert res.error.message.contains("NOTIFY=NEVER is mutually exclusive")
+    doAssert res.error.reason.contains("NOTIFY=NEVER is mutually exclusive")
 
   block paramNotifyEmptyFlags:
     # submission_param.nim:207.
     let res = notifyParam({})
     assertErr res
-    doAssert res.error.message.contains("NOTIFY flags must not be empty")
+    doAssert res.error.reason.contains("NOTIFY flags must not be empty")
 
   block paramHoldForNegative:
     # HOLDFOR is UnsignedInt on the JMAP wire — encoded as a decimal
@@ -133,12 +133,12 @@ block submissionParamAdversarialGroup:
     # submission_param.nim:103.
     let res = parseMtPriority(-10)
     assertErr res
-    doAssert res.error.message.contains("must be in range -9..9")
+    doAssert res.error.reason.contains("must be in range -9..9")
 
   block paramMtPriorityAboveRange:
     let res = parseMtPriority(10)
     assertErr res
-    doAssert res.error.message.contains("must be in range -9..9")
+    doAssert res.error.reason.contains("must be in range -9..9")
 
   block paramSizeAt2Pow53Boundary:
     # 2^53 - 1 = 9007199254740991 — MaxUnsignedInt per JMAP §1.3. SIZE
@@ -166,13 +166,13 @@ block submissionParamAdversarialGroup:
     let two = bodyParam(beEightBitMime)
     let res = parseSubmissionParams(@[one, two])
     assertErr res
-    doAssert res.error[0].message.contains("duplicate parameter key")
+    doAssert res.error[0].reason.contains("duplicate parameter key")
 
 # =============================================================================
 # Block 3 — Envelope serde coherence (§8.2.3 Block 3, 7 named cases)
 # =============================================================================
 
-block envelopeCoherenceGroup:
+testCase envelopeCoherenceGroup:
   block envelopeNullMailFromWithParams:
     # G32: null reverse-path (mailFrom.email == "") MAY carry parameters.
     let wire = parseJson(
@@ -239,7 +239,7 @@ block envelopeCoherenceGroup:
     let alice = makeSubmissionAddress()
     let res = parseNonEmptyRcptList(@[alice, alice])
     assertErr res
-    doAssert res.error[0].message.contains("duplicate recipient mailbox")
+    doAssert res.error[0].reason.contains("duplicate recipient mailbox")
 
   block envelopeOptNoneVsEmptyParams:
     # G34: Opt.none(SubmissionParams) toJson -> "parameters": null;
@@ -259,7 +259,7 @@ block envelopeCoherenceGroup:
 # Block 4 — AnyEmailSubmission dispatch adversarial (§8.2.3 Block 4, 6 cases)
 # =============================================================================
 
-block anyEmailSubmissionDispatchGroup:
+testCase anyEmailSubmissionDispatchGroup:
   block anyMissingUndoStatus:
     let wire = parseJson(
       """
@@ -347,46 +347,46 @@ block anyEmailSubmissionDispatchGroup:
 # Block 5 — SmtpReply grammar adversarial (§8.2.3 Block 5, 14 named cases)
 # =============================================================================
 
-block smtpReplyGrammarGroup:
+testCase smtpReplyGrammarGroup:
   block smtpReplyEmpty:
     let res = parseSmtpReply("")
     assertErr res
-    doAssert res.error.message.contains("must not be empty")
+    doAssert res.error.reason.contains("must not be empty")
 
   block smtpReplyControlChar:
     let res = parseSmtpReply("250 o\x01k")
     assertErr res
-    doAssert res.error.message.contains("contains disallowed control characters")
+    doAssert res.error.reason.contains("contains disallowed control characters")
 
   block smtpReplyTooShort:
     let res = parseSmtpReply("25")
     assertErr res
-    doAssert res.error.message.contains("line shorter than 3-digit Reply-code")
+    doAssert res.error.reason.contains("line shorter than 3-digit Reply-code")
 
   block smtpReplyFirstDigitZero:
     let res = parseSmtpReply("050 ok")
     assertErr res
-    doAssert res.error.message.contains("first Reply-code digit must be in 2..5")
+    doAssert res.error.reason.contains("first Reply-code digit must be in 2..5")
 
   block smtpReplyFirstDigitOne:
     let res = parseSmtpReply("150 ok")
     assertErr res
-    doAssert res.error.message.contains("first Reply-code digit must be in 2..5")
+    doAssert res.error.reason.contains("first Reply-code digit must be in 2..5")
 
   block smtpReplyFirstDigitSix:
     let res = parseSmtpReply("650 ok")
     assertErr res
-    doAssert res.error.message.contains("first Reply-code digit must be in 2..5")
+    doAssert res.error.reason.contains("first Reply-code digit must be in 2..5")
 
   block smtpReplyFirstDigitNine:
     let res = parseSmtpReply("950 ok")
     assertErr res
-    doAssert res.error.message.contains("first Reply-code digit must be in 2..5")
+    doAssert res.error.reason.contains("first Reply-code digit must be in 2..5")
 
   block smtpReplySecondDigitSix:
     let res = parseSmtpReply("260 ok")
     assertErr res
-    doAssert res.error.message.contains("second Reply-code digit must be in 0..5")
+    doAssert res.error.reason.contains("second Reply-code digit must be in 0..5")
 
   block smtpReplyThirdDigitBoundary:
     # RFC 5321 §4.2: third digit 0..9 — "259 ok" is valid.
@@ -396,28 +396,24 @@ block smtpReplyGrammarGroup:
   block smtpReplyBadSeparator:
     let res = parseSmtpReply("250?ok")
     assertErr res
-    doAssert res.error.message.contains(
+    doAssert res.error.reason.contains(
       "character after Reply-code must be SP, HT, or '-'"
     )
 
   block smtpReplyMultilineCodeMismatch:
     let res = parseSmtpReply("250-ok\r\n251 done")
     assertErr res
-    doAssert res.error.message.contains("multi-line reply has inconsistent Reply-codes")
+    doAssert res.error.reason.contains("multi-line reply has inconsistent Reply-codes")
 
   block smtpReplyMultilineFinalHyphen:
     let res = parseSmtpReply("250-ok\r\n250-done")
     assertErr res
-    doAssert res.error.message.contains(
-      "final reply line must not use '-' continuation"
-    )
+    doAssert res.error.reason.contains("final reply line must not use '-' continuation")
 
   block smtpReplyMultilineNonFinalSpace:
     let res = parseSmtpReply("250 ok\r\n250 done")
     assertErr res
-    doAssert res.error.message.contains(
-      "non-final reply line must use '-' continuation"
-    )
+    doAssert res.error.reason.contains("non-final reply line must use '-' continuation")
 
   block smtpReplyBareCodeNoText:
     # Pin deterministic behaviour. Shipped parser may accept or reject
@@ -443,18 +439,18 @@ func emailSetOkArgs(): JsonNode =
   ## with the outer helper — both resolve through ``SetResponse[T].fromJson``).
   %*{"accountId": "a1", "newState": "s1"}
 
-block getBothSubmissionAdversarialGroup:
+testCase getBothSubmissionAdversarialGroup:
   block getBothBothSucceed:
     let handles = makeEmailSubmissionHandles()
-    let resp = Response(
-      methodResponses: @[
+    let resp = initResponse(
+      @[
         initInvocation(mnEmailSubmissionSet, emailSubmissionSetOkArgs(), makeMcid("c0")),
         initInvocation(mnEmailSet, emailSetOkArgs(), makeMcid("c0")),
       ],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertOk res
 
   block getBothInnerMethodError:
@@ -465,29 +461,29 @@ block getBothSubmissionAdversarialGroup:
     # ``getBothImplicitDestroyMethodError``).
     let handles = makeEmailSubmissionHandles()
     let errArgs = %*{"type": "accountNotFound"}
-    let resp = Response(
-      methodResponses: @[
+    let resp = initResponse(
+      @[
         initInvocation(mnEmailSubmissionSet, emailSubmissionSetOkArgs(), makeMcid("c0")),
         parseInvocation("error", errArgs, makeMcid("c0")).get(),
       ],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
 
   block getBothInnerAbsent:
     # §8.6 row 3: outer ok but no inner Email/set invocation at all.
     # NameBoundHandle dispatch surfaces serverFail MethodError.
     let handles = makeEmailSubmissionHandles()
-    let resp = Response(
-      methodResponses: @[
+    let resp = initResponse(
+      @[
         initInvocation(mnEmailSubmissionSet, emailSubmissionSetOkArgs(), makeMcid("c0"))
       ],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
 
   block getBothInnerMcIdMismatch:
@@ -496,15 +492,15 @@ block getBothSubmissionAdversarialGroup:
     let handles = makeEmailSubmissionHandles(
       submissionMcid = makeMcid("c0"), emailSetMcid = makeMcid("c0")
     )
-    let resp = Response(
-      methodResponses: @[
+    let resp = initResponse(
+      @[
         initInvocation(mnEmailSubmissionSet, emailSubmissionSetOkArgs(), makeMcid("c0")),
         initInvocation(mnEmailSet, emailSetOkArgs(), makeMcid("c1")),
       ],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
 
   block getBothOuterNotCreatedSole:
@@ -515,25 +511,24 @@ block getBothSubmissionAdversarialGroup:
     let handles = makeEmailSubmissionHandles()
     var outerArgs = emailSubmissionSetOkArgs()
     outerArgs["notCreated"] = %*{"c1": {"type": "invalidProperties"}}
-    let resp = Response(
-      methodResponses:
-        @[initInvocation(mnEmailSubmissionSet, outerArgs, makeMcid("c0"))],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+    let resp = initResponse(
+      @[initInvocation(mnEmailSubmissionSet, outerArgs, makeMcid("c0"))],
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
 
   block getBothOuterIfInStateMismatch:
     # §8.6 row 6: outer returns error invocation; inner never reached.
     let handles = makeEmailSubmissionHandles()
     let errArgs = %*{"type": "stateMismatch"}
-    let resp = Response(
-      methodResponses: @[parseInvocation("error", errArgs, makeMcid("c0")).get()],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+    let resp = initResponse(
+      @[parseInvocation("error", errArgs, makeMcid("c0")).get()],
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
 
   block getBothCreationRefNotInCreateMap:
@@ -545,22 +540,22 @@ block getBothSubmissionAdversarialGroup:
     let handles = makeEmailSubmissionHandles()
     var outerArgs = emailSubmissionSetOkArgs()
     outerArgs["onSuccessUpdateEmail"] = %*{"#c-missing": {"keywords/$seen": true}}
-    let resp = Response(
-      methodResponses: @[
+    let resp = initResponse(
+      @[
         initInvocation(mnEmailSubmissionSet, outerArgs, makeMcid("c0")),
         initInvocation(mnEmailSet, emailSetOkArgs(), makeMcid("c0")),
       ],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertOk res
 
 # =============================================================================
 # §8.12 scale invariants — 3 named blocks
 # =============================================================================
 
-block scaleInvariantsGroup:
+testCase scaleInvariantsGroup:
   block nonEmptyEmailSubmissionUpdates10kWithDupAtEnd:
     # Mirrors tadversarial_mail_f.nim:1188-1197 pattern.
     # 10 000 entries with a duplicate Id at position 9999. The single-
@@ -569,13 +564,13 @@ block scaleInvariantsGroup:
     var items: seq[(Id, EmailSubmissionUpdate)] = @[]
     let update = setUndoStatusToCanceled()
     for i in 0 ..< 10_000:
-      items.add((parseId("es-" & $i).get(), update))
+      items.add((parseIdFromServer("es-" & $i).get(), update))
     # Duplicate: reuse "es-0" at final position.
-    items[9_999] = (parseId("es-0").get(), update)
+    items[9_999] = (parseIdFromServer("es-0").get(), update)
     let res = parseNonEmptyEmailSubmissionUpdates(items)
     assertErr res
     assertLen res.error, 1
-    doAssert res.error[0].message.contains("duplicate submission id")
+    doAssert res.error[0].reason.contains("duplicate submission id")
 
   block submissionParams1kExtensionEntries:
     # Linear-scaling pin: 1000 spkExtension entries with distinct names.
@@ -605,7 +600,7 @@ block scaleInvariantsGroup:
     let res = parseNonEmptyRcptList(items)
     assertErr res
     assertLen res.error, 1
-    doAssert res.error[0].message.contains("duplicate recipient mailbox")
+    doAssert res.error[0].reason.contains("duplicate recipient mailbox")
 
 # See tests/stress/tadversarial_mail_f.nim for JSON-structural attacks
 # (BOM, NaN/Infinity, deep nesting, duplicate keys, 1 MB strings, cast

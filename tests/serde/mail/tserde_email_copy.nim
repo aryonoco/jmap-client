@@ -12,28 +12,30 @@
 
 import std/[json, tables]
 
-import jmap_client/mail/email
-import jmap_client/mail/keyword
-import jmap_client/mail/serde_email
-import jmap_client/identifiers
-import jmap_client/primitives
-import jmap_client/methods
-import jmap_client/serde
-import jmap_client/validation
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/keyword
+import jmap_client/internal/mail/serde_email
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/primitives
+import jmap_client/internal/protocol/methods
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_primitives
+import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # ============= A. toJson(EmailCopyItem) =============
 
-block emailCopyItemMinimalEmitsIdOnly:
+testCase emailCopyItemMinimalEmitsIdOnly:
   let id = makeId("src1")
   let node = makeEmailCopyItem(id).toJson()
   doAssert node.kind == JObject
   assertLen node, 1
   assertJsonFieldEq node, "id", id.toJson()
 
-block emailCopyItemFullOverrideEmitsThreeKeys:
+testCase emailCopyItemFullOverrideEmitsThreeKeys:
   ## "Full" here means every override supplied: id + mailboxIds + keywords +
   ## receivedAt — four wire keys. The block name keeps the design-doc wording
   ## ("three overrides on top of the required id"); the assertion pins the
@@ -46,7 +48,7 @@ block emailCopyItemFullOverrideEmitsThreeKeys:
   doAssert node{"keywords"} != nil
   doAssert node{"receivedAt"} != nil
 
-block emailCopyItemOptNoneOmitsKeys:
+testCase emailCopyItemOptNoneOmitsKeys:
   ## ``Opt.none`` overrides MUST be omitted, not emitted as ``null`` —
   ## the RFC 8621 §4.7 wire semantics of ``null`` vs key-absent differ:
   ## key-absent = "preserve the source value", null = (not legal here).
@@ -63,7 +65,7 @@ block emailCopyItemOptNoneOmitsKeys:
 
 # ============= B. CopyResponse[EmailCreatedItem].fromJson =============
 
-block emailCopyResponseCreatedOnly:
+testCase emailCopyResponseCreatedOnly:
   let node = %*{
     "fromAccountId": "src",
     "accountId": "dst",
@@ -77,7 +79,7 @@ block emailCopyResponseCreatedOnly:
   doAssert makeCreationId("k0") in r.createResults
   doAssert r.createResults[makeCreationId("k0")].isOk
 
-block emailCopyResponseNotCreatedOnly:
+testCase emailCopyResponseNotCreatedOnly:
   let node = %*{
     "fromAccountId": "src",
     "accountId": "dst",
@@ -89,7 +91,7 @@ block emailCopyResponseNotCreatedOnly:
   doAssert makeCreationId("k1") in r.createResults
   doAssert r.createResults[makeCreationId("k1")].isErr
 
-block emailCopyResponseCombined:
+testCase emailCopyResponseCombined:
   let node = %*{
     "fromAccountId": "src",
     "accountId": "dst",
@@ -104,7 +106,7 @@ block emailCopyResponseCombined:
 
 # ============= C. Required field =============
 
-block emailCopyResponseRequiresFromAccountId:
+testCase emailCopyResponseRequiresFromAccountId:
   ## RFC 8621 §4.7: ``fromAccountId`` is mandatory (it names the source
   ## account the copy originated from). Parser must reject its absence.
   let node = %*{"accountId": "dst", "newState": "s1"}
@@ -112,7 +114,7 @@ block emailCopyResponseRequiresFromAccountId:
 
 # ============= D. Type-level exclusion (compile-time pin) =============
 
-block emailCopyResponseHasNoUpdatedField:
+testCase emailCopyResponseHasNoUpdatedField:
   ## Pins F1 §2.2's type-level guarantee: ``CopyResponse[EmailCreatedItem]`` has NO
   ## ``updated`` (nor ``destroyed``) field — those belong to ``/set`` only.
   ## Structured as ``assertNotCompiles`` so an accidental field addition

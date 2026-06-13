@@ -36,12 +36,12 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tvacationSetAllArmsLive:
+testCase tvacationSetAllArmsLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): Stalwart 0.15.5 and James 3.9 implement
     # VacationResponse/set's full update-arm surface. Cyrus 3.12.2
@@ -50,12 +50,7 @@ block tvacationSetAllArmsLive:
     # (``imap/jmap_api.c:713-714``) returns ``metUnknownMethod`` for
     # both methods, so the Cat-B error arm exercises the typed-error
     # projection.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     var vacAccountId: AccountId
     var vacAccountFound = false
@@ -65,7 +60,6 @@ block tvacationSetAllArmsLive:
     do:
       discard
     if not vacAccountFound:
-      client.close()
       continue
 
     let singletonId =
@@ -92,8 +86,9 @@ block tvacationSetAllArmsLive:
         ]
       )
       .expect("initVacationResponseUpdateSet all arms[" & $target.kind & "]")
-    let (b1, setHandle) =
-      addVacationResponseSet(initRequestBuilder(), vacAccountId, update = updateSet)
+    let (b1, setHandle) = addVacationResponseSet(
+      initRequestBuilder(makeBuilderId()), vacAccountId, update = updateSet
+    )
     # Cyrus 3.12.2 ships VacationResponse but the test image disables
     # it via ``imapd.conf: jmap_vacation: no``; the URN is absent
     # from the session's ``capabilities`` map and Cyrus rejects the
@@ -105,10 +100,11 @@ block tvacationSetAllArmsLive:
     # Stalwart/James, unknownCapability on Cyrus — and the captured-
     # replay suite round-trips both shapes. mcapture's skip-if-exists
     # preserves existing Stalwart/James fixtures.
-    let resp1Result = client.send(b1)
-    captureIfRequested(client, "vacation-set-all-arms-" & $target.kind).expect(
-      "captureIfRequested"
+    let resp1Result = client.send(b1.freeze())
+    captureIfRequested(
+      recorder.lastResponseBody, "vacation-set-all-arms-" & $target.kind
     )
+      .expect("captureIfRequested")
     if resp1Result.isErr:
       case target.kind
       of ltkCyrus:
@@ -120,7 +116,6 @@ block tvacationSetAllArmsLive:
       of ltkStalwart, ltkJames:
         assertOn target,
           false, "VacationResponse/set all arms must succeed on " & $target.kind
-      client.close()
       continue
     let resp1 = resp1Result.unsafeValue
     let setExtract = resp1.get(setHandle)
@@ -136,8 +131,9 @@ block tvacationSetAllArmsLive:
 
     if updateOk:
       # Re-read and verify all six fields.
-      let (b2, getHandle) = addVacationResponseGet(initRequestBuilder(), vacAccountId)
-      let resp2 = client.send(b2).expect(
+      let (b2, getHandle) =
+        addVacationResponseGet(initRequestBuilder(makeBuilderId()), vacAccountId)
+      let resp2 = client.send(b2.freeze()).expect(
           "send VacationResponse/get post-set[" & $target.kind & "]"
         )
       let getExtract = resp2.get(getHandle)
@@ -146,9 +142,7 @@ block tvacationSetAllArmsLive:
         assertOn target,
           getResp.list.len == 1,
           "VacationResponse/get must return the singleton after set"
-        let vr = VacationResponse.fromJson(getResp.list[0]).expect(
-            "parse VacationResponse[" & $target.kind & "]"
-          )
+        let vr = getResp.list[0]
         assertOn target, vr.isEnabled, "isEnabled must round-trip as true"
         assertOn target,
           vr.subject.isSome and vr.subject.unsafeGet == subjectText,
@@ -160,10 +154,10 @@ block tvacationSetAllArmsLive:
           vr.htmlBody.isSome and vr.htmlBody.unsafeGet == htmlBodyText,
           "htmlBody must round-trip"
         assertOn target,
-          vr.fromDate.isSome and string(vr.fromDate.unsafeGet) == string(fromDate),
+          vr.fromDate.isSome and $vr.fromDate.unsafeGet == $fromDate,
           "fromDate must round-trip as the supplied UTC date"
         assertOn target,
-          vr.toDate.isSome and string(vr.toDate.unsafeGet) == string(toDate),
+          vr.toDate.isSome and $vr.toDate.unsafeGet == $toDate,
           "toDate must round-trip as the supplied UTC date"
 
       # Cleanup: disable + clear date / body / subject fields.
@@ -178,9 +172,9 @@ block tvacationSetAllArmsLive:
           ]
         )
         .expect("initVacationResponseUpdateSet cleanup[" & $target.kind & "]")
-      let (b3, _) =
-        addVacationResponseSet(initRequestBuilder(), vacAccountId, update = cleanupSet)
-      discard client.send(b3).expect(
+      let (b3, _) = addVacationResponseSet(
+        initRequestBuilder(makeBuilderId()), vacAccountId, update = cleanupSet
+      )
+      discard client.send(b3.freeze()).expect(
           "send VacationResponse/set cleanup[" & $target.kind & "]"
         )
-    client.close()

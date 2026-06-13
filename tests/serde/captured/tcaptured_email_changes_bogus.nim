@@ -13,9 +13,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailChangesBogus:
+testCase tcapturedEmailChangesBogus:
   forEachCapturedServer("email-changes-bogus-state", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 1
@@ -23,6 +25,6 @@ block tcapturedEmailChangesBogus:
     doAssert inv.rawName == "error",
       "method-level errors arrive under the literal rawName 'error'"
     let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
-    doAssert me.errorType in {metCannotCalculateChanges, metInvalidArguments},
+    doAssert me.kind in {metCannotCalculateChanges, metInvalidArguments},
       "errorType must project as one of cannotCalculateChanges / invalidArguments " &
-        "(got " & $me.errorType & ", rawType=" & me.rawType & ")"
+        "(got " & $me.kind & ", rawType=" & me.rawType & ")"

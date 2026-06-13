@@ -12,54 +12,58 @@
 ## subsets.  Each handle's resolution returns its own typed
 ## response with the requested property subset.
 
-import std/json
-
 import results
 import jmap_client
-import jmap_client/client
+import jmap_client/internal/types/envelope
+import jmap_client/internal/protocol/dispatch
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tmultiInstanceEnvelopeLive:
+testCase tmultiInstanceEnvelopeLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    # Three Mailbox/get invocations with distinct property subsets:
-    # - call 0: full record (no properties filter)
-    # - call 1: minimal sparse subset
-    # - call 2: counts subset
-    let (b1, fullHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
-    let (b2, sparseHandle) =
-      addGet[Mailbox](b1, mailAccountId, properties = Opt.some(@["id", "name"]))
-    let (b3, countsHandle) = addGet[Mailbox](
-      b2, mailAccountId, properties = Opt.some(@["id", "role", "totalEmails"])
+    # Three Mailbox/get invocations:
+    # - call 0: full record (addMailboxGet)
+    # - call 1: minimal sparse subset (addPartialMailboxGet)
+    # - call 2: counts subset (addPartialMailboxGet)
+    let (b1, fullHandle) =
+      addMailboxGet(initRequestBuilder(makeBuilderId()), mailAccountId)
+    let (b2, sparseHandle) = addPartialMailboxGet(
+      b1, mailAccountId, properties = parseNonEmptySeq(@[mgpId, mgpName]).get()
     )
-    let resp =
-      client.send(b3).expect("send three-Mailbox/get envelope[" & $target.kind & "]")
-    captureIfRequested(client, "multi-instance-envelope-" & $target.kind).expect(
-      "captureIfRequested multi-instance"
+    let (b3, countsHandle) = addPartialMailboxGet(
+      b2,
+      mailAccountId,
+      properties = parseNonEmptySeq(@[mgpId, mgpRole, mgpTotalEmails]).get(),
     )
+    let resp = client.send(b3.freeze()).expect(
+        "send three-Mailbox/get envelope[" & $target.kind & "]"
+      )
+    captureIfRequested(
+      recorder.lastResponseBody, "multi-instance-envelope-" & $target.kind
+    )
+      .expect("captureIfRequested multi-instance")
 
     assertOn target,
-      resp.methodResponses.len == 3,
-      "envelope must carry three responses, got " & $resp.methodResponses.len
+      resp.response.methodResponses.len == 3,
+      "envelope must carry three responses, got " & $resp.response.methodResponses.len
 
     # Order preservation: methodResponses[i] must match methodCalls[i].
-    assertOn target, resp.methodResponses[0].rawName == "Mailbox/get"
-    assertOn target, resp.methodResponses[1].rawName == "Mailbox/get"
-    assertOn target, resp.methodResponses[2].rawName == "Mailbox/get"
+    assertOn target, resp.response.methodResponses[0].rawName == "Mailbox/get"
+    assertOn target, resp.response.methodResponses[1].rawName == "Mailbox/get"
+    assertOn target, resp.response.methodResponses[2].rawName == "Mailbox/get"
 
-    # Each handle resolves its own response, even though all three
-    # invocations share the same method name.
+    # A3.6: all three calls flow through public typed entry points. The full
+    # record is ``GetResponse[Mailbox]``; the two sparse projections are
+    # ``GetResponse[PartialMailbox]`` — requested properties present
+    # (``Opt.some``), unrequested ones absent (``Opt.none``). No internal
+    # envelope inspection needed: the typed surface IS the public path now.
     let fullResp =
       resp.get(fullHandle).expect("Mailbox/get full extract[" & $target.kind & "]")
     let sparseResp =
@@ -79,36 +83,23 @@ block tmultiInstanceEnvelopeLive:
       sparseResp.list.len == countsResp.list.len,
       "all three /get calls target the same account, list lengths must match"
 
-    # Library contract: full records parse through Mailbox.fromJson.
-    # Sparse responses (RFC 8621 §2.1 ``properties`` filter) carry
-    # only the requested properties plus ``id`` — Stalwart 0.15.5
-    # respects this strictly, returning ``{id, name}`` for call 1
-    # and ``{id, role, totalEmails}`` for call 2.  Mailbox.fromJson
-    # is a full-record parser (most fields non-Opt per RFC 8621
-    # §2.1), so sparse projection is verified at the JsonNode level
-    # — fields requested are present, fields not requested are
-    # absent.  The library's typed surface targets full records;
-    # consumers that need sparse support extract fields directly.
-    for node in fullResp.list:
-      discard Mailbox.fromJson(node).expect(
-          "Mailbox.fromJson full record[" & $target.kind & "]"
-        )
-    assertOn target, sparseResp.list.len > 0
-    for node in sparseResp.list:
-      assertOn target, node.kind == JObject, "sparse Mailbox record must be JObject"
-      assertOn target, node.hasKey("id"), "sparse record must carry id"
+    # Full records flow through Mailbox.fromJson (most fields non-Opt). Sparse
+    # projections flow through PartialMailbox.fromJson (all-Opt): the requested
+    # properties surface ``Opt.some``, the unrequested ones stay ``Opt.none``.
+    for mb in fullResp.list:
+      assertOn target, mb.name.len > 0, "full Mailbox.fromJson must populate name"
+    for pm in sparseResp.list:
+      assertOn target, pm.id.isSome, "sparse PartialMailbox must carry id"
+      assertOn target, pm.name.isSome, "sparse PartialMailbox must carry requested name"
       assertOn target,
-        node.hasKey("name"), "sparse record must carry the requested name"
+        pm.myRights.isNone,
+        "sparse PartialMailbox must NOT carry myRights (not requested)"
       assertOn target,
-        not node.hasKey("myRights"),
-        "sparse record must NOT carry myRights (not requested)"
-    assertOn target, countsResp.list.len > 0
-    for node in countsResp.list:
-      assertOn target, node.kind == JObject, "counts Mailbox record must be JObject"
-      assertOn target, node.hasKey("id"), "counts record must carry id"
+        pm.totalEmails.isNone,
+        "sparse PartialMailbox must NOT carry totalEmails (not requested)"
+    for pm in countsResp.list:
+      assertOn target, pm.id.isSome, "counts PartialMailbox must carry id"
       assertOn target,
-        node.hasKey("totalEmails"), "counts record must carry the requested totalEmails"
+        pm.totalEmails.isSome, "counts PartialMailbox must carry requested totalEmails"
       assertOn target,
-        not node.hasKey("name"), "counts record must NOT carry name (not requested)"
-
-    client.close()
+        pm.name.isNone, "counts PartialMailbox must NOT carry name (not requested)"

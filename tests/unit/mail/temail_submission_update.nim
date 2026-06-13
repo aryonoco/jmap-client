@@ -14,14 +14,15 @@
 
 import std/tables
 
-import jmap_client/primitives
-import jmap_client/validation
-import jmap_client/mail/email_submission
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/validation
+import jmap_client/internal/mail/email_submission
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
-block setUndoStatusToCanceledValueShape:
+testCase setUndoStatusToCanceledValueShape:
   # The nullary ``setUndoStatusToCanceled()`` constructor returns an
   # ``EmailSubmissionUpdate`` whose discriminator is
   # ``esuSetUndoStatusToCanceled``. Since the variant carries no fields
@@ -35,7 +36,7 @@ block setUndoStatusToCanceledValueShape:
   let u = setUndoStatusToCanceled()
   doAssert u.kind == esuSetUndoStatusToCanceled
 
-block parseUpdatesRejectsEmpty:
+testCase parseUpdatesRejectsEmpty:
   # Grep-locked literals from ``email_submission.nim:230-231``:
   #   typeName = "NonEmptyEmailSubmissionUpdates"
   #   emptyMsg = "must contain at least one entry"
@@ -44,9 +45,9 @@ block parseUpdatesRejectsEmpty:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "NonEmptyEmailSubmissionUpdates"
-  assertEq res.error[0].message, "must contain at least one entry"
+  assertEq res.error[0].reason, "must contain at least one entry"
 
-block parseUpdatesRejectsDuplicateId:
+testCase parseUpdatesRejectsDuplicateId:
   # Grep-locked literal from ``email_submission.nim:232``:
   #   dupMsg = "duplicate submission id"
   # A pair of entries sharing the same ``Id`` key surfaces exactly ONE
@@ -58,13 +59,13 @@ block parseUpdatesRejectsDuplicateId:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "NonEmptyEmailSubmissionUpdates"
-  assertEq res.error[0].message, "duplicate submission id"
+  assertEq res.error[0].reason, "duplicate submission id"
 
-block parseUpdatesHappyPathSingleEntry:
+testCase parseUpdatesHappyPathSingleEntry:
   # Happy path: one valid ``(Id, EmailSubmissionUpdate)`` pair parses
   # to a ``NonEmptyEmailSubmissionUpdates`` whose inner table contains
   # exactly the input entry. Distinct-wrap unwrap via
-  # ``Table[Id, EmailSubmissionUpdate](res.get())`` cast — same pattern
+  # ``res.get().toTable`` cast — same pattern
   # used by ``serde_email_submission.nim`` toJson. Iteration (not
   # ``Table.[]`` subscript) keeps this safe under ``raises: []``.
   let id = makeId("sub-1")
@@ -72,7 +73,7 @@ block parseUpdatesHappyPathSingleEntry:
   let res = parseNonEmptyEmailSubmissionUpdates(@[(id, u)])
   assertOk res
   var count = 0
-  for (k, v) in Table[Id, EmailSubmissionUpdate](res.get()).pairs:
+  for (k, v) in res.get().toTable.pairs:
     assertEq k, id
     doAssert v.kind == esuSetUndoStatusToCanceled
     inc count

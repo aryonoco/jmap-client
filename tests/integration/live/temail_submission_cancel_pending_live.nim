@@ -17,12 +17,12 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tEmailSubmissionCancelPendingLive:
+testCase tEmailSubmissionCancelPendingLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises the ``EmailSubmission/set update``
     # cancel arm (RFC 8621 §7.5 ¶3). Stalwart 0.15.5 and Cyrus 3.12.2
@@ -31,12 +31,7 @@ block tEmailSubmissionCancelPendingLive:
     # ``invalidArguments`` or ``unknownMethod`` typed errors. Each
     # ``assertSuccessOrTypedError`` site exercises the typed-error
     # projection contract uniformly.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -60,7 +55,7 @@ block tEmailSubmissionCancelPendingLive:
         "Phase G Step 41 — cancel pending submission.", "draft41",
       )
       .expect("seedDraftEmail[" & $target.kind & "]")
-    let holdSeconds = parseHoldForSeconds(UnsignedInt(300)).expect(
+    let holdSeconds = parseHoldForSeconds(parseUnsignedInt(300).get()).expect(
         "parseHoldForSeconds[" & $target.kind & "]"
       )
     let envelope = buildEnvelopeWithHoldFor(
@@ -76,10 +71,13 @@ block tEmailSubmissionCancelPendingLive:
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
     let (b3, subHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, create = Opt.some(subTbl)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(subTbl),
     )
-    let resp3 =
-      client.send(b3).expect("send EmailSubmission/set HOLDFOR[" & $target.kind & "]")
+    let resp3 = client.send(b3.freeze()).expect(
+        "send EmailSubmission/set HOLDFOR[" & $target.kind & "]"
+      )
     let subSetExtract = resp3.get(subHandle)
     var submissionId: Id
     var createOk = false
@@ -95,13 +93,11 @@ block tEmailSubmissionCancelPendingLive:
         assertOn target, false, "EmailSubmission/set must report a create outcome"
 
     if not createOk:
-      client.close()
       continue
 
     # --- Poll until usPending --------------------------------------------
     let pendingRes = pollSubmissionPending(client, submissionAccountId, submissionId)
     if pendingRes.isErr:
-      client.close()
       continue
     let pendingSubmission = pendingRes.unsafeValue
 
@@ -111,14 +107,17 @@ block tEmailSubmissionCancelPendingLive:
         "parseNonEmptyEmailSubmissionUpdates"
       )
     let (b4, updateHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, update = Opt.some(updates)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      update = Opt.some(updates),
     )
-    let resp4 = client.send(b4).expect(
+    let resp4 = client.send(b4.freeze()).expect(
         "send EmailSubmission/set update cancel[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-submission-set-canceled-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-set-canceled-" & $target.kind
     )
+      .expect("captureIfRequested")
     let updateExtract = resp4.get(updateHandle)
     var updateOk = false
     assertSuccessOrTypedError(
@@ -133,14 +132,15 @@ block tEmailSubmissionCancelPendingLive:
           false, "EmailSubmission/set update must report an outcome for submissionId"
 
     if not updateOk:
-      client.close()
       continue
 
     # --- Re-fetch and confirm canceled projection ------------------------
     let (b5, getHandle) = addEmailSubmissionGet(
-      initRequestBuilder(), submissionAccountId, ids = directIds(@[submissionId])
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      ids = directIds(@[submissionId]),
     )
-    let resp5 = client.send(b5).expect(
+    let resp5 = client.send(b5.freeze()).expect(
         "send EmailSubmission/get post-cancel[" & $target.kind & "]"
       )
     let getExtract = resp5.get(getHandle)
@@ -156,11 +156,8 @@ block tEmailSubmissionCancelPendingLive:
           getResp.list.len == 1,
           "EmailSubmission/get must return at most one entry post-cancel (got " &
             $getResp.list.len & ")"
-        let any = AnyEmailSubmission.fromJson(getResp.list[0]).expect(
-            "AnyEmailSubmission.fromJson[" & $target.kind & "]"
-          )
+        let any = getResp.list[0]
         assertOn target,
           any.asCanceled().isSome,
           "retained post-cancel submission must project as usCanceled (state=" &
             $any.state & ")"
-    client.close()

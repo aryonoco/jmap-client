@@ -38,15 +38,14 @@
 ## guarded on ``loadLiveTestTargets().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 
-import std/json
 import std/os
 import std/sets
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 type ChainProjection = object
   ## Distilled view of an ``EmailQueryThreadResults`` extraction —
@@ -64,30 +63,20 @@ proc projectChainResults(all: EmailQueryThreadResults): ChainProjection =
   ## Thread records that fail to parse — the convergence loop then
   ## decides whether the projection is complete.
   var displayIds = initHashSet[Id]()
-  for node in all.display.list:
-    let idNode = node{"id"}
-    if idNode.isNil:
-      continue
-    let parsed = parseIdFromServer(idNode.getStr(""))
-    if parsed.isOk:
-      displayIds.incl(parsed.get())
+  for email in all.display.list:
+    for id in email.id:
+      displayIds.incl(id)
   var threadEmailIds = initHashSet[Id]()
-  for node in all.threads.list:
-    let parsed = jmap_client.Thread.fromJson(node)
-    if parsed.isErr:
-      continue
-    for eid in parsed.get().emailIds:
+  for thr in all.threads.list:
+    for eid in thr.emailIds:
       threadEmailIds.incl(eid)
   ChainProjection(displayIds: displayIds, threadEmailIds: threadEmailIds)
 
-block temailQueryThreadChainLive:
+testCase temailQueryThreadChainLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    var client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -125,10 +114,12 @@ block temailQueryThreadChainLive:
     var projection = ChainProjection()
     var converged = false
     for attempt in 0 ..< 5:
-      let (b, threadHandles) =
-        addEmailQueryWithThreads(initRequestBuilder(), mailAccountId, filter = filter)
-      let resp =
-        client.send(b).expect("send Email/query+threads chain[" & $target.kind & "]")
+      let (b, threadHandles) = addEmailQueryWithThreads(
+        initRequestBuilder(makeBuilderId()), mailAccountId, filter = filter
+      )
+      let resp = client.send(b.freeze()).expect(
+          "send Email/query+threads chain[" & $target.kind & "]"
+        )
       let all = resp.getAll(threadHandles).expect("getAll[" & $target.kind & "]")
       projection = projectChainResults(all)
       if (corpus <= projection.displayIds) and (corpus <= projection.threadEmailIds):
@@ -149,4 +140,3 @@ block temailQueryThreadChainLive:
       (corpus * projection.threadEmailIds).len == 2,
       "Thread.emailIds across the chained Thread/get must include both seeded ids " &
         "(got intersection " & $(corpus * projection.threadEmailIds) & ")"
-    client.close()

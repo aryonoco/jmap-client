@@ -21,16 +21,17 @@ import std/strutils
 
 import jmap_client
 import ./mloader
+import ../../mtestblock
 
-block tcapturedRequestErrorUnknownCapability:
+testCase tcapturedRequestErrorUnknownCapability:
   let j = loadCapturedFixture("request-error-unknown-capability-stalwart")
   let re = RequestError.fromJson(j).expect("RequestError.fromJson")
   doAssert re.rawType == "urn:ietf:params:jmap:error:notRequest",
     "Stalwart 0.15.5 returns notRequest for unknown capability URI " &
       "(RFC mandates unknownCapability); got " & re.rawType
-  doAssert re.errorType == retNotRequest,
-    "errorType must match parseRequestErrorType(rawType); got " & $re.errorType
-  doAssert re.errorType == parseRequestErrorType(re.rawType),
+  doAssert re.kind == retNotRequest,
+    "errorType must match parseRequestErrorKind(rawType); got " & $re.kind
+  doAssert re.kind == parseRequestErrorKind(re.rawType),
     "errorType / rawType must be derived consistently"
   doAssert re.status.isSome and re.status.unsafeGet == 400,
     "Stalwart pins the HTTP status field to 400"

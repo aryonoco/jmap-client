@@ -8,33 +8,47 @@ import std/strutils
 import std/json
 import std/times
 
-import jmap_client/validation
-import jmap_client/errors
-import jmap_client/capabilities
-import jmap_client/serde
-import jmap_client/mail/email_blueprint
-import jmap_client/mail/headers
-import jmap_client/mail/submission_param
-import jmap_client/mail/submission_status
-import jmap_client/mail/email_submission
-import jmap_client/mail/serde_email_submission
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/mail/email_blueprint
+import jmap_client/internal/mail/headers
+import jmap_client/internal/mail/submission_param
+import jmap_client/internal/mail/submission_status
+import jmap_client/internal/mail/email_submission
+import jmap_client/internal/mail/serde_email_submission
 
 import ./mfixtures
+import ./m_l2_serde
+export m_l2_serde
 
 {.push ruleOff: "hasDoc".}
 
 template assertOk*(expr: untyped) =
   ## Verifies a Result is ok, or that an expression evaluates without panic.
-  when compiles(expr.isOk):
-    let res = expr
-    doAssert res.isOk, "expected Ok result, got Err"
+  ## Borrows ``expr`` (reads ``isOk`` in place) rather than binding a local copy,
+  ## so it works for Results whose Ok value is uncopyable (e.g. a tuple carrying
+  ## a ``RequestBuilder``) — and stays a borrow for everything else.
+  when compiles((expr).isOk):
+    doAssert (expr).isOk, "expected Ok result, got Err"
   else:
     discard expr
 
 template assertErr*(expr: untyped) =
-  ## Verifies a Result is err.
-  let res = expr
-  doAssert res.isErr, "expected Err result, got Ok"
+  ## Verifies a Result is err. Borrows ``expr`` (see ``assertOk``) so an
+  ## uncopyable Ok value does not force a copy.
+  doAssert (expr).isErr, "expected Err result, got Ok"
+
+proc moveExpect*[T, E](r: sink Result[T, E], msg: string): T =
+  ## Move the Ok value out of ``r``, asserting Ok with ``msg`` on Err. Use in
+  ## place of ``.expect`` / ``.get`` when ``T`` is uncopyable (e.g. a tuple
+  ## carrying the now-uncopyable ``RequestBuilder`` returned by the fallible
+  ## builders ``addEmailSubmissionAndEmailSet`` / ``addCapabilityInvocation``);
+  ## ``.expect`` copies its result, which the copy hook forbids. Application
+  ## code uses the same idiom directly: ``var r = …; doAssert r.isOk;
+  ## let (b, h) = move(r.value)``.
+  doAssert r.isOk, msg
+  result = move(r.value)
 
 template toValidationShape(err: untyped): ValidationError =
   ## Normalises an error rail value to ``ValidationError`` shape so the
@@ -49,14 +63,16 @@ template toValidationShape(err: untyped): ValidationError =
   else:
     err
 
-template assertErrFields*(expr: untyped, tn, expectedMsg, val: string) =
-  ## Verifies error fields on a Result.
+template assertErrFields*(expr: untyped, tn, expectedReason, val: string) =
+  ## Verifies error fields on a Result. Compares against the raw
+  ## ``reason`` field; use ``assertErrContains`` for substring checks
+  ## against the composed ``message()`` projection.
   let res = expr
   doAssert res.isErr, "expected Err result, got Ok"
   let e = toValidationShape(res.error)
   doAssert e.typeName == tn, "typeName: expected " & tn & ", got " & e.typeName
-  doAssert e.message == expectedMsg,
-    "message: expected " & expectedMsg & ", got " & e.message
+  doAssert e.reason == expectedReason,
+    "reason: expected " & expectedReason & ", got " & e.reason
   doAssert e.value == val, "value: expected " & val & ", got " & e.value
 
 template assertErrType*(expr: untyped, tn: string) =
@@ -65,11 +81,11 @@ template assertErrType*(expr: untyped, tn: string) =
   doAssert res.isErr, "expected Err result, got Ok"
   doAssert toValidationShape(res.error).typeName == tn
 
-template assertErrMsg*(expr: untyped, expectedMsg: string) =
-  ## Verifies the message field of a Result error.
+template assertErrMsg*(expr: untyped, expectedReason: string) =
+  ## Verifies the raw ``reason`` field of a Result error.
   let res = expr
   doAssert res.isErr, "expected Err result, got Ok"
-  doAssert toValidationShape(res.error).message == expectedMsg
+  doAssert toValidationShape(res.error).reason == expectedReason
 
 template assertSome*(o: untyped) =
   doAssert o.isSome, "expected Some, got None"
@@ -84,10 +100,11 @@ template assertEq*(actual, expected: untyped) =
   doAssert a == e, "expected " & $e & ", got " & $a
 
 template assertErrContains*(expr: untyped, substring: string) =
-  ## Verifies the message field of a Result error contains a substring.
+  ## Verifies the composed ``message()`` projection of a Result error
+  ## contains a substring.
   let res = expr
   doAssert res.isErr, "expected Err result, got Ok"
-  let m = toValidationShape(res.error).message
+  let m = toValidationShape(res.error).reason
   doAssert strutils.contains(m, substring),
     "expected message containing '" & substring & "', got '" & m & "'"
 
@@ -135,9 +152,8 @@ template assertSvTranslated*(expr: untyped, rootType: string, substring: string)
   let res = expr
   doAssert res.isErr, "expected Err result, got Ok"
   let ve = toValidationError(res.error, rootType)
-  doAssert strutils.contains(ve.message, substring),
-    "expected translated message containing '" & substring & "', got '" & ve.message &
-      "'"
+  doAssert strutils.contains(ve.reason, substring),
+    "expected translated message containing '" & substring & "', got '" & ve.reason & "'"
 
 template assertOkEq*(expr: untyped, expected: untyped) =
   ## Evaluates expr (Result) and verifies its Ok value equals expected.

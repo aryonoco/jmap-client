@@ -28,22 +28,24 @@ import std/strutils
 
 import results
 
-import jmap_client/identifiers
-import jmap_client/mail/email
-import jmap_client/mail/email_update
-import jmap_client/mail/mailbox
-import jmap_client/mail/serde_email_update
-import jmap_client/primitives
-import jmap_client/serde
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/email_update
+import jmap_client/internal/mail/mailbox
+import jmap_client/internal/mail/serde_email_update
+import jmap_client/internal/types/primitives
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_diagnostics
 
 import ../massertions
 import ../mproperty
+import ../mtestblock
 
 # =============================================================================
 # B — initEmailUpdateSet totality
 # =============================================================================
 
-block propTotalityInitEmailUpdateSet: # B
+testCase propTotalityInitEmailUpdateSet: # B
   ## Property: ``initEmailUpdateSet`` is total — for every
   ## ``openArray[EmailUpdate]`` the ctor returns ``Ok`` xor ``Err``,
   ## never panicking. ``Result[_, _]``'s type already encodes the
@@ -88,7 +90,7 @@ func hasDuplicateCreationId(entries: openArray[(CreationId, EmailImportItem)]): 
     seen.incl cid
   return false
 
-block propNonEmptyEmailImportMapDuplicateKey: # C
+testCase propNonEmptyEmailImportMapDuplicateKey: # C
   ## Property: if the input has ≥ 1 duplicated ``CreationId``, then
   ## ``initNonEmptyEmailImportMap`` rejects with ≥ 1 accumulated
   ## violation.
@@ -116,7 +118,7 @@ block propNonEmptyEmailImportMapDuplicateKey: # C
 # D — RFC 6901 escape bijectivity
 # =============================================================================
 
-block propEscapeBijectivity: # D
+testCase propEscapeBijectivity: # D
   ## Property: ``jsonPointerEscape`` is injective — distinct inputs
   ## produce distinct outputs, so the RFC 6901 wire form round-trips
   ## adversarial keyword pairs without collision.
@@ -162,7 +164,7 @@ func isValidSection53Value(key: string, value: JsonNode): bool =
     return value.kind == JBool or value.kind == JNull
   false
 
-block propToJsonEmailUpdateSetShape: # E
+testCase propToJsonEmailUpdateSetShape: # E
   ## Property: ``toJson(EmailUpdateSet)`` produces a ``JObject`` whose
   ## key count equals the input's update count (all-distinct keys,
   ## preserving ``initEmailUpdateSet``'s Class 1 conflict rejection
@@ -173,7 +175,7 @@ block propToJsonEmailUpdateSetShape: # E
   ## property inherits those via the generator's internal schedule.
   checkProperty "toJson(EmailUpdateSet) emits RFC 8620 §5.3-shaped pairs":
     let updateSet = rng.genEmailUpdateSet(trial)
-    let inputLen = seq[EmailUpdate](updateSet).len
+    let inputLen = updateSet.toSeq.len
     lastInput = "trial=" & $trial & " len=" & $inputLen
     let node = updateSet.toJson()
     doAssert node.kind == JObject,
@@ -192,7 +194,7 @@ block propToJsonEmailUpdateSetShape: # E
 # F — moveToMailbox ≡ setMailboxIds over full Id charset
 # =============================================================================
 
-block propMoveToMailboxEquivSetMailboxIds: # F
+testCase propMoveToMailboxEquivSetMailboxIds: # F
   ## Property: ``moveToMailbox(id)`` and
   ## ``setMailboxIds(parseNonEmptyMailboxIdSet(@[id]).get())`` produce
   ## structurally-equal ``EmailUpdate`` values for every ``id`` in the
@@ -211,7 +213,7 @@ block propMoveToMailboxEquivSetMailboxIds: # F
   ## ``NonEmptyMailboxIdSet``.
   checkPropertyN "moveToMailbox(id) ≡ setMailboxIds(@[id]-set)", QuickTrials:
     let raw = rng.genValidIdStrict(trial)
-    let id = Id(raw)
+    let id = parseIdFromServer(raw).get()
     lastInput = "id=" & raw
     let viaMove = moveToMailbox(id)
     let viaSet = setMailboxIds(parseNonEmptyMailboxIdSet(@[id]).get())

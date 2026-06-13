@@ -14,9 +14,11 @@
 import std/json
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedVacationGet:
+testCase tcapturedVacationGet:
   forEachCapturedServer("vacation-get-singleton", j):
     # Two server-specific shapes are RFC-conformant here:
     #   * Stalwart and James implement VacationResponse and emit an
@@ -40,8 +42,7 @@ block tcapturedVacationGet:
         )
       doAssert getResp.list.len == 1,
         "VacationResponse is a singleton — exactly one entry expected"
-      let vr =
-        VacationResponse.fromJson(getResp.list[0]).expect("VacationResponse.fromJson")
+      let vr = getResp.list[0]
       doAssert vr.isEnabled, "captured fixture corresponds to enabled state"
       doAssert vr.subject.isSome, "captured fixture sets a subject"
       doAssert vr.textBody.isSome, "captured fixture sets a textBody"
@@ -52,5 +53,5 @@ block tcapturedVacationGet:
       doAssert rt.textBody == vr.textBody, "textBody must round-trip"
     else:
       let re = RequestError.fromJson(j).expect("RequestError.fromJson")
-      doAssert re.errorType == retUnknownCapability,
-        "Cyrus rejection must project as retUnknownCapability; got " & $re.errorType
+      doAssert re.kind == retUnknownCapability,
+        "Cyrus rejection must project as retUnknownCapability; got " & $re.kind

@@ -352,9 +352,9 @@ Body:
 - Build chained calls:
   1. `addEmailQuery(b, accountId, filter = subject contains
      "chainquery6", limit = 50)`.
-  2. `addEmailGet(b, accountId, ids =
-     queryHandle.idsRef(), properties = ["id", "subject", "from",
-     "receivedAt"])`.
+  2. `addEmailGet(b, accountId, ids = referenceTo[seq[Id]](
+     reference(queryHandle, mnEmailQuery, rpIds)), properties =
+     ["id", "subject", "from", "receivedAt"])`.
 - Send the combined request. Assert query and get list lengths
   match; assert the seeded subject appears in the get list.
 - Cleanup: `Email/set destroy` for the seed so re-runs stay

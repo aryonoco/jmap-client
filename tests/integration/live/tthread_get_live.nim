@@ -19,25 +19,19 @@
 ## preserved per RFC 8621 §3 — the retry loop accommodates server
 ## asynchrony, not a parser limitation.
 
-import std/json
 import std/os
 
 import results
 import jmap_client
-import jmap_client/client
-import jmap_client/mail/thread as jthread
+import jmap_client/internal/mail/thread as jthread
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tthreadGetLive:
+testCase tthreadGetLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -52,49 +46,43 @@ block tthreadGetLive:
       .expect("seedSimpleEmail[" & $target.kind & "]")
 
     # --- Resolve threadId via Email/get ----------------------------------
-    let (b1, emailHandle) = addEmailGet(
-      initRequestBuilder(),
+    let (b1, emailHandle) = addPartialEmailGet(
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "threadId"]),
+      properties = parseNonEmptySeq(@[egpId, egpThreadId]).get(),
     )
-    let resp1 = client.send(b1).expect("send Email/get[" & $target.kind & "]")
+    let resp1 = client.send(b1.freeze()).expect("send Email/get[" & $target.kind & "]")
     let emailResp =
       resp1.get(emailHandle).expect("Email/get extract[" & $target.kind & "]")
     assertOn target, emailResp.list.len == 1, "Email/get must return the seeded message"
-    let threadIdNode = emailResp.list[0]{"threadId"}
+    let threadIdOpt = emailResp.list[0].threadId
     assertOn target,
-      not threadIdNode.isNil,
-      "Email/get must include threadId when requested in properties"
-    let threadId = parseIdFromServer(threadIdNode.getStr("")).expect(
-        "parseIdFromServer threadId[" & $target.kind & "]"
-      )
+      threadIdOpt.isSome, "Email/get must include threadId when requested in properties"
+    let threadId = threadIdOpt.unsafeGet
 
     # --- Thread/get with bounded retry for async population --------------
     var thread = Opt.none(jthread.Thread)
     for attempt in 0 ..< 5:
-      let (b2, threadHandle) = addGet[jthread.Thread](
-        initRequestBuilder(), mailAccountId, ids = directIds(@[threadId])
+      let (b2, threadHandle) = addThreadGet(
+        initRequestBuilder(makeBuilderId()), mailAccountId, ids = directIds(@[threadId])
       )
-      let resp2 = client.send(b2).expect("send Thread/get[" & $target.kind & "]")
+      let resp2 =
+        client.send(b2.freeze()).expect("send Thread/get[" & $target.kind & "]")
       let threadResp =
         resp2.get(threadHandle).expect("Thread/get extract[" & $target.kind & "]")
       if threadResp.list.len == 1:
-        let parsed = jthread.Thread.fromJson(threadResp.list[0])
-        if parsed.isOk:
-          thread = Opt.some(parsed.get())
-          break
+        thread = Opt.some(threadResp.list[0])
+        break
       sleep(100)
 
     assertOn target,
       thread.isSome, "Thread/get must return the seeded thread within 500 ms"
-    captureIfRequested(client, "thread-get-" & $target.kind).expect(
+    captureIfRequested(recorder.lastResponseBody, "thread-get-" & $target.kind).expect(
       "captureIfRequested[" & $target.kind & "]"
     )
     let t = thread.get()
     assertOn target,
-      string(t.id) == string(threadId),
-      "returned Thread.id must match the threadId from Email/get"
+      $t.id == $threadId, "returned Thread.id must match the threadId from Email/get"
     assertOn target,
       seededId in t.emailIds, "seeded EmailId must appear in Thread.emailIds"
-    client.close()

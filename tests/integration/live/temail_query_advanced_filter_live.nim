@@ -45,15 +45,15 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 const LargeBodyLen = 4096
 
 proc seedLargeEmail(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     inbox: Id,
     subject, creationLabel: string,
@@ -85,11 +85,12 @@ proc seedLargeEmail(
   let cid = parseCreationId(creationLabel).expect("parseCreationId large")
   var createTbl = initTable[CreationId, EmailBlueprint]()
   createTbl[cid] = blueprint
-  let (b, setHandle) =
-    addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-  let resp = client.send(b).expect("send Email/set large")
+  let (b, setHandle) = addEmailSet(
+    initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+  )
+  let resp = client.send(b.freeze()).expect("send Email/set large")
   let setResp = resp.get(setHandle).expect("Email/set large extract")
-  var seededId = Id("")
+  var seededId = parseIdFromServer("placeholder").get()
   var found = false
   setResp.createResults.withValue(cid, outcome):
     let item = outcome.expect("Email/set create large")
@@ -101,7 +102,7 @@ proc seedLargeEmail(
   seededId
 
 proc assertInMailbox(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     archiveId: Id,
     archiveSeed: Id,
@@ -110,9 +111,10 @@ proc assertInMailbox(
   ## Sub-test A: filter inMailbox=archiveId surfaces archive seed
   ## and excludes the inbox seeds.
   let filter = filterCondition(EmailFilterCondition(inMailbox: Opt.some(archiveId)))
-  let (b, h) =
-    addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-  let resp = client.send(b).expect("send Email/query inMailbox")
+  let (b, h) = addEmailQuery(
+    initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
+  )
+  let resp = client.send(b.freeze()).expect("send Email/query inMailbox")
   let qr = resp.get(h).expect("Email/query inMailbox extract")
   var foundArchive = false
   for id in qr.ids:
@@ -120,12 +122,11 @@ proc assertInMailbox(
       foundArchive = true
     for inboxId in inboxSeeds:
       doAssert id != inboxId,
-        "inMailbox=archive must not surface any inbox-only emails (got " & string(id) &
-          ")"
+        "inMailbox=archive must not surface any inbox-only emails (got " & $id & ")"
   doAssert foundArchive, "archive seed must surface under inMailbox=archiveId"
 
 proc assertInMailboxOtherThanMinSize(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     archiveId: Id,
     largeId: Id,
@@ -137,12 +138,14 @@ proc assertInMailboxOtherThanMinSize(
   ## typed error is acceptable.
   let filter = filterCondition(
     EmailFilterCondition(
-      inMailboxOtherThan: Opt.some(@[archiveId]), minSize: Opt.some(UnsignedInt(1000))
+      inMailboxOtherThan: Opt.some(@[archiveId]),
+      minSize: Opt.some(parseUnsignedInt(1000).get()),
     )
   )
-  let (b, h) =
-    addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-  let resp = client.send(b).expect("send Email/query minSize")
+  let (b, h) = addEmailQuery(
+    initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
+  )
+  let resp = client.send(b.freeze()).expect("send Email/query minSize")
   let qrExtract = resp.get(h)
   if qrExtract.isOk:
     let qr = qrExtract.unsafeValue
@@ -152,18 +155,25 @@ proc assertInMailboxOtherThanMinSize(
         foundLarge = true
       for smallId in smallIds:
         doAssert id != smallId,
-          "minSize=1000 must not surface small emails (got " & string(id) & ")"
+          "minSize=1000 must not surface small emails (got " & $id & ")"
     doAssert foundLarge, "large 4 KB email must surface under minSize=1000 filter"
   else:
     # Cat-B error arm — server rejected the nested FilterOperator
     # shape.
-    let methodErr = qrExtract.unsafeError
-    doAssert methodErr.errorType in
+    let getErr = qrExtract.unsafeError
+    doAssert getErr.kind == gekMethod,
+      "filter rejection must surface as gekMethod, not gekHandleMismatch"
+    let methodErr = getErr.methodErr
+    doAssert methodErr.kind in
       {metInvalidArguments, metUnsupportedFilter, metUnknownMethod},
       "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
 
 proc assertHasAttachment(
-    client: var JmapClient, mailAccountId: AccountId, attachId: Id, targetSuffix: string
+    client: JmapClient,
+    recorder: RecordingTransportState,
+    mailAccountId: AccountId,
+    attachId: Id,
+    targetSuffix: string,
 ) =
   ## Sub-test C: hasAttachment=true plus before=<future date> surfaces
   ## the attachment-bearing seed.
@@ -185,14 +195,16 @@ proc assertHasAttachment(
     return
   let future = parseUtcDate("2099-01-01T00:00:00Z").expect("parseUtcDate future")
   let filter = filterCondition(
-    EmailFilterCondition(hasAttachment: Opt.some(true), before: Opt.some(future))
+    EmailFilterCondition(hasAttachment: hafYes, before: Opt.some(future))
   )
-  let (b, h) =
-    addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-  let resp = client.send(b).expect("send Email/query hasAttachment")
-  captureIfRequested(client, "email-query-advanced-filter-" & targetSuffix).expect(
-    "captureIfRequested"
+  let (b, h) = addEmailQuery(
+    initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
   )
+  let resp = client.send(b.freeze()).expect("send Email/query hasAttachment")
+  captureIfRequested(
+    recorder.lastResponseBody, "email-query-advanced-filter-" & targetSuffix
+  )
+    .expect("captureIfRequested")
   let qr = resp.get(h).expect("Email/query hasAttachment extract")
   var foundAttach = false
   for id in qr.ids:
@@ -202,7 +214,7 @@ proc assertHasAttachment(
   doAssert foundAttach,
     "attachment-bearing email must surface under hasAttachment=true + before=future"
 
-block temailQueryAdvancedFilterLive:
+testCase temailQueryAdvancedFilterLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises advanced EmailFilterCondition
     # variants. Stalwart 0.15.5 and Cyrus 3.12.2 accept the full
@@ -210,12 +222,7 @@ block temailQueryAdvancedFilterLive:
     # ``inMailboxOtherThan`` nested in FilterOperator and ``hasAttachment``
     # inline-bodyValues attachments — typed errors surface in either
     # the seed step (inline-bodyValues) or the filter extract.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -242,7 +249,6 @@ block temailQueryAdvancedFilterLive:
       # Cat-B error arm: server (e.g. James) rejected the inline-
       # bodyValues attachment. The typed-error projection has fired
       # inside ``seedMixedEmail`` — skip the dependent sub-tests.
-      client.close()
       continue
     let attachId = attachRes.unsafeValue
     let archiveSeeds = seedEmailsIntoMailbox(
@@ -256,6 +262,4 @@ block temailQueryAdvancedFilterLive:
     assertInMailboxOtherThanMinSize(
       client, mailAccountId, archive, largeId, smallInbox & @[archiveSeed]
     )
-    assertHasAttachment(client, mailAccountId, attachId, $target.kind)
-
-    client.close()
+    assertHasAttachment(client, recorder, mailAccountId, attachId, $target.kind)

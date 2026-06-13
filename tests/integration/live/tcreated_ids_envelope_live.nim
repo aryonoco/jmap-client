@@ -8,7 +8,7 @@
 ## > If sent, the server MUST include the same map as the value of
 ## > the createdIds property in the response.
 ##
-## ``RequestBuilder.build()`` hardcodes ``createdIds: Opt.none`` at
+## ``RequestBuilder.freeze().request`` hardcodes ``createdIds: Opt.none`` at
 ## ``builder.nim:75-80``, so this contract is exercised only by
 ## constructing a ``Request`` value manually.  Cross-method creation-
 ## id references (``"ids": ["#draft1"]`` resolving to the create-cid
@@ -21,19 +21,17 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
+import jmap_client/internal/types/envelope
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tcreatedIdsEnvelopeLive:
+testCase tcreatedIdsEnvelopeLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    let client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -46,7 +44,7 @@ block tcreatedIdsEnvelopeLive:
 
     # Sub-test 1: outgoing createdIds round-trip with a Core/echo
     # invocation.  Build the Request value directly so createdIds
-    # can be set; ``RequestBuilder.build()`` hardcodes none.
+    # can be set; ``RequestBuilder.freeze().request`` hardcodes none.
     block outgoingCreatedIdsCase:
       let realEmailId = seedSimpleEmail(
           client, mailAccountId, inbox, "phase-j 68 createdIds seed", "phase-j-68-seed"
@@ -58,18 +56,22 @@ block tcreatedIdsEnvelopeLive:
       seedMap[knownCid] = realEmailId
 
       let echoArgs = %*{"phase-j-68": "createdIds-roundtrip"}
-      let (b, _) = initRequestBuilder().addEcho(echoArgs)
-      let baseReq = b.build()
-      let req = Request(
-        `using`: baseReq.`using`,
-        methodCalls: baseReq.methodCalls,
-        createdIds: Opt.some(seedMap),
-      )
-      let resp =
-        client.send(req).expect("send Core/echo with createdIds[" & $target.kind & "]")
-      captureIfRequested(client, "created-ids-envelope-" & $target.kind).expect(
+      let (b, _) = initRequestBuilder(makeBuilderId()).addEcho(echoArgs)
+      let baseReq = b.freeze().request
+      # The public ``send(BuiltRequest)`` path always emits
+      # ``createdIds: none`` (P21: ``BuiltRequest`` is the sealed
+      # frozen carrier; ``createdIds`` is a Layer-4-only proxy
+      # concern). To exercise the RFC 8620 §3.3 server-echo
+      # contract, drop into ``postRawJmap`` which POSTs a custom
+      # body verbatim via a private one-shot Transport.
+      let req = initRequest(baseReq.`using`, baseReq.methodCalls, Opt.some(seedMap))
+      let (respBody, respResult) =
+        postRawJmap(target, session, $req.toJson(), target.aliceCredential)
+      captureIfRequested(respBody, "created-ids-envelope-" & $target.kind).expect(
         "captureIfRequested createdIds"
       )
+      let resp =
+        respResult.expect("send Core/echo with createdIds[" & $target.kind & "]")
 
       # RFC 8620 §3.3 mandates the server MUST echo createdIds when
       # the client sends them.  Set-membership on Stalwart's choice
@@ -80,17 +82,19 @@ block tcreatedIdsEnvelopeLive:
         var echoed = resp.createdIds.unsafeGet
         echoed.withValue(knownCid, v):
           assertOn target,
-            string(v[]) == string(realEmailId),
-            "echoed createdIds entry must match the supplied id"
+            $v[] == $realEmailId, "echoed createdIds entry must match the supplied id"
         do:
           assertOn target, false, "echoed createdIds must contain knownCid"
 
       # Cleanup: destroy seed.
       let (bClean, cleanHandle) = addEmailSet(
-        initRequestBuilder(), mailAccountId, destroy = directIds(@[realEmailId])
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        destroy = directIds(@[realEmailId]),
       )
-      let respClean =
-        client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+      let respClean = client.send(bClean.freeze()).expect(
+          "send Email/set cleanup[" & $target.kind & "]"
+        )
       let cleanResp = respClean.get(cleanHandle).expect(
           "Email/set cleanup extract[" & $target.kind & "]"
         )
@@ -130,16 +134,17 @@ block tcreatedIdsEnvelopeLive:
         parseCreationId("draft1").expect("parseCreationId[" & $target.kind & "]")
       var createTbl = initTable[CreationId, EmailBlueprint]()
       createTbl[draft1Cid] = blueprint
-      let (b1, setHandle) =
-        addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-      # ``Id("#draft1")`` is the wire-shape way to reference a
+      let (b1, setHandle) = addEmailSet(
+        initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+      )
+      # ``parseIdFromServer("#draft1").get()`` is the wire-shape way to reference a
       # creation id in the same envelope.  parseId accepts any
       # non-empty 1-255 ASCII; the bare ``Id`` cast bypasses the
       # smart constructor.
-      let creationRefId = Id("#draft1")
+      let creationRefId = parseIdFromServer("#draft1").get()
       let (b2, getHandle) =
         addEmailGet(b1, mailAccountId, ids = directIds(@[creationRefId]))
-      let resp = client.send(b2).expect(
+      let resp = client.send(b2.freeze()).expect(
           "send Email/set+Email/get with creation ref[" & $target.kind & "]"
         )
       let setResp =
@@ -160,18 +165,20 @@ block tcreatedIdsEnvelopeLive:
         getResp.list.len == 1,
         "Email/get with #draft1 must return the freshly created Email; got " &
           $getResp.list.len
-      let email =
-        Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+      let email = getResp.list[0]
       assertOn target,
         email.id.isSome and email.id.unsafeGet == seededId,
         "Email/get with #draft1 must return the same id Email/set assigned"
 
       # Cleanup: destroy the freshly created draft.
       let (bClean, cleanHandle) = addEmailSet(
-        initRequestBuilder(), mailAccountId, destroy = directIds(@[seededId])
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        destroy = directIds(@[seededId]),
       )
-      let respClean =
-        client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+      let respClean = client.send(bClean.freeze()).expect(
+          "send Email/set cleanup[" & $target.kind & "]"
+        )
       let cleanResp = respClean.get(cleanHandle).expect(
           "Email/set cleanup extract[" & $target.kind & "]"
         )
@@ -179,5 +186,3 @@ block tcreatedIdsEnvelopeLive:
         assertOn target, outcome.isOk, "cleanup destroy must succeed"
       do:
         assertOn target, false, "cleanup must report an outcome"
-
-    client.close()

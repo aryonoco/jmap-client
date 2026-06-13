@@ -3,10 +3,10 @@
 
 ## LIBRARY CONTRACT: ``SetError.fromJson`` projects every wire
 ## ``type`` URI Stalwart returns for per-item /set failures into the
-## closed ``SetErrorType`` enum AND preserves ``rawType`` losslessly.
+## closed ``SetErrorKind`` enum AND preserves ``rawType`` losslessly.
 ## The case-object payload arms — ``setInvalidProperties.properties``
 ## (RFC 8620 §5.3) and ``setBlobNotFound.notFound`` (RFC 8621 §4.6) —
-## deserialise the wire payload correctly. ``parseSetErrorType`` is
+## deserialise the wire payload correctly. ``parseSetErrorKind`` is
 ## total: unknown URIs project to ``setUnknown``.
 ##
 ## Phase J Step 63.  Four sub-tests drive Stalwart through four
@@ -31,19 +31,15 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
+import jmap_client/internal/types/envelope
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tsetErrorTypedProjectionLive:
+testCase tsetErrorTypedProjectionLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -61,15 +57,19 @@ block tsetErrorTypedProjectionLive:
       # destroyResults — Stalwart's Id parser rejects it before it
       # reaches the not-found classifier.  ``zzzz`` is a well-formed
       # short Id Stalwart will look up and reject as not-found.
-      let syntheticId = Id("zzzzz")
+      let syntheticId = parseIdFromServer("zzzzz").get()
       let (b, setHandle) = addEmailSet(
-        initRequestBuilder(), mailAccountId, destroy = directIds(@[syntheticId])
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        destroy = directIds(@[syntheticId]),
       )
-      let resp =
-        client.send(b).expect("send Email/set destroy synthetic[" & $target.kind & "]")
-      captureIfRequested(client, "set-error-not-found-" & $target.kind).expect(
-        "captureIfRequested setNotFound"
+      let resp = client.send(b.freeze()).expect(
+          "send Email/set destroy synthetic[" & $target.kind & "]"
+        )
+      captureIfRequested(
+        recorder.lastResponseBody, "set-error-not-found-" & $target.kind
       )
+        .expect("captureIfRequested setNotFound")
       let setResp =
         resp.get(setHandle).expect("Email/set extract[" & $target.kind & "]")
       var rejected = false
@@ -78,9 +78,8 @@ block tsetErrorTypedProjectionLive:
         let se = outcome.error
         assertOn target, se.rawType.len > 0, "rawType must be losslessly preserved"
         assertOn target,
-          se.errorType in {setNotFound, setForbidden, setUnknown},
-          "errorType must project into the closed SetErrorType enum, got " &
-            $se.errorType
+          se.kind in {setNotFound, setForbidden, setUnknown},
+          "errorType must project into the closed SetErrorKind enum, got " & $se.kind
         rejected = true
       do:
         assertOn target, false, "Email/set must report an outcome for the synthetic id"
@@ -99,17 +98,20 @@ block tsetErrorTypedProjectionLive:
       )
       .expect("seedSimpleEmail[" & $target.kind & "]")
     block setInvalidPatchCase:
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Email/set",
-          arguments = %*{
-            "accountId": $mailAccountId,
-            "update": {string(seedId): {"phaseJSyntheticProperty": "phase-j 63 patch"}},
-          },
-        )
-        .expect("sendRawInvocation setInvalidPatch[" & $target.kind & "]")
-      captureIfRequested(client, "set-error-invalid-patch-" & $target.kind).expect(
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceCredential,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Email/set",
+        arguments = %*{
+          "accountId": $mailAccountId,
+          "update": {$seedId: {"phaseJSyntheticProperty": "phase-j 63 patch"}},
+        },
+      )
+      let resp =
+        respResult.expect("sendRawInvocation setInvalidPatch[" & $target.kind & "]")
+      captureIfRequested(respBody, "set-error-invalid-patch-" & $target.kind).expect(
         "captureIfRequested setInvalidPatch"
       )
       assertOn target, resp.methodResponses.len == 1
@@ -118,19 +120,17 @@ block tsetErrorTypedProjectionLive:
         inv.rawName == "Email/set" or inv.rawName == "error",
         "expected Email/set or error, got " & inv.rawName
       if inv.rawName == "Email/set":
-        let setResp = SetResponse[EmailCreatedItem].fromJson(inv.arguments).expect(
-            "SetResponse.fromJson"
-          )
+        let setResp = SetResponse[EmailCreatedItem, PartialEmail]
+          .fromJson(inv.arguments)
+          .expect("SetResponse.fromJson")
         var rejected = false
         setResp.updateResults.withValue(seedId, outcome):
           assertOn target, outcome.isErr, "update with unknown property must Err"
           let se = outcome.error
           assertOn target, se.rawType.len > 0, "rawType must be losslessly preserved"
           assertOn target,
-            se.errorType in
-              {setInvalidPatch, setInvalidProperties, setForbidden, setUnknown},
-            "errorType must project into the closed SetErrorType enum, got " &
-              $se.errorType
+            se.kind in {setInvalidPatch, setInvalidProperties, setForbidden, setUnknown},
+            "errorType must project into the closed SetErrorKind enum, got " & $se.kind
           rejected = true
         do:
           assertOn target, false, "Email/set must report an outcome for the seeded id"
@@ -141,34 +141,36 @@ block tsetErrorTypedProjectionLive:
           )
         assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
         assertOn target,
-          me.errorType in
-            {metInvalidArguments, metUnknownMethod, metServerFail, metUnknown},
-          "method-level fallback must project into the closed enum, got " & $me.errorType
+          me.kind in {metInvalidArguments, metUnknownMethod, metServerFail, metUnknown},
+          "method-level fallback must project into the closed enum, got " & $me.kind
 
     # Sub-test 3: Email/set create attempting to set the server-assigned
     # immutable ``id`` field.  RFC 8620 §5.3 mandates rejection with
     # ``setInvalidProperties``; the SetError arm carries the offending
     # property names in ``properties``.
     block setInvalidPropertiesCase:
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Email/set",
-          arguments = %*{
-            "accountId": $mailAccountId,
-            "create": {
-              "phaseJ63": {
-                "id": "client-supplied-id",
-                "subject": "phase-j 63 invalidProperties",
-                "mailboxIds": {string(inbox): true},
-              }
-            },
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceCredential,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Email/set",
+        arguments = %*{
+          "accountId": $mailAccountId,
+          "create": {
+            "phaseJ63": {
+              "id": "client-supplied-id",
+              "subject": "phase-j 63 invalidProperties",
+              "mailboxIds": {$inbox: true},
+            }
           },
-        )
-        .expect("sendRawInvocation setInvalidProperties[" & $target.kind & "]")
-      captureIfRequested(client, "set-error-invalid-properties-" & $target.kind).expect(
-        "captureIfRequested setInvalidProperties"
+        },
       )
+      let resp = respResult.expect(
+        "sendRawInvocation setInvalidProperties[" & $target.kind & "]"
+      )
+      captureIfRequested(respBody, "set-error-invalid-properties-" & $target.kind)
+        .expect("captureIfRequested setInvalidProperties")
       assertOn target, resp.methodResponses.len == 1
       let inv = resp.methodResponses[0]
       # RFC 8620 §5.3 lets servers reject an immutable-property create
@@ -180,9 +182,9 @@ block tsetErrorTypedProjectionLive:
       # method-level ``invalidArguments``. Both paths are RFC-conformant
       # — the library projection contract is what's under test.
       if inv.rawName == "Email/set":
-        let setResp = SetResponse[EmailCreatedItem].fromJson(inv.arguments).expect(
-            "SetResponse.fromJson"
-          )
+        let setResp = SetResponse[EmailCreatedItem, PartialEmail]
+          .fromJson(inv.arguments)
+          .expect("SetResponse.fromJson")
         let cidLabel =
           parseCreationId("phaseJ63").expect("parseCreationId[" & $target.kind & "]")
         var rejected = false
@@ -191,10 +193,9 @@ block tsetErrorTypedProjectionLive:
           let se = outcome.error
           assertOn target, se.rawType.len > 0, "rawType must be losslessly preserved"
           assertOn target,
-            se.errorType in {setInvalidProperties, setForbidden, setUnknown},
-            "errorType must project into the closed SetErrorType enum, got " &
-              $se.errorType
-          if se.errorType == setInvalidProperties:
+            se.kind in {setInvalidProperties, setForbidden, setUnknown},
+            "errorType must project into the closed SetErrorKind enum, got " & $se.kind
+          if se.kind == setInvalidProperties:
             assertOn target,
               se.properties.len >= 1,
               "setInvalidProperties payload arm must carry at least one " &
@@ -213,9 +214,8 @@ block tsetErrorTypedProjectionLive:
           )
         assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
         assertOn target,
-          me.errorType in
-            {metInvalidArguments, metUnknownMethod, metServerFail, metUnknown},
-          "method-level fallback must project into the closed enum, got " & $me.errorType
+          me.kind in {metInvalidArguments, metUnknownMethod, metServerFail, metUnknown},
+          "method-level fallback must project into the closed enum, got " & $me.kind
 
     # Sub-test 4: Email/import with a synthetic BlobId that does not
     # resolve.  RFC 8621 §4.6 mandates ``setBlobNotFound`` with the
@@ -229,20 +229,21 @@ block tsetErrorTypedProjectionLive:
     # fixture pins Stalwart's specific projection byte-for-byte.
     block setBlobNotFoundCase:
       let syntheticBlobId = "phaseJSyntheticBlob" & "z".repeat(8)
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Email/import",
-          arguments = %*{
-            "accountId": $mailAccountId,
-            "emails": {
-              "phaseJ63blob":
-                {"blobId": syntheticBlobId, "mailboxIds": {string(inbox): true}}
-            },
-          },
-        )
-        .expect("sendRawInvocation setBlobNotFound[" & $target.kind & "]")
-      captureIfRequested(client, "set-error-blob-not-found-" & $target.kind).expect(
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceCredential,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Email/import",
+        arguments = %*{
+          "accountId": $mailAccountId,
+          "emails":
+            {"phaseJ63blob": {"blobId": syntheticBlobId, "mailboxIds": {$inbox: true}}},
+        },
+      )
+      let resp =
+        respResult.expect("sendRawInvocation setBlobNotFound[" & $target.kind & "]")
+      captureIfRequested(respBody, "set-error-blob-not-found-" & $target.kind).expect(
         "captureIfRequested setBlobNotFound"
       )
       assertOn target, resp.methodResponses.len == 1
@@ -263,15 +264,13 @@ block tsetErrorTypedProjectionLive:
           let se = outcome.error
           assertOn target, se.rawType.len > 0, "rawType must be losslessly preserved"
           assertOn target,
-            se.errorType in
-              {setBlobNotFound, setInvalidProperties, setForbidden, setUnknown},
-            "errorType must project into the closed SetErrorType enum, got " &
-              $se.errorType
-          if se.errorType == setBlobNotFound:
+            se.kind in {setBlobNotFound, setInvalidProperties, setForbidden, setUnknown},
+            "errorType must project into the closed SetErrorKind enum, got " & $se.kind
+          if se.kind == setBlobNotFound:
             assertOn target,
               se.notFound.len >= 1,
               "setBlobNotFound payload arm must carry the unresolved BlobIds"
-          elif se.errorType == setInvalidProperties:
+          elif se.kind == setInvalidProperties:
             assertOn target,
               se.properties.len >= 1,
               "setInvalidProperties payload arm must carry the offending " &
@@ -287,15 +286,16 @@ block tsetErrorTypedProjectionLive:
           )
         assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
         assertOn target,
-          me.errorType in
-            {metInvalidArguments, metUnknownMethod, metServerFail, metUnknown},
-          "method-level fallback must project into the closed enum, got " & $me.errorType
+          me.kind in {metInvalidArguments, metUnknownMethod, metServerFail, metUnknown},
+          "method-level fallback must project into the closed enum, got " & $me.kind
 
     # Cleanup: destroy seedId so re-runs are idempotent.
-    let (bClean, cleanHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[seedId]))
-    let respClean =
-      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let (bClean, cleanHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, destroy = directIds(@[seedId])
+    )
+    let respClean = client.send(bClean.freeze()).expect(
+        "send Email/set cleanup[" & $target.kind & "]"
+      )
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
@@ -303,5 +303,3 @@ block tsetErrorTypedProjectionLive:
       assertOn target, outcome.isOk, "cleanup destroy of seed must succeed"
     do:
       assertOn target, false, "cleanup must report an outcome for seedId"
-
-    client.close()

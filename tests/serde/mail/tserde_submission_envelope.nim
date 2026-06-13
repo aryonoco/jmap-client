@@ -10,16 +10,17 @@
 
 import std/json
 
-import jmap_client/mail/serde_submission_envelope
-import jmap_client/mail/submission_envelope
-import jmap_client/serde
-import jmap_client/types
+import jmap_client/internal/mail/serde_submission_envelope
+import jmap_client/internal/mail/submission_envelope
+import jmap_client/internal/serialisation/serde
+import jmap_client
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. Happy-path round-trip =============
 
-block roundTripEnvelopeWithRichParameters:
+testCase roundTripEnvelopeWithRichParameters:
   ## Build an envelope whose ``mailFrom`` carries five parameter families
   ## (BODY, SIZE, NOTIFY, ORCPT, extension) and whose ``rcptTo`` mixes a
   ## bare address with one carrying a RET parameter. Round-trip via JSON
@@ -31,7 +32,7 @@ block roundTripEnvelopeWithRichParameters:
   let senderParams = parseSubmissionParams(
       @[
         bodyParam(beEightBitMime),
-        sizeParam(UnsignedInt(12345)),
+        sizeParam(parseUnsignedInt(12345).get()),
         notify,
         orcptParam(orcptType, "alice@example.com"),
         extensionParam(kw, Opt.some("bar")),
@@ -81,7 +82,7 @@ block roundTripEnvelopeWithRichParameters:
 
 # ============= B. Null reverse-path wire shape =============
 
-block nullReversePathWireShape:
+testCase nullReversePathWireShape:
   ## RFC 5321 §4.1.1.2 null reverse-path ``<>`` projects to the wire
   ## shape ``{"email": "", "parameters": null}`` — the fingerprint that
   ## ``ReversePath.fromJson`` discriminates on.
@@ -107,7 +108,7 @@ block nullReversePathWireShape:
 
 # ============= C. Empty rcptTo rejection =============
 
-block emptyRcptToIsRejected:
+testCase emptyRcptToIsRejected:
   ## RFC 8621 §7 ¶5 mandates ``rcptTo`` be non-empty;
   ## ``parseNonEmptyRcptListFromServer`` rejects an empty array, surfacing
   ## as ``svkFieldParserFailed`` anchored at ``/rcptTo``.
@@ -119,7 +120,7 @@ block emptyRcptToIsRejected:
 
 # ============= D. ENVID + RET round-trip =============
 
-block paramEnvidAndRetRoundTrip:
+testCase paramEnvidAndRetRoundTrip:
   ## §8.3 parameter-family continuation (ENVID + RET). G32 reverse-path
   ## lift of a concrete mailbox; bare ``rcptTo``. RFC 3461 §4.4 (ENVID)
   ## and §5.3 (RET=FULL). Round-trip via JSON structural equality;
@@ -150,12 +151,12 @@ block paramEnvidAndRetRoundTrip:
 
 # ============= E. HOLDFOR + HOLDUNTIL round-trip =============
 
-block paramHoldForAndHoldUntilRoundTrip:
+testCase paramHoldForAndHoldUntilRoundTrip:
   ## §8.3 parameter-family continuation (HOLDFOR + HOLDUNTIL). G32
   ## reverse-path lift. RFC 4865 FUTURERELEASE (delay + absolute-time).
   ## Numeric parameters ride as JSON strings of decimal digits (RFC 8621
   ## §7.3.2); HOLDUNTIL as raw RFC 3339 Zulu.
-  let secs = parseHoldForSeconds(UnsignedInt(3600)).unsafeGet()
+  let secs = parseHoldForSeconds(parseUnsignedInt(3600).get()).unsafeGet()
   let until = parseUtcDate("2026-12-31T23:59:59Z").unsafeGet()
   let senderParams =
     parseSubmissionParams(@[holdForParam(secs), holdUntilParam(until)]).unsafeGet()
@@ -183,7 +184,7 @@ block paramHoldForAndHoldUntilRoundTrip:
 
 # ============= F. BY + MT-PRIORITY + SMTPUTF8 round-trip =============
 
-block paramByAndMtPriorityAndSmtpUtf8RoundTrip:
+testCase paramByAndMtPriorityAndSmtpUtf8RoundTrip:
   ## §8.3 parameter-family completion (BY + MT-PRIORITY + SMTPUTF8). G32
   ## reverse-path lift. RFC 2852 §3 (BY=<deadline>;<mode>), RFC 6710 §2
   ## (MT-PRIORITY), RFC 6531 §3.4 (SMTPUTF8 nullary). SMTPUTF8 emits
@@ -191,7 +192,11 @@ block paramByAndMtPriorityAndSmtpUtf8RoundTrip:
   ## SMTP extension.
   let pri = parseMtPriority(5).unsafeGet()
   let senderParams = parseSubmissionParams(
-      @[byParam(JmapInt(120), dbmReturn), mtPriorityParam(pri), smtpUtf8Param()]
+      @[
+        byParam(parseJmapInt(120).get(), dbmReturn),
+        mtPriorityParam(pri),
+        smtpUtf8Param(),
+      ]
     )
     .unsafeGet()
   let senderMailbox = parseRFC5321Mailbox("sender@example.com").unsafeGet()
@@ -220,14 +225,15 @@ block paramByAndMtPriorityAndSmtpUtf8RoundTrip:
 
 # ============= G. Null reverse path carrying Mail-parameters =============
 
-block reversePathNullWithParamsRoundTrip:
+testCase reversePathNullWithParamsRoundTrip:
   ## §8.3 ReversePath null-path parameter carriage. G32 / G33
   ## discriminator (``rpkNullPath`` arm) with ``nullPathParams =
   ## Opt.some``. RFC 5321 §4.1.1.2 permits Mail-parameters on the null
   ## reverse-path. Wire: ``{"email": "", "parameters": {...}}``;
   ## round-trip preserves both the null-path discriminator and the
   ## parameter bag.
-  let params = parseSubmissionParams(@[sizeParam(UnsignedInt(4096))]).unsafeGet()
+  let params =
+    parseSubmissionParams(@[sizeParam(parseUnsignedInt(4096).get())]).unsafeGet()
   let mailFrom = nullReversePath(Opt.some(params))
 
   let aliceMailbox = parseRFC5321Mailbox("alice@example.com").unsafeGet()
@@ -254,7 +260,7 @@ block reversePathNullWithParamsRoundTrip:
 
 # ============= H. Mailbox reverse path without parameters =============
 
-block reversePathMailboxWithoutParamsRoundTrip:
+testCase reversePathMailboxWithoutParamsRoundTrip:
   ## §8.3 ReversePath mailbox arm with ``parameters = Opt.none``. G33
   ## discriminator (``rpkMailbox`` arm) + G34 parameters nullability.
   ## Wire: ``{"email": "sender@example.com", "parameters": null}`` —
@@ -289,7 +295,7 @@ block reversePathMailboxWithoutParamsRoundTrip:
 
 # ============= I. Opt.none vs Opt.some(empty) distinction (G34) =============
 
-block parametersOptNoneDistinctFromEmptyObject:
+testCase parametersOptNoneDistinctFromEmptyObject:
   ## §8.3 G34 pin: ``Opt.none(SubmissionParams)`` and
   ## ``Opt.some(emptyParams)`` are wire-distinct and both must round-trip
   ## preserving the distinction. ``Opt.none`` serialises to JSON null;

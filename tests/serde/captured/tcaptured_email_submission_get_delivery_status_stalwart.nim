@@ -15,9 +15,11 @@
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailSubmissionGetDeliveryStatusStalwart:
+testCase tcapturedEmailSubmissionGetDeliveryStatusStalwart:
   let j = loadCapturedFixture("email-submission-get-delivery-status-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -31,22 +33,21 @@ block tcapturedEmailSubmissionGetDeliveryStatusStalwart:
   doAssert getResp.list.len == 1,
     "exactly one EmailSubmission expected (got " & $getResp.list.len & ")"
 
-  let any =
-    AnyEmailSubmission.fromJson(getResp.list[0]).expect("AnyEmailSubmission.fromJson")
+  let any = getResp.list[0]
   let finalOpt = any.asFinal()
   doAssert finalOpt.isSome,
     "captured submission has undoStatus==final; entity must project as usFinal"
   let sub = finalOpt.unsafeGet
 
   doAssert sub.deliveryStatus.isSome, "deliveryStatus must be populated"
-  let dsMap = (Table[RFC5321Mailbox, DeliveryStatus])(sub.deliveryStatus.unsafeGet)
+  let dsMap = sub.deliveryStatus.unsafeGet.toTable
   let bobMailbox =
     parseRFC5321Mailbox("bob@example.com").expect("parseRFC5321Mailbox bob")
   doAssert bobMailbox in dsMap,
     "deliveryStatus must carry an entry keyed by bob@example.com"
 
   let entry = dsMap[bobMailbox]
-  doAssert entry.smtpReply.replyCode == ReplyCode(250),
+  doAssert entry.smtpReply.replyCode.toUint16 == 250'u16,
     "captured Stalwart reply code must round-trip as 250 (got " &
       $entry.smtpReply.replyCode & ")"
   doAssert entry.smtpReply.enhanced.isSome,

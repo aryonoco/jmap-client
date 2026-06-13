@@ -1,0 +1,544 @@
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2026 Aryan Ameri
+
+## Custom builder functions and response types for Mailbox (RFC 8621 §2).
+## ``addGet[Mailbox]`` uses the generic builder (no custom overload needed).
+## Custom builders handle methods with extra parameters or custom response
+## types: ``addMailboxChanges`` (extended response), ``addMailboxQuery``
+## (sortAsTree, filterAsTree), ``addMailboxQueryChanges`` (explicit
+## parameter surface), ``addMailboxSet`` (onDestroyRemoveEmails, typed
+## MailboxCreate).
+
+{.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
+
+import std/json
+import std/tables
+
+import ../types
+import ../serialisation/serde_envelope
+import ../serialisation/serde_framework
+import ../serialisation/serde_primitives
+import ../protocol/methods
+import ../protocol/dispatch
+import ../protocol/builder
+import ../protocol/call_meta
+import ./mailbox
+import ./mailbox_changes_response
+import ./thread
+import ./email
+import ./email_blueprint
+import ./email_update
+import ./mail_filters
+import ./mail_entities
+import ./serde_mailbox
+import ./serde_thread
+import ./serde_email
+import ./serde_email_blueprint
+import ./serde_email_update
+import ./serde_mail_filters
+
+# =============================================================================
+# addMailboxChanges — Mailbox/changes (RFC 8621 §2.2)
+# =============================================================================
+
+func addMailboxChanges*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    sinceState: JmapState,
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
+): (RequestBuilder, ResponseHandle[MailboxChangesResponse]) =
+  ## Mailbox/changes (RFC 8621 §2.2). Thin alias over
+  ## ``addChanges[Mailbox, MailboxChangesResponse]``; the extended response
+  ## carries ``updatedProperties``.
+  addChanges[Mailbox, MailboxChangesResponse](b, accountId, sinceState, maxChanges)
+
+# =============================================================================
+# addMailboxGet — Mailbox/get (RFC 8621 §2.1)
+# =============================================================================
+
+func addMailboxGet*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+): (RequestBuilder, ResponseHandle[GetResponse[Mailbox]]) =
+  ## Full-record Mailbox/get (RFC 8621 §2.1). Thin delegate to
+  ## ``addGet[Mailbox]``. Exists so the typed per-entity surface is complete:
+  ## no caller need spell ``addGet[Mailbox]`` directly. For a typed property
+  ## projection, use ``addPartialMailboxGet`` (A3.6).
+  addGet[Mailbox](b, accountId, ids)
+
+func addPartialMailboxGet*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    properties: NonEmptySeq[MailboxGetProperty],
+): (RequestBuilder, ResponseHandle[GetResponse[PartialMailbox]]) =
+  ## Sparse Mailbox/get returning typed ``PartialMailbox`` (RFC 8621 §2.1 +
+  ## A3.6). The typed ``properties`` projection makes the canonical badge-count
+  ## fetch (e.g. ``@[mgpUnreadEmails, mgpTotalEmails]``) expressible without
+  ## reaching the strict full-record parser.
+  addGetSelected[PartialMailbox, MailboxGetProperty](b, accountId, ids, properties)
+
+# =============================================================================
+# addMailboxQuery — Mailbox/query (RFC 8621 §2.3)
+# =============================================================================
+
+func addMailboxQuery*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    filter: Opt[Filter[MailboxFilterCondition]] =
+      Opt.none(Filter[MailboxFilterCondition]),
+    sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
+    queryParams: QueryParams = QueryParams(),
+    sortAsTree: bool = false,
+    filterAsTree: bool = false,
+): (RequestBuilder, ResponseHandle[QueryResponse[Mailbox]]) =
+  ## Mailbox/query (RFC 8621 §2.3). Tree extension args (Decision B13)
+  ## are emitted unconditionally.
+  var args = assembleQueryArgs(
+    accountId, serializeOptFilter(filter), serializeOptSort(sort), queryParams
+  )
+  args["sortAsTree"] = %sortAsTree
+  args["filterAsTree"] = %filterAsTree
+  let (b1, callId) = addInvocation(b, mnMailboxQuery, args, capabilityUri(Mailbox))
+  let brand = b1.builderId
+  (b1, initResponseHandle[QueryResponse[Mailbox]](callId, brand))
+
+# =============================================================================
+# addMailboxQueryChanges — Mailbox/queryChanges (RFC 8621 §2.4)
+# =============================================================================
+
+func addMailboxQueryChanges*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    sinceQueryState: JmapState,
+    filter: Opt[Filter[MailboxFilterCondition]] =
+      Opt.none(Filter[MailboxFilterCondition]),
+    sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
+    upToId: Opt[Id] = Opt.none(Id),
+    calculateTotal: bool = false,
+): (RequestBuilder, ResponseHandle[QueryChangesResponse[Mailbox]]) =
+  ## Mailbox/queryChanges (RFC 8621 §2.4). No extension args.
+  addQueryChanges[Mailbox, MailboxFilterCondition, Comparator](
+    b, accountId, sinceQueryState, filter, sort, maxChanges, upToId, calculateTotal
+  )
+
+# =============================================================================
+# addMailboxSet — Mailbox/set (RFC 8621 §2.5)
+# =============================================================================
+
+func addMailboxSet*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    ifInState: Opt[JmapState] = Opt.none(JmapState),
+    create: Opt[Table[CreationId, MailboxCreate]] =
+      Opt.none(Table[CreationId, MailboxCreate]),
+    update: Opt[NonEmptyMailboxUpdates] = Opt.none(NonEmptyMailboxUpdates),
+    destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    onDestroyRemoveEmails: bool = false,
+): (RequestBuilder, ResponseHandle[SetResponse[MailboxCreatedItem, PartialMailbox]]) =
+  ## Mailbox/set (RFC 8621 §2.5). Typed ``MailboxCreate`` and
+  ## ``NonEmptyMailboxUpdates``; ``onDestroyRemoveEmails`` is the
+  ## Mailbox-specific extension key (RFC 8621 §2.5.5). The
+  ## ``createResults`` payload is ``MailboxCreatedItem`` rather than the
+  ## full ``Mailbox`` because RFC 8620 §5.3's ``created[cid]`` carries
+  ## only the server-set subset (id + counts + myRights), and Stalwart
+  ## further trims to ``{"id": "..."}``. ``updateResults`` carries
+  ## ``PartialMailbox`` per A4 D2.
+  let req = SetRequest[Mailbox, MailboxCreate, NonEmptyMailboxUpdates](
+    accountId: accountId,
+    ifInState: ifInState,
+    create: create,
+    update: update,
+    destroy: destroy,
+  )
+  var args = req.toJson()
+  args["onDestroyRemoveEmails"] = %onDestroyRemoveEmails
+  let (b1, callId) = addInvocation(
+    b, mnMailboxSet, args, capabilityUri(Mailbox), setMeta(create, update, destroy)
+  )
+  let brand = b1.builderId
+  (
+    b1,
+    initResponseHandle[SetResponse[MailboxCreatedItem, PartialMailbox]](callId, brand),
+  )
+
+# =============================================================================
+# addEmailGet — Email/get (RFC 8621 §4.2)
+# =============================================================================
+
+func addEmailGet*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
+): (RequestBuilder, ResponseHandle[GetResponse[Email]]) =
+  ## Full-record Email/get (RFC 8621 §4.2) with Email-specific body fetch
+  ## options (Decision D9). For a typed property projection, use
+  ## ``addPartialEmailGet`` (A3.6).
+  let req = GetRequest[Email](accountId: accountId, ids: ids)
+  var args = req.toJson()
+  emitBodyFetchOptions(args, bodyFetchOptions)
+  let (b1, callId) =
+    addInvocation(b, mnEmailGet, args, capabilityUri(Email), getMeta(ids))
+  let brand = b1.builderId
+  (b1, initResponseHandle[GetResponse[Email]](callId, brand))
+
+# =============================================================================
+# addEmailChanges — Email/changes (RFC 8621 §4.3)
+# =============================================================================
+
+func addEmailChanges*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    sinceState: JmapState,
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
+): (RequestBuilder, ResponseHandle[ChangesResponse[Email]]) =
+  ## Email/changes (RFC 8621 §4.3). Thin delegate to
+  ## ``addChanges[Email, ChangesResponse[Email]]``.
+  addChanges[Email, ChangesResponse[Email]](b, accountId, sinceState, maxChanges)
+
+# =============================================================================
+# addPartialEmailGet — sparse Email/get returning typed ``PartialEmail``
+# (A3.6 D7)
+# =============================================================================
+
+func addPartialEmailGet*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    properties: NonEmptySeq[EmailGetProperty],
+    bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
+): (RequestBuilder, ResponseHandle[GetResponse[PartialEmail]]) =
+  ## Sparse Email/get returning typed ``PartialEmail`` (RFC 8621 §4.2 +
+  ## A3.6). Same wire method ``Email/get``; the typed property projection
+  ## yields a filter-tolerant ``PartialEmail``.
+  let req = GetRequest[PartialEmail](accountId: accountId, ids: ids)
+  var args = req.toJson()
+  var arr = newJArray()
+  for p in properties:
+    arr.add(%wireName(p))
+  args["properties"] = arr
+  emitBodyFetchOptions(args, bodyFetchOptions)
+  let (b1, callId) =
+    addInvocation(b, mnEmailGet, args, capabilityUri(PartialEmail), getMeta(ids))
+  let brand = b1.builderId
+  (b1, initResponseHandle[GetResponse[PartialEmail]](callId, brand))
+
+# =============================================================================
+# addThreadGet — Thread/get (RFC 8621 §3.1)
+# =============================================================================
+
+func addThreadGet*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+): (RequestBuilder, ResponseHandle[GetResponse[thread.Thread]]) =
+  ## Full-record Thread/get (RFC 8621 §3.1). Thin delegate to
+  ## ``addGet[thread.Thread]``. For a typed property projection, use
+  ## ``addPartialThreadGet`` (A3.6).
+  addGet[thread.Thread](b, accountId, ids)
+
+func addPartialThreadGet*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    properties: NonEmptySeq[ThreadGetProperty],
+): (RequestBuilder, ResponseHandle[GetResponse[PartialThread]]) =
+  ## Sparse Thread/get returning typed ``PartialThread`` (RFC 8621 §3.1 +
+  ## A3.6).
+  addGetSelected[PartialThread, ThreadGetProperty](b, accountId, ids, properties)
+
+# =============================================================================
+# addThreadChanges — Thread/changes (RFC 8621 §3.2)
+# =============================================================================
+
+func addThreadChanges*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    sinceState: JmapState,
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
+): (RequestBuilder, ResponseHandle[ChangesResponse[thread.Thread]]) =
+  ## Thread/changes (RFC 8621 §3.2). Thin delegate to
+  ## ``addChanges[thread.Thread, ChangesResponse[thread.Thread]]``.
+  addChanges[thread.Thread, ChangesResponse[thread.Thread]](
+    b, accountId, sinceState, maxChanges
+  )
+
+# =============================================================================
+# addEmailQuery — Email/query (RFC 8621 §4.4)
+# =============================================================================
+
+func addEmailQuery*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]),
+    sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]),
+    queryParams: QueryParams = QueryParams(),
+    collapseThreads: bool = false,
+): (RequestBuilder, ResponseHandle[QueryResponse[Email]]) =
+  ## Email/query (RFC 8621 §4.4). ``collapseThreads`` per Decision D11.
+  var args = assembleQueryArgs(
+    accountId, serializeOptFilter(filter), serializeOptSort(sort), queryParams
+  )
+  args["collapseThreads"] = %collapseThreads
+  let (b1, callId) = addInvocation(b, mnEmailQuery, args, capabilityUri(Email))
+  let brand = b1.builderId
+  (b1, initResponseHandle[QueryResponse[Email]](callId, brand))
+
+# =============================================================================
+# addEmailQueryChanges — Email/queryChanges (RFC 8621 §4.5)
+# =============================================================================
+
+func addEmailQueryChanges*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    sinceQueryState: JmapState,
+    filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]),
+    sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]),
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
+    upToId: Opt[Id] = Opt.none(Id),
+    calculateTotal: bool = false,
+    collapseThreads: bool = false,
+): (RequestBuilder, ResponseHandle[QueryChangesResponse[Email]]) =
+  ## Email/queryChanges (RFC 8621 §4.5).
+  var args = assembleQueryChangesArgs(
+    accountId,
+    sinceQueryState,
+    serializeOptFilter(filter),
+    serializeOptSort(sort),
+    maxChanges,
+    upToId,
+    calculateTotal,
+  )
+  args["collapseThreads"] = %collapseThreads
+  let (b1, callId) = addInvocation(b, mnEmailQueryChanges, args, capabilityUri(Email))
+  let brand = b1.builderId
+  (b1, initResponseHandle[QueryChangesResponse[Email]](callId, brand))
+
+# =============================================================================
+# addEmailSet — Email/set (RFC 8621 §4.6)
+# =============================================================================
+
+func addEmailSet*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    ifInState: Opt[JmapState] = Opt.none(JmapState),
+    create: Opt[Table[CreationId, EmailBlueprint]] =
+      Opt.none(Table[CreationId, EmailBlueprint]),
+    update: Opt[NonEmptyEmailUpdates] = Opt.none(NonEmptyEmailUpdates),
+    destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+): (RequestBuilder, ResponseHandle[SetResponse[EmailCreatedItem, PartialEmail]]) =
+  ## Email/set (RFC 8621 §4.6). Thin wrapper over
+  ## ``addSet[Email, EmailBlueprint, NonEmptyEmailUpdates,
+  ## SetResponse[EmailCreatedItem, PartialEmail]]`` with no entity-
+  ## specific extras. The ``SetResponse[EmailCreatedItem, PartialEmail]``
+  ## handle carries typed ``createResults`` via ``mixin``-resolved
+  ## ``EmailCreatedItem.fromJson`` and typed ``updateResults`` via
+  ## ``PartialEmail.fromJson`` (A4 D2).
+  addSet[
+    Email,
+    EmailBlueprint,
+    NonEmptyEmailUpdates,
+    SetResponse[EmailCreatedItem, PartialEmail],
+  ](b, accountId, ifInState, create, update, destroy)
+
+# =============================================================================
+# addEmailCopy — Email/copy (RFC 8621 §4.7)
+# =============================================================================
+
+func addEmailCopy*(
+    b: sink RequestBuilder,
+    fromAccountId: AccountId,
+    accountId: AccountId,
+    create: Table[CreationId, EmailCopyItem],
+    ifFromInState: Opt[JmapState] = Opt.none(JmapState),
+    ifInState: Opt[JmapState] = Opt.none(JmapState),
+): (RequestBuilder, ResponseHandle[CopyResponse[EmailCreatedItem]]) =
+  ## Simple Email/copy invocation (non-compound; no implicit destroy). Thin
+  ## wrapper over ``addCopy[Email, EmailCopyItem, CopyResponse[EmailCreatedItem]]``.
+  ## ``destroyMode`` defaults to ``keepOriginals()``, so
+  ## ``onSuccessDestroyOriginal`` is omitted from the wire per RFC 8620 §5.4.
+  addCopy[Email, EmailCopyItem, CopyResponse[EmailCreatedItem]](
+    b, fromAccountId, accountId, create, ifFromInState, ifInState
+  )
+
+# =============================================================================
+# EmailCopyHandles / EmailCopyResults — compound dispatch (RFC 8620 §5.4)
+# =============================================================================
+
+type EmailCopyHandles* = CompoundHandles[
+  CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]
+]
+  ## Domain-named specialisation of ``CompoundHandles[A, B]`` for
+  ## ``addEmailCopyAndDestroy`` (Email/copy + implicit Email/set destroy
+  ## per RFC 8620 §5.4). Fields ``primary`` / ``implicit`` inherit from
+  ## the generic at ``dispatch.nim``. The implicit handle's
+  ## ``SetResponse`` carries typed ``PartialEmail`` echoes for any
+  ## successfully-destroyed source records (A4 D2).
+
+type EmailCopyResults* = CompoundResults[
+  CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]
+]
+  ## Paired extraction target for ``getBoth(EmailCopyHandles)`` — the
+  ## generic overload in ``dispatch.nim`` handles the dispatch.
+
+# =============================================================================
+# addEmailCopyAndDestroy — compound Email/copy with implicit Email/set destroy
+# =============================================================================
+
+func addEmailCopyAndDestroy*(
+    b: sink RequestBuilder,
+    fromAccountId: AccountId,
+    accountId: AccountId,
+    create: Table[CreationId, EmailCopyItem],
+    ifFromInState: Opt[JmapState] = Opt.none(JmapState),
+    ifInState: Opt[JmapState] = Opt.none(JmapState),
+    destroyFromIfInState: Opt[JmapState] = Opt.none(JmapState),
+): (RequestBuilder, EmailCopyHandles) =
+  ## Compound Email/copy with ``onSuccessDestroyOriginal: true``. Routes
+  ## the primary Email/copy through ``addCopy[Email, ...]`` with the
+  ## destroy-mode supplied via ``destroyAfterSuccess(destroyFromIfInState)``;
+  ## the ``CopyRequest.toJson`` emits ``onSuccessDestroyOriginal: true`` and
+  ## the optional ``destroyFromIfInState`` guard. The returned handle is
+  ## paired with a ``NameBoundHandle`` filtered by ``mnEmailSet`` for the
+  ## implicit-destroy response (RFC 8620 §5.4, Design §5.3).
+  let (b1, copyHandle) = addCopy[Email, EmailCopyItem, CopyResponse[EmailCreatedItem]](
+    b,
+    fromAccountId,
+    accountId,
+    create,
+    ifFromInState,
+    ifInState,
+    destroyMode = destroyAfterSuccess(destroyFromIfInState),
+  )
+  let brand = b1.builderId
+  let handles = EmailCopyHandles(
+    primary: copyHandle,
+    implicit: initNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
+      callId(copyHandle), mnEmailSet, brand
+    ),
+  )
+  (b1, handles)
+
+# =============================================================================
+# EmailQueryThreadChain + addEmailQueryWithThreads (H1 §4)
+# RFC 8621 §4.10 first-login workflow: 4-invocation back-reference chain
+# =============================================================================
+
+const DefaultDisplayProperties*: NonEmptySeq[EmailGetProperty] = parseNonEmptySeq(
+    @[
+      egpThreadId, egpMailboxIds, egpKeywords, egpHasAttachment, egpFrom, egpSubject,
+      egpReceivedAt, egpSize, egpPreview,
+    ]
+  )
+  .get()
+  ## RFC 8621 §4.10 first-login example display properties, as a typed
+  ## ``NonEmptySeq[EmailGetProperty]``. The literal is non-empty by
+  ## construction, so ``parseNonEmptySeq(...).get()`` cannot fail
+  ## (functional-core pattern 8). Override via the ``displayProperties``
+  ## argument of ``addEmailQueryWithThreads``; one named auditable default,
+  ## visible at one site (H12).
+
+type EmailQueryThreadChain* {.ruleOff: "objects".} = object
+  ## Paired handles for the RFC 8621 §4.10 first-login workflow. Each
+  ## handle binds a distinct ``MethodCallId``; the domain role of each
+  ## step lives at the field level because there is no generic above
+  ## this record to carry it (H10, H11). The two Email fetches return
+  ## typed ``PartialEmail`` because they emit a property filter (A3.6).
+  queryH*: ResponseHandle[QueryResponse[Email]]
+  threadIdFetchH*: ResponseHandle[GetResponse[PartialEmail]]
+  threadsH*: ResponseHandle[GetResponse[thread.Thread]]
+  displayH*: ResponseHandle[GetResponse[PartialEmail]]
+
+type EmailQueryThreadResults* {.ruleOff: "objects".} = object
+  ## Paired extraction target of ``getAll(EmailQueryThreadChain)``. Plain
+  ## domain names; the enclosing type name already conveys "responses"
+  ## (H11).
+  query*: QueryResponse[Email]
+  threadIdFetch*: GetResponse[PartialEmail]
+  threads*: GetResponse[thread.Thread]
+  display*: GetResponse[PartialEmail]
+
+func getAll*(
+    dr: DispatchedResponse, handles: EmailQueryThreadChain
+): Result[EmailQueryThreadResults, GetError] =
+  ## Extract all four responses from the first-login workflow. Monomorphic
+  ## over ``EmailQueryThreadChain`` — not a parametric ``getAll[A, B, C, D]``
+  ## — because the record it serves is not parametric either (H14).
+  ## Co-located with the builder rather than placed in ``dispatch.nim``
+  ## because there is no parametric shape to share with the dispatch layer.
+  mixin fromJson
+  let query = ?dr.get(handles.queryH)
+  let threadIdFetch = ?dr.get(handles.threadIdFetchH)
+  let threads = ?dr.get(handles.threadsH)
+  let display = ?dr.get(handles.displayH)
+  ok(
+    EmailQueryThreadResults(
+      query: query, threadIdFetch: threadIdFetch, threads: threads, display: display
+    )
+  )
+
+func addEmailQueryWithThreads*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    filter: Filter[EmailFilterCondition],
+    sort: seq[EmailComparator] = @[],
+    queryParams: QueryParams = QueryParams(),
+    collapseThreads: bool = true,
+    displayProperties: NonEmptySeq[EmailGetProperty] = DefaultDisplayProperties,
+    displayBodyFetchOptions: EmailBodyFetchOptions = EmailBodyFetchOptions(
+      fetchBodyValues: bvsAll, maxBodyValueBytes: Opt.some(parseUnsignedInt(256).get())
+    ),
+): (RequestBuilder, EmailQueryThreadChain) =
+  ## RFC 8621 §4.10 first-login workflow encoded in types. Emits the
+  ## exact 4-invocation back-reference chain the RFC demonstrates
+  ## byte-for-byte, with ``ResultReference`` paths sourced from ``RefPath``
+  ## — no stringly-typed JSON Pointers at this site (H16).
+  ##
+  ## ``filter`` is mandatory (H6; RFC 8621 §4.10 ¶1 — first-login always
+  ## filters to a user-visible mailbox scope). ``collapseThreads``
+  ## defaults to ``true`` per RFC §4.10 example (H13).
+  ## ``displayProperties`` defaults to the RFC-enumerated nine
+  ## (``DefaultDisplayProperties``); override is a normal argument (H12).
+  let sortOpt =
+    if sort.len > 0:
+      Opt.some(sort)
+    else:
+      Opt.none(seq[EmailComparator])
+
+  let (b1, queryH) =
+    addEmailQuery(b, accountId, Opt.some(filter), sortOpt, queryParams, collapseThreads)
+
+  let (b2, threadIdFetchH) = addPartialEmailGet(
+    b1,
+    accountId,
+    ids = Opt.some(reference[seq[Id]](queryH, mnEmailQuery, rpIds)),
+    properties = parseNonEmptySeq(@[egpThreadId]).get(), # literal non-empty → total
+  )
+
+  let (b3, threadsH) = addThreadGet(
+    b2,
+    accountId,
+    ids = Opt.some(reference[seq[Id]](threadIdFetchH, mnEmailGet, rpListThreadId)),
+  )
+
+  let (b4, displayH) = addPartialEmailGet(
+    b3,
+    accountId,
+    ids = Opt.some(reference[seq[Id]](threadsH, mnThreadGet, rpListEmailIds)),
+    properties = displayProperties,
+    bodyFetchOptions = displayBodyFetchOptions,
+  )
+
+  (
+    b4,
+    EmailQueryThreadChain(
+      queryH: queryH,
+      threadIdFetchH: threadIdFetchH,
+      threadsH: threadsH,
+      displayH: displayH,
+    ),
+  )

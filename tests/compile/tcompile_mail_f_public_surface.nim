@@ -5,8 +5,8 @@
 ## symbol added by Part F must be reachable through a single
 ## ``import jmap_client``. A compile failure here is the canonical
 ## signal that a symbol was omitted from the re-export cascade:
-## ``jmap_client.nim`` → ``mail.nim`` → ``mail/types.nim`` or
-## ``mail/serialisation.nim`` → Layer 1/2 module.
+## ``jmap_client.nim`` → ``mail.nim`` → ``mail/types.nim`` → Layer 1
+## module.
 ##
 ## ``declared()`` is used instead of ``compiles()`` because it sidesteps
 ## overload-resolution ambiguity on generically-named ctors
@@ -19,7 +19,7 @@ static:
   # --- Types (16) ---
   # EmailSetResponse/EmailCopyResponse/UpdatedEntry/UpdatedEntryKind were
   # deleted when Email/set migrated to the promoted generic
-  # SetResponse[EmailCreatedItem] / CopyResponse[EmailCreatedItem] in
+  # SetResponse[EmailCreatedItem, PartialEmail] / CopyResponse[EmailCreatedItem] in
   # methods.nim (Decision X2/X3).
   doAssert declared(EmailUpdate)
   doAssert declared(EmailUpdateVariantKind)
@@ -69,23 +69,16 @@ static:
   doAssert declared(parseNonEmptyMailboxUpdates)
   doAssert declared(parseNonEmptyEmailUpdates)
 
-  # --- /set widening: associated-type templates + registration helper (5) ---
-  doAssert declared(createType)
-  doAssert declared(updateType)
-  doAssert declared(setResponseType)
+  # --- /set widening: registration helper (1) ---
   doAssert declared(registerSettableEntity)
-  doAssert declared(addSet)
+  # ``addSet`` is hub-private under A5 — exposed via per-entity wrappers
+  doAssert not declared(addSet)
 
-  # --- /changes widening: associated-type template + extracted leaf (2) ---
-  doAssert declared(changesResponseType)
+  # --- /changes widening: extracted leaf (1) ---
   doAssert declared(MailboxChangesResponse)
 
-  # --- /copy widening: associated-type templates (2) ---
-  doAssert declared(copyItemType)
-  doAssert declared(copyResponseType)
-
-  # --- /get extras: EmailBodyFetchOptions → seq[(string, JsonNode)] (1) ---
-  doAssert declared(toExtras)
+  # --- A5: toExtras removed; EmailBodyFetchOptions flows via toJson ---
+  doAssert not declared(toExtras)
 
   # --- Mailbox update ctors (5) ---
   doAssert declared(setName)
@@ -111,9 +104,6 @@ static:
 
   # --- Enum variant (1) ---
   doAssert declared(mnEmailImport)
-
-  # --- Entity resolver (1) ---
-  doAssert declared(importMethodName)
 
   # --- Identity /set widening ---
   doAssert declared(IdentityUpdate)

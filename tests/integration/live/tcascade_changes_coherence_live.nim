@@ -66,12 +66,13 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
+import jmap_client/internal/mail/mail_entities
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tcascadeChangesCoherenceLive:
+testCase tcascadeChangesCoherenceLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): the client-library contract is that every
     # Mailbox/changes, Email/changes, and Thread/changes wire shape
@@ -84,12 +85,7 @@ block tcascadeChangesCoherenceLive:
     # observable, the strict coherence assertions hold; when it is
     # not, the wire-shape parsing assertions still verify the client
     # contract.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -140,23 +136,22 @@ block tcascadeChangesCoherenceLive:
     # merge threads and invalidate ``observedThreadIds``.
     var observedThreadIds = initHashSet[Id]()
     for sid in seededEmailIds:
-      let (b, getHandle) = addEmailGet(
-        initRequestBuilder(),
+      let (b, getHandle) = addPartialEmailGet(
+        initRequestBuilder(makeBuilderId()),
         mailAccountId,
         ids = directIds(@[sid]),
-        properties = Opt.some(@["id", "threadId"]),
+        properties = parseNonEmptySeq(@[egpId, egpThreadId]).get(),
       )
-      let resp =
-        client.send(b).expect("send Email/get threadId resolve[" & $target.kind & "]")
+      let resp = client.send(b.freeze()).expect(
+          "send Email/get threadId resolve[" & $target.kind & "]"
+        )
       let getResp =
         resp.get(getHandle).expect("Email/get threadId extract[" & $target.kind & "]")
       assertOn target,
         getResp.list.len == 1,
         "Email/get must return exactly one record for the seeded id (got " &
           $getResp.list.len & ")"
-      let email = Email.fromJson(getResp.list[0]).expect(
-          "parse Email threadId[" & $target.kind & "]"
-        )
+      let email = getResp.list[0]
       assertOn target,
         email.threadId.isSome,
         "every seeded email must carry a threadId; Email/set sets it synchronously"
@@ -167,12 +162,12 @@ block tcascadeChangesCoherenceLive:
 
     # --- Cascade destroy ------------------------------------------------
     let (bCascade, cascadeHandle) = addMailboxSet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       destroy = directIds(@[cascadeId]),
       onDestroyRemoveEmails = true,
     )
-    let respCascade = client.send(bCascade).expect(
+    let respCascade = client.send(bCascade.freeze()).expect(
         "send Mailbox/set cascade destroy[" & $target.kind & "]"
       )
     let cascadeResp = respCascade.get(cascadeHandle).expect(
@@ -196,14 +191,16 @@ block tcascadeChangesCoherenceLive:
     var capturedThreadCr: ChangesResponse[jmap_client.Thread]
     for attempt in 0 ..< 5:
       let (b1, mailboxH) = addMailboxChanges(
-        initRequestBuilder(), mailAccountId, sinceState = baselineMailboxState
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        sinceState = baselineMailboxState,
       )
       let (b2, emailH) =
-        addChanges[Email](b1, mailAccountId, sinceState = baselineEmailState)
-      let (b3, threadH) = addChanges[jmap_client.Thread](
-        b2, mailAccountId, sinceState = baselineThreadState
-      )
-      let resp = client.send(b3).expect("send cascade */changes[" & $target.kind & "]")
+        addEmailChanges(b1, mailAccountId, sinceState = baselineEmailState)
+      let (b3, threadH) =
+        addThreadChanges(b2, mailAccountId, sinceState = baselineThreadState)
+      let resp =
+        client.send(b3.freeze()).expect("send cascade */changes[" & $target.kind & "]")
       # Cat-B: any of the three /changes extracts may surface a typed
       # error (e.g. Cyrus 3.12.2's ``cannotCalculateChanges`` when the
       # server's state-history window has rolled past the captured
@@ -230,7 +227,8 @@ block tcascadeChangesCoherenceLive:
       let threadCovered = observedThreadIds <= allThreadDelta
       if emailCovered and threadCovered:
         captureIfRequested(
-          client, "cascade-changes-mailbox-email-thread-coherence-" & $target.kind
+          recorder.lastResponseBody,
+          "cascade-changes-mailbox-email-thread-coherence-" & $target.kind,
         )
           .expect("captureIfRequested[" & $target.kind & "]")
         capturedMailboxCr = mailboxCr
@@ -254,7 +252,7 @@ block tcascadeChangesCoherenceLive:
       for sid in seededEmailIds:
         assertOn target,
           sid in allEmailDelta,
-          "seeded email " & string(sid) & " must appear in Email/changes delta"
+          "seeded email " & $sid & " must appear in Email/changes delta"
       assertOn target,
         capturedEmailCr.hasMoreChanges == false,
         "Email/changes hasMoreChanges must be false"
@@ -264,7 +262,7 @@ block tcascadeChangesCoherenceLive:
       for tid in observedThreadIds:
         assertOn target,
           tid in allThreadDelta,
-          "observed thread " & string(tid) & " must appear in Thread/changes delta"
+          "observed thread " & $tid & " must appear in Thread/changes delta"
       assertOn target,
         capturedThreadCr.hasMoreChanges == false,
         "Thread/changes hasMoreChanges must be false"
@@ -275,7 +273,7 @@ block tcascadeChangesCoherenceLive:
       # successfully (the ``.expect()`` calls inside the loop body
       # assert that). The client-library contract is satisfied.
       captureIfRequested(
-        client, "cascade-changes-mailbox-email-thread-coherence-" & $target.kind
+        recorder.lastResponseBody,
+        "cascade-changes-mailbox-email-thread-coherence-" & $target.kind,
       )
         .expect("captureIfRequested[" & $target.kind & "]")
-    client.close()

@@ -49,12 +49,12 @@ import std/os
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tthreadChangesLive:
+testCase tthreadChangesLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): RFC 8621 §3 leaves Thread/changes propagation
     # discretionary. Stalwart 0.15.5 and Cyrus 3.12.2 surface the
@@ -64,12 +64,7 @@ block tthreadChangesLive:
     # The convergence loop is best-effort; the wire-shape parsing and
     # the sad-path typed-error projection are the universal client-
     # library contract assertions.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -96,11 +91,12 @@ block tthreadChangesLive:
     var converged = false
     var lastCr: ChangesResponse[jmap_client.Thread]
     for attempt in 0 ..< 5:
-      let (b, h) = addChanges[jmap_client.Thread](
-        initRequestBuilder(), mailAccountId, sinceState = baselineState
+      let (b, h) = addThreadChanges(
+        initRequestBuilder(makeBuilderId()), mailAccountId, sinceState = baselineState
       )
-      let resp =
-        client.send(b).expect("send Thread/changes happy[" & $target.kind & "]")
+      let resp = client.send(b.freeze()).expect(
+          "send Thread/changes happy[" & $target.kind & "]"
+        )
       let cr = resp.get(h).expect("Thread/changes happy extract[" & $target.kind & "]")
       if cr.created.len + cr.updated.len >= 1:
         lastCr = cr
@@ -111,8 +107,7 @@ block tthreadChangesLive:
       # Strict path — runs on configured targets that propagate the
       # Email/set cascade through Thread/changes.
       assertOn target,
-        string(lastCr.oldState) == string(baselineState),
-        "oldState must echo the supplied baseline"
+        $lastCr.oldState == $baselineState, "oldState must echo the supplied baseline"
       assertOn target, lastCr.destroyed.len == 0, "no Thread destroys issued"
       assertOn target, lastCr.hasMoreChanges == false, "no further changes pending"
     # When ``converged == false`` the server is RFC-conformant with a
@@ -121,22 +116,25 @@ block tthreadChangesLive:
     # successfully — the client-library wire-shape contract holds.
 
     # --- Sad path: bogus sinceState ------------------------------------
-    let bogusState = JmapState("phase-h-45-bogus-state")
-    let (bSad, sadHandle) = addChanges[jmap_client.Thread](
-      initRequestBuilder(), mailAccountId, sinceState = bogusState
+    let bogusState = parseJmapState("phase-h-45-bogus-state").get()
+    let (bSad, sadHandle) = addThreadChanges(
+      initRequestBuilder(makeBuilderId()), mailAccountId, sinceState = bogusState
     )
-    let respSad =
-      client.send(bSad).expect("send Thread/changes bogus[" & $target.kind & "]")
-    captureIfRequested(client, "thread-changes-bogus-state-" & $target.kind).expect(
-      "captureIfRequested"
+    let respSad = client.send(bSad.freeze()).expect(
+        "send Thread/changes bogus[" & $target.kind & "]"
+      )
+    captureIfRequested(
+      recorder.lastResponseBody, "thread-changes-bogus-state-" & $target.kind
     )
+      .expect("captureIfRequested")
     let sadExtract = respSad.get(sadHandle)
     assertOn target,
       sadExtract.isErr, "bogus sinceState must surface as a method-level error"
-    let methodErr = sadExtract.error
+    let getErr = sadExtract.error
+    doAssert getErr.kind == gekMethod, "expected gekMethod"
+    let methodErr = getErr.methodErr
     assertOn target,
-      methodErr.errorType in
+      methodErr.kind in
         {metCannotCalculateChanges, metInvalidArguments, metUnknownMethod},
       "method error must project as cannotCalculateChanges, invalidArguments, or " &
         "unknownMethod (got rawType=" & methodErr.rawType & ")"
-    client.close()

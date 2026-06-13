@@ -6,18 +6,27 @@
 
 import std/json
 
-import jmap_client/serialisation
-import jmap_client/types
-import jmap_client/framework
+import jmap_client
+import jmap_client/internal/types/envelope
+import jmap_client/internal/types/session
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/framework
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_diagnostics
+import jmap_client/internal/serialisation/serde_envelope
+import jmap_client/internal/serialisation/serde_helpers
+import jmap_client/internal/serialisation/serde_primitives
+import jmap_client/internal/serialisation/serde_session
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # =============================================================================
 # A. Shared helpers (from serde)
 # =============================================================================
 
-block sharedHelpers:
+testCase sharedHelpers:
   ## Verifies that the ``SerdeViolation`` translator and ``collectExtras``
   ## flow through the ``serialisation`` re-export. Construction of a
   ## ``svkMissingField`` violation mirrors the old ``parseError`` shape
@@ -35,7 +44,7 @@ block sharedHelpers:
 # B. Primitive and identifier round-trips (from serde)
 # =============================================================================
 
-block primitiveRoundTrips:
+testCase primitiveRoundTrips:
   let id = makeId()
   assertOkEq Id.fromJson(id.toJson()), id
 
@@ -73,20 +82,19 @@ block primitiveRoundTrips:
 # C. Session types (from serde_session)
 # =============================================================================
 
-block sessionTypes:
+testCase sessionTypes:
   let caps = zeroCoreCaps()
   let rtCaps = CoreCapabilities.fromJson(caps.toJson()).get()
   doAssert coreCapEq(rtCaps, caps), "CoreCapabilities round-trip values differ"
 
-  let acct =
-    Account(name: "test", isPersonal: true, isReadOnly: false, accountCapabilities: @[])
+  let acct = parseAccount("test", isPersonal = true, isReadOnly = false, @[]).get()
   assertOkEq Account.fromJson(acct.toJson()), acct
 
 # =============================================================================
 # D. Envelope types (from serde_envelope)
 # =============================================================================
 
-block envelopeTypes:
+testCase envelopeTypes:
   let inv = makeInvocation()
   assertOkEq Invocation.fromJson(inv.toJson()), inv
 
@@ -96,9 +104,6 @@ block envelopeTypes:
   let req = makeRequest()
   assertOk Request.fromJson(req.toJson())
 
-  let resp = makeResponse()
-  assertOk Response.fromJson(resp.toJson())
-
   let key = referencableKey("ids", direct(42))
   doAssert key == "ids"
 
@@ -106,7 +111,7 @@ block envelopeTypes:
 # E. Framework types (from serde_framework)
 # =============================================================================
 
-block frameworkTypes:
+testCase frameworkTypes:
   assertOkEq FilterOperator.fromJson(foAnd.toJson()), foAnd
 
   let comp = makeComparator()
@@ -119,7 +124,7 @@ block frameworkTypes:
 # F. Error types (from serde_errors)
 # =============================================================================
 
-block errorTypes:
+testCase errorTypes:
   let re = makeRequestError()
   assertOkEq RequestError.fromJson(re.toJson()), re
 
@@ -133,15 +138,16 @@ block errorTypes:
 # G. All type pairs accessible — comprehensive verification
 # =============================================================================
 
-block allTypePairsAccessible:
+testCase allTypePairsAccessible:
   ## Every toJson/fromJson pair callable through the serialisation re-export.
   # ServerCapability (requires uri parameter)
   let capData = newJObject()
   let cap = ServerCapability.fromJson("urn:ietf:params:jmap:mail", capData).get()
   discard cap.toJson()
-  # AccountCapabilityEntry (requires uri parameter)
+  # AccountCapabilityEntry (requires uri parameter). Use a vendor URI
+  # so the typed-payload schemas don't gate construction.
   let entry =
-    AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", newJObject()).get()
+    AccountCapabilityEntry.fromJson("https://vendor.example/ext", newJObject()).get()
   discard entry.toJson()
   # Session (full round-trip via golden JSON)
   let sj = goldenSessionJson()

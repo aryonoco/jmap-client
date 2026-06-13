@@ -11,9 +11,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailQueryAdvancedFilter:
+testCase tcapturedEmailQueryAdvancedFilter:
   let j = loadCapturedFixture("email-query-advanced-filter-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -24,4 +26,4 @@ block tcapturedEmailQueryAdvancedFilter:
     QueryResponse[Email].fromJson(inv.arguments).expect("QueryResponse[Email].fromJson")
   doAssert ($qr.queryState).len > 0, "queryState must be non-empty"
   for id in qr.ids:
-    doAssert string(id).len > 0, "every returned id must be non-empty"
+    doAssert ($id).len > 0, "every returned id must be non-empty"

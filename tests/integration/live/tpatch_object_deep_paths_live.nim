@@ -28,21 +28,17 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
-import jmap_client/mail/identity as jidentity
-import jmap_client/mail/mailbox as jmailbox
+import jmap_client/internal/mail/identity as jidentity
+import jmap_client/internal/mail/mailbox as jmailbox
+import jmap_client/internal/types/envelope
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tpatchObjectDeepPathsLive:
+testCase tpatchObjectDeepPathsLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, _) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -69,9 +65,11 @@ block tpatchObjectDeepPathsLive:
           "parseNonEmptyIdentityUpdates"
         )
       let (b, setHandle) = addIdentitySet(
-        initRequestBuilder(), submissionAccountId, update = Opt.some(updates)
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        update = Opt.some(updates),
       )
-      let resp = client.send(b).expect(
+      let resp = client.send(b.freeze()).expect(
           "send Identity/set typed flat patch[" & $target.kind & "]"
         )
       let setExtract = resp.get(setHandle)
@@ -84,9 +82,11 @@ block tpatchObjectDeepPathsLive:
         do:
           assertOn target, false, "Identity/set must report an outcome"
       else:
-        let methodErr = setExtract.unsafeError
+        let getErr = setExtract.unsafeError
+        doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
+        let methodErr = getErr.methodErr
         assertOn target,
-          methodErr.errorType == metUnknownMethod,
+          methodErr.kind == metUnknownMethod,
           "Identity/set must surface as metUnknownMethod when unimplemented (got " &
             methodErr.rawType & ")"
 
@@ -94,16 +94,17 @@ block tpatchObjectDeepPathsLive:
       # — only when the upstream update succeeded.
       if identityUpdateOk:
         let (b2, getHandle) = addIdentityGet(
-          initRequestBuilder(), submissionAccountId, ids = directIds(@[identityId])
+          initRequestBuilder(makeBuilderId()),
+          submissionAccountId,
+          ids = directIds(@[identityId]),
         )
-        let resp2 =
-          client.send(b2).expect("send Identity/get readback[" & $target.kind & "]")
+        let resp2 = client.send(b2.freeze()).expect(
+            "send Identity/get readback[" & $target.kind & "]"
+          )
         let getResp =
           resp2.get(getHandle).expect("Identity/get extract[" & $target.kind & "]")
         assertOn target, getResp.list.len == 1
-        let ident = Identity.fromJson(getResp.list[0]).expect(
-            "Identity.fromJson[" & $target.kind & "]"
-          )
+        let ident = getResp.list[0]
         assertOn target,
           ident.name == "phase-j 70 renamed",
           "name update must round-trip; got " & ident.name
@@ -121,7 +122,7 @@ block tpatchObjectDeepPathsLive:
         )
       let childId = resolveOrCreateMailbox(client, mailAccountId, "phase-j-70-child")
         .expect("resolveOrCreateMailbox[" & $target.kind & "]")
-      assertOn target, string(childId) != string(inbox)
+      assertOn target, $childId != $inbox
 
       let setParent = jmailbox.setParentId(Opt.none(Id))
       let mUpdateSet = initMailboxUpdateSet(@[setParent]).expect(
@@ -130,10 +131,12 @@ block tpatchObjectDeepPathsLive:
       let mUpdates = parseNonEmptyMailboxUpdates(@[(childId, mUpdateSet)]).expect(
           "parseNonEmptyMailboxUpdates"
         )
-      let (b, setHandle) =
-        addMailboxSet(initRequestBuilder(), mailAccountId, update = Opt.some(mUpdates))
-      let resp =
-        client.send(b).expect("send Mailbox/set typed flat patch[" & $target.kind & "]")
+      let (b, setHandle) = addMailboxSet(
+        initRequestBuilder(makeBuilderId()), mailAccountId, update = Opt.some(mUpdates)
+      )
+      let resp = client.send(b.freeze()).expect(
+          "send Mailbox/set typed flat patch[" & $target.kind & "]"
+        )
       let setResp =
         resp.get(setHandle).expect("Mailbox/set extract[" & $target.kind & "]")
       setResp.updateResults.withValue(childId, outcome):
@@ -144,26 +147,28 @@ block tpatchObjectDeepPathsLive:
         assertOn target, false, "Mailbox/set must report an outcome"
 
       # Read back to verify parentId is now null.
-      let (b2, getHandle) = addGet[Mailbox](
-        initRequestBuilder(), mailAccountId, ids = directIds(@[childId])
+      let (b2, getHandle) = addMailboxGet(
+        initRequestBuilder(makeBuilderId()), mailAccountId, ids = directIds(@[childId])
       )
-      let resp2 =
-        client.send(b2).expect("send Mailbox/get readback[" & $target.kind & "]")
+      let resp2 = client.send(b2.freeze()).expect(
+          "send Mailbox/get readback[" & $target.kind & "]"
+        )
       let getResp =
         resp2.get(getHandle).expect("Mailbox/get extract[" & $target.kind & "]")
       assertOn target, getResp.list.len == 1
-      let mb = Mailbox.fromJson(getResp.list[0]).expect(
-          "Mailbox.fromJson[" & $target.kind & "]"
-        )
+      let mb = getResp.list[0]
       assertOn target,
         mb.parentId.isNone, "parentId set-to-null must round-trip as Opt.none"
 
       # Cleanup: destroy the child mailbox.
       let (bDestroy, destroyHandle) = addMailboxSet(
-        initRequestBuilder(), mailAccountId, destroy = directIds(@[childId])
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        destroy = directIds(@[childId]),
       )
-      let respDestroy =
-        client.send(bDestroy).expect("send Mailbox/set destroy[" & $target.kind & "]")
+      let respDestroy = client.send(bDestroy.freeze()).expect(
+          "send Mailbox/set destroy[" & $target.kind & "]"
+        )
       let destroyResp = respDestroy.get(destroyHandle).expect(
           "Mailbox/set extract[" & $target.kind & "]"
         )
@@ -177,17 +182,19 @@ block tpatchObjectDeepPathsLive:
     # (deep patch applied) OR rejection (setInvalidPatch /
     # setInvalidProperties).  Captured fixture pins the choice.
     block deepPathPatchCase:
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:submission"],
-          methodName = "Identity/set",
-          arguments = %*{
-            "accountId": $submissionAccountId,
-            "update": {string(identityId): {"replyTo/0/name": "phase-j 70 deep"}},
-          },
-        )
-        .expect("sendRawInvocation deepPath[" & $target.kind & "]")
-      captureIfRequested(client, "patch-object-deep-paths-" & $target.kind).expect(
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceCredential,
+        capabilityUris = @["urn:ietf:params:jmap:submission"],
+        methodName = "Identity/set",
+        arguments = %*{
+          "accountId": $submissionAccountId,
+          "update": {$identityId: {"replyTo/0/name": "phase-j 70 deep"}},
+        },
+      )
+      let resp = respResult.expect("sendRawInvocation deepPath[" & $target.kind & "]")
+      captureIfRequested(respBody, "patch-object-deep-paths-" & $target.kind).expect(
         "captureIfRequested deepPath"
       )
       assertOn target, resp.methodResponses.len == 1
@@ -196,18 +203,17 @@ block tpatchObjectDeepPathsLive:
         inv.rawName == "Identity/set" or inv.rawName == "error",
         "expected Identity/set or error, got " & inv.rawName
       if inv.rawName == "Identity/set":
-        let setResp = SetResponse[IdentityCreatedItem].fromJson(inv.arguments).expect(
-            "SetResponse[IdentityCreatedItem].fromJson"
-          )
+        let setResp = SetResponse[IdentityCreatedItem, PartialIdentity]
+          .fromJson(inv.arguments)
+          .expect("SetResponse[IdentityCreatedItem, PartialIdentity].fromJson")
         setResp.updateResults.withValue(identityId, outcome):
           assertOn target,
             outcome.isErr, "deep-path patch must surface as Err on updateResults rail"
           let se = outcome.error
           assertOn target, se.rawType.len > 0
           assertOn target,
-            se.errorType in
-              {setInvalidPatch, setInvalidProperties, setForbidden, setUnknown},
-            "errorType must project into the closed enum, got " & $se.errorType
+            se.kind in {setInvalidPatch, setInvalidProperties, setForbidden, setUnknown},
+            "errorType must project into the closed enum, got " & $se.kind
         do:
           assertOn target,
             false, "Identity/set must report an outcome for the patched id"
@@ -222,16 +228,19 @@ block tpatchObjectDeepPathsLive:
           client, mailAccountId, inbox, "phase-j 70 escape seed", "phase-j-70-escape"
         )
         .expect("seedSimpleEmail[" & $target.kind & "]")
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Email/set",
-          arguments = %*{
-            "accountId": $mailAccountId,
-            "update": {string(seedId): {"keywords/$tag~1with~1slash": true}},
-          },
-        )
-        .expect("sendRawInvocation jsonPointerEscape[" & $target.kind & "]")
+      let (_, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceCredential,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Email/set",
+        arguments = %*{
+          "accountId": $mailAccountId,
+          "update": {$seedId: {"keywords/$tag~1with~1slash": true}},
+        },
+      )
+      let resp =
+        respResult.expect("sendRawInvocation jsonPointerEscape[" & $target.kind & "]")
       assertOn target, resp.methodResponses.len == 1
       let inv = resp.methodResponses[0]
       assertOn target,
@@ -249,10 +258,14 @@ block tpatchObjectDeepPathsLive:
           "Stalwart must report some resolution for the patch; got " & $inv.arguments
 
       # Cleanup: destroy the seed email.
-      let (bClean, cleanHandle) =
-        addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[seedId]))
-      let respClean =
-        client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+      let (bClean, cleanHandle) = addEmailSet(
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        destroy = directIds(@[seedId]),
+      )
+      let respClean = client.send(bClean.freeze()).expect(
+          "send Email/set cleanup[" & $target.kind & "]"
+        )
       let cleanResp = respClean.get(cleanHandle).expect(
           "Email/set cleanup extract[" & $target.kind & "]"
         )
@@ -260,5 +273,3 @@ block tpatchObjectDeepPathsLive:
         assertOn target, outcome.isOk, "cleanup destroy must succeed"
       do:
         assertOn target, false, "cleanup must report an outcome"
-
-    client.close()

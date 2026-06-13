@@ -43,19 +43,14 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tmailboxChangesLive:
+testCase tmailboxChangesLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -74,10 +69,12 @@ block tmailboxChangesLive:
         "captureBaselineState[Mailbox]"
       )
 
-    let (bDestroy, destroyHandle) =
-      addMailboxSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[tempId]))
-    let respDestroy =
-      client.send(bDestroy).expect("send Mailbox/set destroy[" & $target.kind & "]")
+    let (bDestroy, destroyHandle) = addMailboxSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, destroy = directIds(@[tempId])
+    )
+    let respDestroy = client.send(bDestroy.freeze()).expect(
+        "send Mailbox/set destroy[" & $target.kind & "]"
+      )
     let destroyResp = respDestroy.get(destroyHandle).expect(
         "Mailbox/set destroy extract[" & $target.kind & "]"
       )
@@ -92,16 +89,17 @@ block tmailboxChangesLive:
     assertOn target, sawDestroyOk
 
     # --- Happy path: Mailbox/changes since baseline ---------------------
-    let (bHappy, happyHandle) =
-      addMailboxChanges(initRequestBuilder(), mailAccountId, sinceState = baselineState)
-    let respHappy =
-      client.send(bHappy).expect("send Mailbox/changes happy[" & $target.kind & "]")
+    let (bHappy, happyHandle) = addMailboxChanges(
+      initRequestBuilder(makeBuilderId()), mailAccountId, sinceState = baselineState
+    )
+    let respHappy = client.send(bHappy.freeze()).expect(
+        "send Mailbox/changes happy[" & $target.kind & "]"
+      )
     let cr = respHappy.get(happyHandle).expect(
         "Mailbox/changes happy extract[" & $target.kind & "]"
       )
     assertOn target,
-      string(cr.oldState) == string(baselineState),
-      "oldState must echo the supplied baseline"
+      $cr.oldState == $baselineState, "oldState must echo the supplied baseline"
     assertOn target,
       tempId in cr.destroyed,
       "create-then-destroy id must surface in destroyed (RFC 8620 §5.2 SHOULD)"
@@ -113,20 +111,24 @@ block tmailboxChangesLive:
     discard cr.updatedProperties
 
     # --- Sad path: bogus sinceState -------------------------------------
-    let bogusState = JmapState("phase-h-43-bogus-state")
-    let (bSad, sadHandle) =
-      addMailboxChanges(initRequestBuilder(), mailAccountId, sinceState = bogusState)
-    let respSad =
-      client.send(bSad).expect("send Mailbox/changes bogus[" & $target.kind & "]")
-    captureIfRequested(client, "mailbox-changes-bogus-state-" & $target.kind).expect(
-      "captureIfRequested"
+    let bogusState = parseJmapState("phase-h-43-bogus-state").get()
+    let (bSad, sadHandle) = addMailboxChanges(
+      initRequestBuilder(makeBuilderId()), mailAccountId, sinceState = bogusState
     )
+    let respSad = client.send(bSad.freeze()).expect(
+        "send Mailbox/changes bogus[" & $target.kind & "]"
+      )
+    captureIfRequested(
+      recorder.lastResponseBody, "mailbox-changes-bogus-state-" & $target.kind
+    )
+      .expect("captureIfRequested")
     let sadExtract = respSad.get(sadHandle)
     assertOn target,
       sadExtract.isErr, "bogus sinceState must surface as a method-level error"
-    let methodErr = sadExtract.error
+    let getErr = sadExtract.error
+    doAssert getErr.kind == gekMethod, "expected gekMethod"
+    let methodErr = getErr.methodErr
     assertOn target,
-      methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
+      methodErr.kind in {metCannotCalculateChanges, metInvalidArguments},
       "method error must project as cannotCalculateChanges or invalidArguments " &
         "(got rawType=" & methodErr.rawType & ")"
-    client.close()

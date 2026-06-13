@@ -47,16 +47,16 @@ serde owns the projection to the wire JSON Pointer object.
 
 | Method | RFC 8621 | Builder | Response handle | Notes |
 |--------|----------|---------|-----------------|-------|
-| `Email/set` | §4.6 | `addEmailSet` | `ResponseHandle[SetResponse[EmailCreatedItem]]` | Routes through the generic `addSet[Email, EmailBlueprint, NonEmptyEmailUpdates, SetResponse[EmailCreatedItem]]`. |
+| `Email/set` | §4.6 | `addEmailSet` | `ResponseHandle[SetResponse[EmailCreatedItem, PartialEmail]]` | Routes through the generic `addSet[Email, EmailBlueprint, NonEmptyEmailUpdates, SetResponse[EmailCreatedItem, PartialEmail]]`. |
 | `Email/copy` | §4.7 | `addEmailCopy` | `ResponseHandle[CopyResponse[EmailCreatedItem]]` | Routes through `addCopy[Email, EmailCopyItem, CopyResponse[EmailCreatedItem]]` with `destroyMode` defaulted to `keepOriginals()`. |
-| `Email/copy` (compound) | §4.7 | `addEmailCopyAndDestroy` | `EmailCopyHandles` → `(CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem])` | Same `addCopy` core with `destroyMode = destroyAfterSuccess(destroyFromIfInState)`; pairs the primary handle with a `NameBoundHandle[SetResponse[EmailCreatedItem]]` filtered by `mnEmailSet`. |
+| `Email/copy` (compound) | §4.7 | `addEmailCopyAndDestroy` | `EmailCopyHandles` → `(CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail])` | Same `addCopy` core with `destroyMode = destroyAfterSuccess(destroyFromIfInState)`; pairs the primary handle with a `NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]]` filtered by `mnEmailSet`. |
 | `Email/import` | §4.8 | `addEmailImport` | `ResponseHandle[EmailImportResponse]` | Bespoke response type; takes `NonEmptyEmailImportMap`. |
 
 ### 1.2. Supporting Types
 
 | Type | Module | Role |
 |------|--------|------|
-| `EmailCreatedItem` | `mail/email.nim` | Four-field successful-create record shared across §§4.6/4.7/4.8 (id, blobId, threadId, size). Carried by `SetResponse[EmailCreatedItem]`, `CopyResponse[EmailCreatedItem]`, and `EmailImportResponse.createResults`. |
+| `EmailCreatedItem` | `mail/email.nim` | Four-field successful-create record shared across §§4.6/4.7/4.8 (id, blobId, threadId, size). Carried by `SetResponse[EmailCreatedItem, PartialEmail]`, `CopyResponse[EmailCreatedItem]`, and `EmailImportResponse.createResults`. |
 | `EmailImportResponse` | `mail/email.nim` | Bespoke `Email/import` response. There is no generic `ImportResponse[T]` to absorb it. |
 | `EmailCopyItem` | `mail/email.nim` | Per-entry create-side model for `Email/copy` (RFC §4.7). Total constructor `initEmailCopyItem`. |
 | `EmailImportItem` | `mail/email.nim` | Per-entry create-side model for `Email/import` (RFC §4.8). Total constructor `initEmailImportItem`. |
@@ -66,8 +66,8 @@ serde owns the projection to the wire JSON Pointer object.
 | `MailboxUpdate`, `MailboxUpdateSet` | `mail/mailbox.nim` | Five-variant case object plus a `distinct seq[MailboxUpdate]`. Smart constructor `initMailboxUpdateSet` rejects empty input and duplicate target properties. |
 | `NonEmptyMailboxUpdates` | `mail/mailbox.nim` | `distinct Table[Id, MailboxUpdateSet]`. Smart constructor `parseNonEmptyMailboxUpdates` rejects empty input and duplicate Mailbox ids. |
 | `VacationResponseUpdate`, `VacationResponseUpdateSet` | `mail/vacation.nim` | Six-variant case object plus a `distinct seq[VacationResponseUpdate]`. Smart constructor `initVacationResponseUpdateSet` rejects empty input and duplicate target properties. |
-| `EmailCopyHandles` | `mail/mail_builders.nim` | Type alias for `CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]` (inherits `primary`/`implicit` fields from the generic). |
-| `EmailCopyResults` | `mail/mail_builders.nim` | Type alias for `CompoundResults[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]`. |
+| `EmailCopyHandles` | `mail/mail_builders.nim` | Type alias for `CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]]` (inherits `primary`/`implicit` fields from the generic). |
+| `EmailCopyResults` | `mail/mail_builders.nim` | Type alias for `CompoundResults[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]]`. |
 | `CompoundHandles[A, B]`, `CompoundResults[A, B]` | `dispatch.nim` | Generic compound-method dispatch types (RFC 8620 §5.4). `getBoth(resp, handles)` is the single generic extraction proc. |
 | `NameBoundHandle[T]` | `dispatch.nim` | Response handle that pairs a `MethodCallId` with a `MethodName` filter — used for §5.4 implicit-call siblings whose call-id collides with the primary's. |
 | `CopyDestroyMode` | `methods.nim` | Case object — `cdmKeep` or `cdmDestroyAfterSuccess(destroyIfInState: Opt[JmapState])` — that the `CopyRequest[T, CopyItem]` serialises to `onSuccessDestroyOriginal` + `destroyFromIfInState`. Smart constructors `keepOriginals()` and `destroyAfterSuccess(...)`. |
@@ -102,7 +102,7 @@ constructors in `mail/email_update.nim`.
   `Result[T, ValidationError]` or `Result[T, seq[ValidationError]]`
   (accumulating). No exceptions.
 - **Typed errors on the error rail.** `SetError` outcomes are data on
-  the `Result` rail inside `createResults` (and, for `SetResponse[T]`,
+  the `Result` rail inside `createResults` (and, for `SetResponse[T, U]`,
   `updateResults` / `destroyResults`). Mail-specific variants are first-
   class members of the central `SetErrorType` enum (e.g. `setBlobNotFound`,
   `setInvalidEmail`, `setTooManyKeywords`); their RFC-mandated payloads
@@ -155,9 +155,9 @@ constructors in `mail/email_update.nim`.
 | `mail/serde_vacation.nim` | L2 | `toJson(VacationResponseUpdate)`, `toJson(VacationResponseUpdateSet)`. |
 | `mail/mail_builders.nim` | L3 | `addEmailSet`, `addEmailCopy`, `addEmailCopyAndDestroy`; `EmailCopyHandles` and `EmailCopyResults` aliases over the generic; `addMailboxSet` typed on `MailboxCreate` + `NonEmptyMailboxUpdates`. |
 | `mail/mail_methods.nim` | L3 | `addEmailImport`; `addVacationResponseSet` typed on `VacationResponseUpdateSet` (singleton id remains hard-coded as `VacationResponseSingletonId`). |
-| `mail/mail_entities.nim` | L1 | `setMethodName(typedesc[Email])`, `copyMethodName(typedesc[Email])`, `importMethodName(typedesc[Email])`, plus the entity-resolver templates `createType[T]`, `updateType[T]`, `setResponseType[T]`, `copyItemType[T]`, `copyResponseType[T]` for Email and Mailbox. `registerCompoundMethod(CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem])` enables Part F's compound participant. |
+| `mail/mail_entities.nim` | L1 | `setMethodName(typedesc[Email])`, `copyMethodName(typedesc[Email])`, `importMethodName(typedesc[Email])`, plus the entity-resolver templates `createType[T]`, `updateType[T]`, `setResponseType[T]`, `copyItemType[T]`, `copyResponseType[T]` for Email and Mailbox. `registerCompoundMethod(CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail])` enables Part F's compound participant. |
 | `methods_enum.nim` | L1 | `mnEmailSet`, `mnEmailCopy`, `mnEmailImport` variants. |
-| `methods.nim` | L1 | `SetRequest[T, C, U]` (three-parameter, `mixin toJson` on `C` and `U`); `CopyRequest[T, CopyItem]`; `CopyDestroyMode` + `keepOriginals()` + `destroyAfterSuccess()`; `SetResponse[T]` (`createResults` typed on `T`, `updateResults: Table[Id, Result[Opt[JsonNode], SetError]]`); `CopyResponse[T]`. |
+| `methods.nim` | L1 | `SetRequest[T, C, U]` (three-parameter, `mixin toJson` on `C` and `U`); `CopyRequest[T, CopyItem]`; `CopyDestroyMode` + `keepOriginals()` + `destroyAfterSuccess()`; `SetResponse[T, U]` (`createResults` typed on `T` via mixin `T.fromJson`, `updateResults: Table[Id, Result[Opt[U], SetError]]` typed on per-entity `PartialT` via mixin `U.fromJson` per A4); `CopyResponse[T]`. |
 | `dispatch.nim` | L1 | `NameBoundHandle[T]`, `CompoundHandles[A, B]`, `CompoundResults[A, B]`, generic `getBoth`, the `registerCompoundMethod` participation gate. |
 | `validation.nim` | L1 | `validateUniqueByIt` template — used by every accumulating Part F smart constructor. |
 | `serde.nim` | L1 | `jsonPointerEscape` (RFC 6901 §3 reference-token escaping). Used by `serde_email_update.nim` for keyword tokens. |
@@ -184,7 +184,7 @@ type EmailCreatedItem* {.ruleOff: "objects".} = object
 All four fields are required and carry no `Opt`. `EmailCreatedItem.fromJson`
 returns `Result[EmailCreatedItem, SerdeViolation]`; a server response
 that omits any of the four fields short-circuits the surrounding
-`SetResponse[EmailCreatedItem].fromJson` (or
+`SetResponse[EmailCreatedItem, PartialEmail].fromJson` (or
 `CopyResponse[EmailCreatedItem].fromJson`, or
 `EmailImportResponse.fromJson`) with that violation rather than
 fabricating a partial value.
@@ -195,12 +195,12 @@ fabricating a partial value.
 defined in `methods.nim`:
 
 ```nim
-type SetResponse*[T] = object
+type SetResponse*[T, U] = object
   accountId*: AccountId
   oldState*: Opt[JmapState]
   newState*: Opt[JmapState]
   createResults*: Table[CreationId, Result[T, SetError]]
-  updateResults*: Table[Id, Result[Opt[JsonNode], SetError]]
+  updateResults*: Table[Id, Result[Opt[U], SetError]]
   destroyResults*: Table[Id, Result[void, SetError]]
 
 type CopyResponse*[T] = object
@@ -211,18 +211,19 @@ type CopyResponse*[T] = object
   createResults*: Table[CreationId, Result[T, SetError]]
 ```
 
-For Part F, `T = EmailCreatedItem` at every Email-write site. The
-generic resolves `T.fromJson` via `mixin` at each builder's
-instantiation; `mail_builders.nim` and `mail_methods.nim` `export
-serde_email` so the dispatch site has the resolver in scope.
+For Part F, `T = EmailCreatedItem` and `U = PartialEmail` at every
+Email-write site. The generic resolves `T.fromJson` and `U.fromJson`
+via `mixin` at each builder's instantiation; `mail_builders.nim` and
+`mail_methods.nim` `export serde_email` so the dispatch site has both
+resolvers in scope.
 
-`updateResults` carries `Result[Opt[JsonNode], SetError]`: `Opt.none`
-encodes the wire `null` value RFC 8620 §5.3 admits ("server made no
-changes the client doesn't already know"), and `Opt.some(node)` encodes
-a non-null property-delta object. The library passes the `JsonNode`
-through verbatim because the set of properties the server may alter is
-open-ended; per-entity partial typing of update payloads is not in
-scope.
+`updateResults` carries `Result[Opt[PartialEmail], SetError]` (A4 D2):
+`Opt.none` encodes the wire `null` value RFC 8620 §5.3 admits ("server
+confirmed without echo"), and `Opt.some(partial)` encodes a non-null
+property-delta object parsed via `PartialEmail.fromJson` (lenient on
+missing fields, strict on wrong-kind-present per D4). `PartialEmail`
+mirrors the full Email read model — wire-nullable fields typed as
+`FieldEcho[T]`, wire-non-nullable fields typed as `Opt[T]`.
 
 `destroyResults` carries `Result[void, SetError]`: `Result.ok()` on
 successful destroy, `Result.err(setError)` on rejection. Wire `destroyed`
@@ -251,11 +252,12 @@ reason.
 
 ### 2.3. Serde
 
-`SetResponse[T].fromJson` and `CopyResponse[T].fromJson` (in
+`SetResponse[T, U].fromJson` and `CopyResponse[T].fromJson` (in
 `methods.nim`) merge the wire `created`/`notCreated` parallel maps
 through `mergeCreateResults[T]`, which calls `T.fromJson` on each
-successful entry; similar `mergeUpdateResults` and `mergeDestroyResults`
-helpers feed `updateResults` and `destroyResults`. `T.fromJson` is
+successful entry; `mergeUpdateResults[U]` calls `U.fromJson` on each
+non-null `updated[id]` entry; `mergeDestroyResults` feeds
+`destroyResults`. Both `T.fromJson` and `U.fromJson` are
 `mixin`-resolved at the caller's instantiation scope.
 
 `EmailImportResponse.fromJson` (in `serde_email.nim`) implements its
@@ -722,11 +724,11 @@ func addEmailSet*(
       Opt.none(Table[CreationId, EmailBlueprint]),
     update: Opt[NonEmptyEmailUpdates] = Opt.none(NonEmptyEmailUpdates),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-): (RequestBuilder, ResponseHandle[SetResponse[EmailCreatedItem]])
+): (RequestBuilder, ResponseHandle[SetResponse[EmailCreatedItem, PartialEmail]])
 ```
 
 Internally it calls
-`addSet[Email, EmailBlueprint, NonEmptyEmailUpdates, SetResponse[EmailCreatedItem]]`
+`addSet[Email, EmailBlueprint, NonEmptyEmailUpdates, SetResponse[EmailCreatedItem, PartialEmail]]`
 with no entity-specific extras. The generic resolves the four
 type-class methods at instantiation:
 
@@ -757,16 +759,17 @@ Key choices:
 
 ### 4.2. Response Handling
 
-`ResponseHandle[SetResponse[EmailCreatedItem]]` is the typed phantom
+`ResponseHandle[SetResponse[EmailCreatedItem, PartialEmail]]` is the typed phantom
 handle. Dispatch (`get(handle)` in `dispatch.nim`) returns
-`Result[SetResponse[EmailCreatedItem], MethodError]` on the outer
+`Result[SetResponse[EmailCreatedItem, PartialEmail], MethodError]` on the outer
 railway:
 
 - `createResults: Table[CreationId, Result[EmailCreatedItem, SetError]]`
   carries successful and failed creates per CreationId.
-- `updateResults: Table[Id, Result[Opt[JsonNode], SetError]]` carries
-  successful updates (with `Opt.none` for "no further changes" or
-  `Opt.some(deltaNode)` for server-altered properties) and failed
+- `updateResults: Table[Id, Result[Opt[PartialEmail], SetError]]`
+  carries successful updates (with `Opt.none` for "server confirmed
+  without echo" or `Opt.some(partial)` for server-echoed property
+  delta parsed via `PartialEmail.fromJson` per A4 D2) and failed
   updates per id.
 - `destroyResults: Table[Id, Result[void, SetError]]` carries
   successful destroys (`Result.ok()`) and failed destroys per id.
@@ -791,7 +794,7 @@ func addMailboxSet*(
     update: Opt[NonEmptyMailboxUpdates] = Opt.none(NonEmptyMailboxUpdates),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     onDestroyRemoveEmails: bool = false,
-): (RequestBuilder, ResponseHandle[SetResponse[MailboxCreatedItem]])
+): (RequestBuilder, ResponseHandle[SetResponse[MailboxCreatedItem, PartialMailbox]])
 ```
 
 Differences from `addEmailSet`:
@@ -799,11 +802,12 @@ Differences from `addEmailSet`:
 - `create` carries `MailboxCreate` (Part B's creation model) instead
   of `EmailBlueprint`.
 - `update` carries `NonEmptyMailboxUpdates`.
-- The `SetResponse[T]` payload is `MailboxCreatedItem` rather than the
-  full `Mailbox` because RFC 8620 §5.3's `created[cid]` carries only
-  the server-set subset (id + counts + myRights), and Stalwart 0.15.5
-  further trims to `{"id": "..."}`. `MailboxCreatedItem`'s five
-  non-id fields are `Opt[T]`.
+- The `SetResponse[T, U]` create-rail payload is `MailboxCreatedItem`
+  rather than the full `Mailbox` because RFC 8620 §5.3's
+  `created[cid]` carries only the server-set subset (id + counts +
+  myRights), and Stalwart 0.15.5 further trims to `{"id": "..."}`.
+  `MailboxCreatedItem`'s five non-id fields are `Opt[T]`. The
+  update-rail payload is `PartialMailbox` (A4 D2).
 - `onDestroyRemoveEmails: bool` extension key (RFC 8621 §2.5) is
   emitted unconditionally via the generic's `extras` parameter.
 
@@ -950,10 +954,10 @@ func getBoth*[A, B](
 
 # mail/mail_builders.nim
 type EmailCopyHandles* =
-  CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]
+  CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]]
 
 type EmailCopyResults* =
-  CompoundResults[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]
+  CompoundResults[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]]
 ```
 
 Field access through `EmailCopyHandles` therefore uses `primary` and
@@ -962,7 +966,7 @@ is the generic's; no mail-specific override is required.
 
 `primary: ResponseHandle[CopyResponse[EmailCreatedItem]]` dispatches
 through the default `get[T]` overload using its `MethodCallId`.
-`implicit: NameBoundHandle[SetResponse[EmailCreatedItem]]` carries the
+`implicit: NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]]` carries the
 primary's `MethodCallId` paired with `methodName: mnEmailSet`;
 dispatch resolves through `get[T](resp, h: NameBoundHandle[T])`,
 which scans `methodResponses` for the first invocation matching both
@@ -979,7 +983,7 @@ let (b1, copyHandle) = addCopy[Email, EmailCopyItem, CopyResponse[EmailCreatedIt
 )
 let handles = EmailCopyHandles(
   primary: copyHandle,
-  implicit: NameBoundHandle[SetResponse[EmailCreatedItem]](
+  implicit: NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
     callId: MethodCallId(copyHandle), methodName: mnEmailSet,
   ),
 )
@@ -990,11 +994,11 @@ machinery via:
 
 ```nim
 registerCompoundMethod(CopyResponse[EmailCreatedItem],
-                       SetResponse[EmailCreatedItem])
+                       SetResponse[EmailCreatedItem, PartialEmail])
 ```
 
 which compile-checks that `CopyResponse[EmailCreatedItem]` parametrises
-`ResponseHandle` and `SetResponse[EmailCreatedItem]` parametrises
+`ResponseHandle` and `SetResponse[EmailCreatedItem, PartialEmail]` parametrises
 `NameBoundHandle`.
 
 **Why two non-`Opt` fields, not `implicit: Opt[SetResponse[...]]`?**
@@ -1249,7 +1253,7 @@ or if the server uses stricter validation than the client).
 specifies that a successful copy with `onSuccessDestroyOriginal`
 emits a *second* response sharing the same method-call-id, an
 implicit `Email/set { destroy: [...] }` call on the source account.
-The implicit `SetResponse[EmailCreatedItem]` carries its own
+The implicit `SetResponse[EmailCreatedItem, PartialEmail]` carries its own
 `destroyResults` map (per §2.2), populated with destroy-scoped
 SetErrors (`notFound`, `forbidden`, `willDestroy`).
 
@@ -1329,7 +1333,7 @@ log.
 | # | Decision | Options Considered | Chosen | Primary Principles |
 |---|----------|--------------------|--------|---------------------|
 | F1 | Part F scope boundary | A) Email/set + Email/copy + Email/import together; B) Email/set only, defer copy+import; C) Email/set + Email/copy only | A — three methods together so the shared four-field create shape has a single source of truth | Make illegal states unrepresentable, DRY, code reads like the spec |
-| F2 | `EmailCreatedItem` typed vs raw JsonNode | A) `Table[CreationId, Result[JsonNode, SetError]]`; B) Typed `EmailCreatedItem` record across all create paths; C) Raw + per-call typed accessor | B — `EmailCreatedItem` parameterises the generic `SetResponse[T]` and `CopyResponse[T]` for `Email/set` and `Email/copy` and is embedded directly in `EmailImportResponse.createResults` | Parse once at the boundary, illegal states unrepresentable, one source of truth |
+| F2 | `EmailCreatedItem` typed vs raw JsonNode | A) `Table[CreationId, Result[JsonNode, SetError]]`; B) Typed `EmailCreatedItem` record across all create paths; C) Raw + per-call typed accessor | B — `EmailCreatedItem` parameterises the create rail of the generic `SetResponse[T, U]` and `CopyResponse[T]` for `Email/set` and `Email/copy` and is embedded directly in `EmailImportResponse.createResults` | Parse once at the boundary, illegal states unrepresentable, one source of truth |
 | F3 | Compound-handle dispatch shape | A) Generic `CompoundHandles[A, B]` shared across all RFC 8620 §5.4 compound participants; B) Specific `EmailCopyHandles` newtype with `copy`/`destroy` fields; C) Specific always | A — generic `CompoundHandles[A, B]` (and `CompoundResults[A, B]`) live in `dispatch.nim` with `primary`/`implicit` fields; mail-specific names (`EmailCopyHandles`, `EmailCopyResults`) are aliases over the generic. Same mechanism serves Part G's `EmailSubmission` compound | DDD, return-types-as-documentation, DRY at the dispatch layer |
 | F4 | PatchObject dissolution + typed update algebra scope | — | Three entities get typed algebras (Email + Mailbox + VacationResponse). Per-target patch sets (`EmailUpdateSet`, `MailboxUpdateSet`, `VacationResponseUpdateSet`) carry conflict-free invariants; whole-container algebras (`NonEmptyEmailUpdates`, `NonEmptyMailboxUpdates`) carry non-empty + unique-id invariants. `EmailUpdateSet` rejects three conflict classes via the `Conflict` ADT pipeline (`samePathConflicts` + `parentPrefixConflicts` + `toValidationError`). All accumulating constructors return `Result[T, seq[ValidationError]]` and use `validateUniqueByIt`. `EmailUpdate` lives in dedicated `email_update.nim`; `MailboxUpdate` and `VacationResponseUpdate` live inline in their home modules. `PatchObject` is not a public type | Make illegal states unrepresentable, one source of truth, parse once at the boundary, right thing easy, DDD |
 | F5 | Email/set + Email/copy module home | A) Extend `mail_builders.nim`; B) New `email_write.nim`; C) New `mail_set.nim` + `mail_copy.nim` | A — mirrors CRUD-in-`mail_builders.nim` / specialty-verbs-in-`mail_methods.nim` split | DDD, precedent, right thing easy |

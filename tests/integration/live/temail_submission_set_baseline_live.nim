@@ -19,19 +19,14 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tEmailSubmissionSetBaselineLive:
+testCase tEmailSubmissionSetBaselineLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -71,12 +66,16 @@ block tEmailSubmissionSetBaselineLive:
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
     let (b3, subHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, create = Opt.some(subTbl)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(subTbl),
     )
-    let resp3 = client.send(b3).expect("send EmailSubmission/set[" & $target.kind & "]")
-    captureIfRequested(client, "email-submission-set-baseline-" & $target.kind).expect(
-      "captureIfRequested"
+    let resp3 =
+      client.send(b3.freeze()).expect("send EmailSubmission/set[" & $target.kind & "]")
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-set-baseline-" & $target.kind
     )
+      .expect("captureIfRequested")
     let subSetResp =
       resp3.get(subHandle).expect("EmailSubmission/set extract[" & $target.kind & "]")
     var submissionId: Id
@@ -106,8 +105,7 @@ block tEmailSubmissionSetBaselineLive:
       assertOn target, pollRes.isSome, "Stalwart must retain the submission record"
       let final = pollRes.unsafeGet
       assertOn target,
-        string(final.id) == string(submissionId),
-        "polled submission id must match the created id"
+        $final.id == $submissionId, "polled submission id must match the created id"
     of ltkJames, ltkCyrus:
       # James 3.9 has no ``EmailSubmission/get``; Cyrus 3.12.2's
       # ``deliveryStatus`` is hardcoded null
@@ -126,7 +124,7 @@ block tEmailSubmissionSetBaselineLive:
       let bobInbox = resolveInboxId(bobClient, bobMailAccountId).expect(
           "resolveInboxId bob[" & $target.kind & "]"
         )
-      let budget = (if target.kind == ltkCyrus: 30000 else: 5000) * liveBudgetMul
+      let budget = (if target.kind == ltkCyrus: 60000 else: 5000) * liveBudgetMul
       discard pollEmailDeliveryToInbox(
           bobClient,
           bobMailAccountId,
@@ -135,5 +133,3 @@ block tEmailSubmissionSetBaselineLive:
           budgetMs = budget,
         )
         .expect("pollEmailDeliveryToInbox bob[" & $target.kind & "]")
-      bobClient.close()
-    client.close()

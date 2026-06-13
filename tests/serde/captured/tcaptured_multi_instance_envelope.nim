@@ -17,9 +17,11 @@
 import std/json
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedMultiInstanceEnvelope:
+testCase tcapturedMultiInstanceEnvelope:
   forEachCapturedServer("multi-instance-envelope", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 3,

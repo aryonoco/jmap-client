@@ -22,12 +22,12 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tEmailSubmissionGetDeliveryStatusLive:
+testCase tEmailSubmissionGetDeliveryStatusLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises EmailSubmission/get's
     # ``deliveryStatus`` parse path (RFC 8621 §7 ¶8). Stalwart 0.15.5
@@ -37,12 +37,7 @@ block tEmailSubmissionGetDeliveryStatusLive:
     # exercises the client's ``Opt.none`` projection; James 3.9 has no
     # EmailSubmission/get and the entire extract surfaces as
     # ``metUnknownMethod``.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -81,9 +76,12 @@ block tEmailSubmissionGetDeliveryStatusLive:
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
     let (b3, subHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, create = Opt.some(subTbl)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(subTbl),
     )
-    let resp3 = client.send(b3).expect("send EmailSubmission/set[" & $target.kind & "]")
+    let resp3 =
+      client.send(b3.freeze()).expect("send EmailSubmission/set[" & $target.kind & "]")
     let subSetExtract = resp3.get(subHandle)
     var submissionId: Id
     var createOk = false
@@ -97,7 +95,6 @@ block tEmailSubmissionGetDeliveryStatusLive:
         assertOn target, false, "EmailSubmission/set must report a create outcome"
 
     if not createOk:
-      client.close()
       continue
 
     # --- Poll until usFinal, then fresh /get to read deliveryStatus -----
@@ -106,13 +103,17 @@ block tEmailSubmissionGetDeliveryStatusLive:
       # poll uses /get internally; on Cyrus the poll might still settle
       # (deliveryStatus is null but undoStatus advances), but on James
       # the entire surface fails. Skip dependent assertions.
-      client.close()
       continue
     let (b4, getHandle) = addEmailSubmissionGet(
-      initRequestBuilder(), submissionAccountId, ids = directIds(@[submissionId])
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      ids = directIds(@[submissionId]),
     )
-    let resp4 = client.send(b4).expect("send EmailSubmission/get[" & $target.kind & "]")
-    captureIfRequested(client, "email-submission-get-delivery-status-" & $target.kind)
+    let resp4 =
+      client.send(b4.freeze()).expect("send EmailSubmission/get[" & $target.kind & "]")
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-get-delivery-status-" & $target.kind
+    )
       .expect("captureIfRequested")
     let getExtract = resp4.get(getHandle)
     assertSuccessOrTypedError(target, getExtract, {metUnknownMethod}):
@@ -129,9 +130,7 @@ block tEmailSubmissionGetDeliveryStatusLive:
           getResp.list.len == 1,
           "EmailSubmission/get must return at most one entry (got " & $getResp.list.len &
             ")"
-        let any = AnyEmailSubmission.fromJson(getResp.list[0]).expect(
-            "AnyEmailSubmission.fromJson[" & $target.kind & "]"
-          )
+        let any = getResp.list[0]
         let finalOpt = any.asFinal()
         assertOn target,
           finalOpt.isSome,
@@ -146,7 +145,7 @@ block tEmailSubmissionGetDeliveryStatusLive:
         # and the ``isSome == false`` is itself the universal contract
         # assertion.
         for dsMapValue in sub.deliveryStatus:
-          let dsMap = (Table[RFC5321Mailbox, DeliveryStatus])(dsMapValue)
+          let dsMap = dsMapValue.toTable
           let bobMailbox = parseRFC5321Mailbox("bob@example.com").expect(
               "parseRFC5321Mailbox bob[" & $target.kind & "]"
             )
@@ -160,10 +159,9 @@ block tEmailSubmissionGetDeliveryStatusLive:
               "must project as dsUnknown (got " & $entry.delivered.state &
               ", rawBacking=" & entry.delivered.rawBacking & ")"
           assertOn target,
-            entry.smtpReply.replyCode == ReplyCode(250),
+            entry.smtpReply.replyCode.toUint16 == 250'u16,
             "local-queue SMTP reply must carry code 250 (got " &
               $entry.smtpReply.replyCode & ")"
           assertOn target,
             entry.smtpReply.enhanced.isSome,
             "reply carries an RFC 3463 enhanced status code"
-    client.close()

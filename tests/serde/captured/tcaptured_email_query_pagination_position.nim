@@ -9,9 +9,11 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailQueryPaginationPosition:
+testCase tcapturedEmailQueryPaginationPosition:
   let j = loadCapturedFixture("email-query-pagination-position-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -19,10 +21,10 @@ block tcapturedEmailQueryPaginationPosition:
   doAssert inv.rawName == "Email/query", "expected Email/query, got " & inv.rawName
   let qr =
     QueryResponse[Email].fromJson(inv.arguments).expect("QueryResponse[Email].fromJson")
-  doAssert qr.position == UnsignedInt(2),
+  doAssert qr.position == parseUnsignedInt(2).get(),
     "position must echo requested 2 (got " & $qr.position & ")"
   doAssert qr.ids.len == 2,
     "limit=2 must yield exactly two ids (got " & $qr.ids.len & ")"
   doAssert qr.total.isSome, "calculateTotal=true must surface total"
-  doAssert qr.total.unsafeGet >= UnsignedInt(5),
+  doAssert qr.total.unsafeGet >= parseUnsignedInt(5).get(),
     "total must be at least the seeded 5 (got " & $qr.total.unsafeGet & ")"

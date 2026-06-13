@@ -30,7 +30,7 @@
 ##  3. Mismatched ``Email/queryChanges`` with ``sinceQueryState =
 ##     queryState`` and ``filter = subject "phase-i 51 alpha"``.
 ##     Capture the wire response and assert RFC-conformant outcome
-##     (Err on a permitted MethodErrorType, or Ok carrying a valid
+##     (Err on a permitted MethodErrorKind, or Ok carrying a valid
 ##     QueryChangesResponse).
 ##
 ## Capture: ``email-query-changes-filter-mismatch-stalwart``.
@@ -43,12 +43,12 @@
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailQueryChangesFilterMismatchLive:
+testCase temailQueryChangesFilterMismatchLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): test asserts on client behaviour, not on
     # specific server implementations. Stalwart 0.15.5 and Cyrus 3.12.2
@@ -56,12 +56,7 @@ block temailQueryChangesFilterMismatchLive:
     # (Email/queryChanges unregistered). The success arm verifies the
     # RFC 8620 §5.6 set-membership outcome; the error arm verifies the
     # client's typed-error projection across configured targets.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -80,10 +75,11 @@ block temailQueryChangesFilterMismatchLive:
       seededIds.len == 3, "three seeded ids expected (got " & $seededIds.len & ")"
 
     let filterA = filterCondition(EmailFilterCondition(subject: Opt.some("phase-i 51")))
-    let (b1, h1) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filterA))
+    let (b1, h1) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filterA)
+    )
     let resp1 =
-      client.send(b1).expect("send Email/query baseline[" & $target.kind & "]")
+      client.send(b1.freeze()).expect("send Email/query baseline[" & $target.kind & "]")
     let qResp1 =
       resp1.get(h1).expect("Email/query baseline extract[" & $target.kind & "]")
     let queryStateA = qResp1.queryState
@@ -91,15 +87,17 @@ block temailQueryChangesFilterMismatchLive:
     let filterB =
       filterCondition(EmailFilterCondition(subject: Opt.some("phase-i 51 alpha")))
     let (b2, h2) = addEmailQueryChanges(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       sinceQueryState = queryStateA,
       filter = Opt.some(filterB),
     )
-    let resp2 = client.send(b2).expect(
+    let resp2 = client.send(b2.freeze()).expect(
         "send Email/queryChanges mismatched filter[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-query-changes-filter-mismatch-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "email-query-changes-filter-mismatch-" & $target.kind
+    )
       .expect("captureIfRequested")
     let extract = resp2.get(h2)
     assertSuccessOrTypedError(
@@ -109,7 +107,5 @@ block temailQueryChangesFilterMismatchLive:
     ):
       let qcr = success
       assertOn target,
-        string(qcr.oldQueryState) == string(queryStateA),
+        $qcr.oldQueryState == $queryStateA,
         "success arm: oldQueryState must echo the supplied baseline"
-
-    client.close()

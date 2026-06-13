@@ -14,9 +14,11 @@
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailGetBodyPropertiesAll:
+testCase tcapturedEmailGetBodyPropertiesAll:
   let j = loadCapturedFixture("email-get-body-properties-all-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
@@ -26,7 +28,7 @@ block tcapturedEmailGetBodyPropertiesAll:
   let getResp =
     GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
   doAssert getResp.list.len == 1, "captured Email/get must carry one record"
-  let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+  let email = getResp.list[0]
   doAssert email.bodyStructure.isSome,
     "bodyStructure must be present when explicitly requested"
   let bs = email.bodyStructure.unsafeGet
@@ -36,5 +38,5 @@ block tcapturedEmailGetBodyPropertiesAll:
     "multipart/mixed seed must carry at least two subParts (text + attachment)"
   doAssert email.bodyValues.len >= 1, "bvsAll must yield at least one bodyValues entry"
   for partId, bv in email.bodyValues.pairs:
-    doAssert string(partId).len > 0, "every bodyValues key must be non-empty"
+    doAssert ($partId).len > 0, "every bodyValues key must be non-empty"
     doAssert bv.value.len > 0, "bvsAll-emitted bodyValue must carry decoded content"

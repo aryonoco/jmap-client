@@ -568,10 +568,18 @@ assignment. It is excluded from `MailboxCreate` (§4.6).
 ### 4.4. Mailbox
 
 The typed `Mailbox` represents a **complete** RFC domain object —
-all properties present. Partial property responses (when the client
-requests only specific properties via `addGet`) use
-`GetResponse[Mailbox].list: seq[JsonNode]` for raw access. No `Opt`
-wrapping for "was this property requested?".
+all properties present. `GetResponse[Mailbox].list: seq[Mailbox]`
+requires every wire entry to satisfy `Mailbox.fromJson`'s
+full-record contract (A3). Partial property responses (when the
+client deliberately requests only specific properties via
+`addMailboxGet(properties = …)`) surface
+`MethodError(metServerFail)` on the public typed entry point
+because elided fields fail full-record parsing; a future
+`PartialMailbox` type (A3.6) closes the public-surface gap
+additively. Raw `Invocation.arguments` is sealed inside the
+`internal/` namespace per A2 — not an application escape hatch.
+No `Opt` wrapping on `Mailbox` itself for "was this property
+requested?".
 
 ```nim
 type Mailbox* = object
@@ -633,7 +641,7 @@ accommodation: be lenient on receive. Mirrors the `IdentityCreatedItem`
 shape in `identity.nim`.
 
 `MailboxCreatedItem` is the typed `createResults` payload of
-`SetResponse[MailboxCreatedItem]` — the response handle returned by
+`SetResponse[MailboxCreatedItem, PartialMailbox]` — the response handle returned by
 `addMailboxSet`.
 
 ### 4.6. MailboxCreate
@@ -1009,7 +1017,7 @@ template changesResponseType*(T: typedesc[Mailbox]): typedesc = MailboxChangesRe
 template filterType*(T: typedesc[Mailbox]): typedesc = MailboxFilterCondition
 template createType*(T: typedesc[Mailbox]): typedesc = MailboxCreate
 template updateType*(T: typedesc[Mailbox]): typedesc = NonEmptyMailboxUpdates
-template setResponseType*(T: typedesc[Mailbox]): typedesc = SetResponse[MailboxCreatedItem]
+template setResponseType*(T: typedesc[Mailbox]): typedesc = SetResponse[MailboxCreatedItem, PartialMailbox]
 ```
 
 `registerJmapEntity` checks that `methodEntity` and `capabilityUri`
@@ -1168,10 +1176,10 @@ func addMailboxSet*(
     destroy: Opt[Referencable[seq[Id]]] =
       Opt.none(Referencable[seq[Id]]),
     onDestroyRemoveEmails: bool = false,
-): (RequestBuilder, ResponseHandle[SetResponse[MailboxCreatedItem]]) =
+): (RequestBuilder, ResponseHandle[SetResponse[MailboxCreatedItem, PartialMailbox]]) =
   addSet[
     Mailbox, MailboxCreate, NonEmptyMailboxUpdates,
-    SetResponse[MailboxCreatedItem]
+    SetResponse[MailboxCreatedItem, PartialMailbox]
   ](
     b, accountId, ifInState, create, update, destroy,
     extras = @[("onDestroyRemoveEmails", %onDestroyRemoveEmails)],
@@ -1185,7 +1193,7 @@ and `update` as `NonEmptyMailboxUpdates`; the generic
 `SetRequest[T, C, U].toJson` serialises both through the `mixin
 toJson` cascade.
 
-The response handle carries `SetResponse[MailboxCreatedItem]`, not
+The response handle carries `SetResponse[MailboxCreatedItem, PartialMailbox]`, not
 `SetResponse[Mailbox]`, because RFC 8620 §5.3's `created[cid]`
 carries only the server-set subset (id + counts + myRights), and
 Stalwart further trims to `{"id": "..."}`. The partial type lets the
@@ -1369,4 +1377,4 @@ verify round-trip and structural JSON correctness.
 | 98 | `addMailboxSet` produces invocation name `"Mailbox/set"` and includes `onDestroyRemoveEmails` | pass |
 | 99 | `addMailboxSet` with typed `MailboxCreate` serialises through `mixin toJson` | pass |
 | 100 | `addMailboxSet` with `NonEmptyMailboxUpdates` produces correct `update` patch wire shape | pass |
-| 101 | `addMailboxSet` response handle is typed `SetResponse[MailboxCreatedItem]` (not `SetResponse[Mailbox]`) | pass |
+| 101 | `addMailboxSet` response handle is typed `SetResponse[MailboxCreatedItem, PartialMailbox]` (not `SetResponse[Mailbox]`) | pass |

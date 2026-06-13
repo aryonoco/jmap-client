@@ -7,8 +7,8 @@
 ## one failure contaminating another's parsing; successful method
 ## calls in the same envelope still round-trip cleanly.
 ##
-## Phase J Step 74.  One ``sendRawHttpForTesting`` carrying a
-## hand-crafted five-invocation request body:
+## Phase J Step 74.  One ``postRawJmap`` carrying a hand-crafted
+## five-invocation request body:
 ##   c0: legitimate Mailbox/get      → success
 ##   c1: legitimate Email/query      → success
 ##   c2: Email/get with broken ref   → metInvalidResultReference
@@ -21,19 +21,18 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
+import jmap_client/internal/types/envelope
+import ../../m_l2_serde
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tcombinedAdversarialRoundTripLive:
+testCase tcombinedAdversarialRoundTripLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    let client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -103,12 +102,11 @@ block tcombinedAdversarialRoundTripLive:
       ],
     }
 
-    let resp = client.sendRawHttpForTesting($body).expect(
-        "sendRawHttpForTesting envelope[" & $target.kind & "]"
-      )
-    captureIfRequested(client, "combined-adversarial-round-trip-" & $target.kind).expect(
-      "captureIfRequested combined adversarial"
-    )
+    let (respBody, respResult) =
+      postRawJmap(target, session, $body, target.aliceCredential)
+    captureIfRequested(respBody, "combined-adversarial-round-trip-" & $target.kind)
+      .expect("captureIfRequested combined adversarial")
+    let resp = respResult.expect("postRawJmap envelope[" & $target.kind & "]")
 
     assertOn target,
       resp.methodResponses.len == 5,
@@ -142,24 +140,24 @@ block tcombinedAdversarialRoundTripLive:
       )
     assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
     assertOn target,
-      me.errorType in
+      me.kind in
         {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown},
-      "c2 errorType must project into the closed enum, got " & $me.errorType
+      "c2 errorType must project into the closed enum, got " & $me.kind
 
     # c3: Email/set with immutable property must surface in notCreated.
     let c3 = resp.methodResponses[3]
     assertOn target,
       c3.rawName == "Email/set",
       "c3 expected Email/set with notCreated, got " & c3.rawName
-    let setResp = SetResponse[EmailCreatedItem].fromJson(c3.arguments).expect(
-        "SetResponse[EmailCreatedItem].fromJson c3"
-      )
+    let setResp = SetResponse[EmailCreatedItem, PartialEmail]
+      .fromJson(c3.arguments)
+      .expect("SetResponse[EmailCreatedItem, PartialEmail].fromJson c3")
     let cidLabel =
       parseCreationId("newDraft").expect("parseCreationId[" & $target.kind & "]")
     setResp.createResults.withValue(cidLabel, outcome):
       assertOn target, outcome.isErr, "create with immutable property must Err"
       assertOn target,
-        outcome.error.errorType in {setInvalidProperties, setForbidden, setUnknown}
+        outcome.error.kind in {setInvalidProperties, setForbidden, setUnknown}
     do:
       assertOn target, false, "Email/set must report an outcome for the create label"
 
@@ -176,25 +174,27 @@ block tcombinedAdversarialRoundTripLive:
 
     # Round-trip integrity: re-emit individual records and re-parse
     # — structural identity (not byte equality), but the parser
-    # must accept its own output.  ``GetResponse[T].toJson`` is not
-    # defined (responses are read-only); per-record re-emission via
+    # must accept its own output. ``GetResponse[T].toJson`` is not
+    # defined per D3.7 (response types are ``fromJson``-only with the
+    # ``SetResponse.toJson`` / ``CopyResponse.toJson`` exceptions; see
+    # ``methods.nim:7-9``). Per-record re-emission via
     # ``Mailbox.toJson`` / ``Email.toJson`` / ``Identity.toJson``
-    # exercises the equivalent contract.
+    # exercises the equivalent contract for read-back records that
+    # A3 typed end-to-end on the receive path.
     if mb.list.len > 0:
-      let mailboxRec =
-        Mailbox.fromJson(mb.list[0]).expect("Mailbox round-trip[" & $target.kind & "]")
+      let mailboxRec = mb.list[0]
       discard mailboxRec.toJson()
     if identResp.list.len > 0:
-      let identRec = Identity.fromJson(identResp.list[0]).expect(
-          "Identity round-trip[" & $target.kind & "]"
-        )
+      let identRec = identResp.list[0]
       discard identRec.toJson()
 
     # Cleanup: destroy the seed email.
-    let (bClean, cleanHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[seedId]))
-    let respClean =
-      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let (bClean, cleanHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, destroy = directIds(@[seedId])
+    )
+    let respClean = client.send(bClean.freeze()).expect(
+        "send Email/set cleanup[" & $target.kind & "]"
+      )
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
@@ -202,5 +202,3 @@ block tcombinedAdversarialRoundTripLive:
       assertOn target, outcome.isOk, "cleanup destroy must succeed"
     do:
       assertOn target, false, "cleanup must report an outcome"
-
-    client.close()

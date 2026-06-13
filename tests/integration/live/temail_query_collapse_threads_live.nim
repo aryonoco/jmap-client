@@ -49,22 +49,17 @@ import std/sets
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 const ThreadConvergeAttempts = 60
 const ThreadConvergeIntervalMs = 250
 
-block temailQueryCollapseThreadsLive:
+testCase temailQueryCollapseThreadsLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -103,10 +98,12 @@ block temailQueryCollapseThreadsLive:
     # may vary across runs (re-running the test seeds additional
     # copies because the seed creates new emails each time), but
     # the no-collapse leg must surface at least the three seeds.
-    let (b1, h1) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-    let resp1 =
-      client.send(b1).expect("send Email/query no-collapse[" & $target.kind & "]")
+    let (b1, h1) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
+    )
+    let resp1 = client.send(b1.freeze()).expect(
+        "send Email/query no-collapse[" & $target.kind & "]"
+      )
     let qr1 =
       resp1.get(h1).expect("Email/query no-collapse extract[" & $target.kind & "]")
     let noCollapseCount = qr1.ids.len
@@ -133,13 +130,14 @@ block temailQueryCollapseThreadsLive:
     var lastCollapseCount = noCollapseCount
     for _ in 0 ..< ThreadConvergeAttempts:
       let (b2, h2) = addEmailQuery(
-        initRequestBuilder(),
+        initRequestBuilder(makeBuilderId()),
         mailAccountId,
         filter = Opt.some(filter),
         collapseThreads = true,
       )
-      let resp2 =
-        client.send(b2).expect("send Email/query collapse[" & $target.kind & "]")
+      let resp2 = client.send(b2.freeze()).expect(
+          "send Email/query collapse[" & $target.kind & "]"
+        )
       let qr2 =
         resp2.get(h2).expect("Email/query collapse extract[" & $target.kind & "]")
       lastCollapseCount = qr2.ids.len
@@ -151,7 +149,9 @@ block temailQueryCollapseThreadsLive:
         lastCollapseCount >= 1,
         "collapseThreads=true must surface at least one entry per thread"
       if lastCollapseCount < noCollapseCount:
-        captureIfRequested(client, "email-query-collapse-threads-" & $target.kind)
+        captureIfRequested(
+          recorder.lastResponseBody, "email-query-collapse-threads-" & $target.kind
+        )
           .expect("captureIfRequested")
         observedConvergence = true
         break
@@ -160,8 +160,7 @@ block temailQueryCollapseThreadsLive:
       # Capture the no-merge state so downstream replays still
       # have a fixture to parse.  The wire-shape contract has
       # already been verified by the loop's invariants.
-      captureIfRequested(client, "email-query-collapse-threads-" & $target.kind).expect(
-        "captureIfRequested no-merge"
+      captureIfRequested(
+        recorder.lastResponseBody, "email-query-collapse-threads-" & $target.kind
       )
-
-    client.close()
+        .expect("captureIfRequested no-merge")

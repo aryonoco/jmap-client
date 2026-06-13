@@ -9,21 +9,22 @@
 import std/json
 import std/random
 
-import jmap_client/validation
-import jmap_client/primitives
-import jmap_client/mail/email
-import jmap_client/mail/mail_filters
-import jmap_client/mail/serde_email
-import jmap_client/mail/serde_mail_filters
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/mail_filters
+import jmap_client/internal/mail/serde_email
+import jmap_client/internal/mail/serde_mail_filters
 
 import ../mproperty
 import ../mfixtures
+import ../mtestblock
 
 # =============================================================================
 # A. Round-trip identity properties
 # =============================================================================
 
-block propRoundTripEmailComparator:
+testCase propRoundTripEmailComparator:
   checkProperty "EmailComparator round-trip: emailComparatorFromJson(toJson(ec)) == ec":
     let ec = rng.genEmailComparator()
     lastInput = $ec.kind
@@ -31,7 +32,10 @@ block propRoundTripEmailComparator:
     let rt = emailComparatorFromJson(j).get()
     doAssert emailComparatorEq(rt, ec), "EmailComparator round-trip identity violated"
 
-block propRoundTripEmail:
+testCase propRoundTripEmail:
+  # genEmail covers the B11 "bodyValues populated + bodyStructure absent" shape
+  # (the RFC 8621 §4.2 default Email/get shape); this round-trip proving Ok is
+  # the property-level evidence that the parser must NOT reject it.
   checkPropertyN "Email round-trip: emailFromJson(toJson(e)) == e", ThoroughTrials:
     let e = rng.genEmail()
     lastInput = (if e.id.isSome: $e.id.unsafeGet else: "Opt.none")
@@ -40,7 +44,7 @@ block propRoundTripEmail:
     doAssert rtResult.isOk, "Email round-trip fromJson failed"
     doAssert emailEq(rtResult.get(), e), "Email round-trip identity violated"
 
-block propRoundTripPartialEmail:
+testCase propRoundTripPartialEmail:
   checkPropertyN "Partial Email round-trip: emailFromJson(toJson(p)) == p",
     ThoroughTrials:
     let p = rng.genPartialEmail()
@@ -50,7 +54,7 @@ block propRoundTripPartialEmail:
     doAssert rtResult.isOk, "Partial Email round-trip fromJson failed"
     doAssert emailEq(rtResult.get(), p), "Partial Email round-trip identity violated"
 
-block propRoundTripParsedEmail:
+testCase propRoundTripParsedEmail:
   checkPropertyN "ParsedEmail round-trip: parsedEmailFromJson(toJson(pe)) == pe",
     ThoroughTrials:
     let pe = rng.genParsedEmail()
@@ -65,19 +69,19 @@ block propRoundTripParsedEmail:
 # B. Totality — never crashes on arbitrary input
 # =============================================================================
 
-block propEmailFromJsonTotality:
+testCase propEmailFromJsonTotality:
   checkProperty "emailFromJson never crashes on arbitrary JSON":
     let j = rng.genArbitraryJsonNode(3)
     lastInput = $j.kind
     discard emailFromJson(j)
 
-block propParsedEmailFromJsonTotality:
+testCase propParsedEmailFromJsonTotality:
   checkProperty "parsedEmailFromJson never crashes on arbitrary JSON":
     let j = rng.genArbitraryJsonNode(3)
     lastInput = $j.kind
     discard parsedEmailFromJson(j)
 
-block propEmailComparatorFromJsonTotality:
+testCase propEmailComparatorFromJsonTotality:
   checkProperty "emailComparatorFromJson never crashes on arbitrary JSON":
     let j = rng.genArbitraryJsonNode(2)
     lastInput = $j.kind
@@ -87,7 +91,7 @@ block propEmailComparatorFromJsonTotality:
 # C. Structural invariant — BodyValueScope determines fetch keys
 # =============================================================================
 
-block propEmailBodyFetchOptionsStructural:
+testCase propEmailBodyFetchOptionsStructural:
   checkPropertyN "EmailBodyFetchOptions: BodyValueScope determines fetch keys",
     QuickTrials:
     let opts = rng.genEmailBodyFetchOptions()
@@ -119,7 +123,7 @@ block propEmailBodyFetchOptionsStructural:
 # D. Field-count correlation — EmailFilterCondition
 # =============================================================================
 
-block propEmailFilterConditionFieldCount:
+testCase propEmailFilterConditionFieldCount:
   checkProperty "EmailFilterCondition: toJson field count == isSome field count":
     let fc = rng.genEmailFilterCondition(trial)
     lastInput = "trial " & $trial
@@ -147,7 +151,7 @@ block propEmailFilterConditionFieldCount:
       inc expectedCount
     if fc.notKeyword.isSome:
       inc expectedCount
-    if fc.hasAttachment.isSome:
+    if fc.hasAttachment != hafNoConstraint:
       inc expectedCount
     if fc.text.isSome:
       inc expectedCount

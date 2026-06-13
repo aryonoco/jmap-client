@@ -13,9 +13,11 @@
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailSubmissionOnSuccessUpdateStalwart:
+testCase tcapturedEmailSubmissionOnSuccessUpdateStalwart:
   forEachCapturedServer("email-submission-on-success-update", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     # Two server-specific shapes are RFC-conformant here:
@@ -40,20 +42,20 @@ block tcapturedEmailSubmissionOnSuccessUpdateStalwart:
           for cid, outcome in setResp.createResults.pairs:
             doAssert outcome.isOk,
               "primary create must be Ok (got rawType=" & outcome.error.rawType & ")"
-            doAssert string(outcome.unsafeValue.id).len > 0,
+            doAssert ($outcome.unsafeValue.id).len > 0,
               "primary create must carry a non-empty id"
-            doAssert string(cid).len > 0, "primary creationId must be non-empty"
+            doAssert ($cid).len > 0, "primary creationId must be non-empty"
           primaryFound = true
         elif inv.rawName == "Email/set":
-          let setResp = SetResponse[EmailCreatedItem].fromJson(inv.arguments).expect(
-              "SetResponse[EmailCreatedItem].fromJson"
-            )
+          let setResp = SetResponse[EmailCreatedItem, PartialEmail]
+            .fromJson(inv.arguments)
+            .expect("SetResponse[EmailCreatedItem, PartialEmail].fromJson")
           doAssert setResp.updateResults.len == 1,
             "implicit Email/set rail must carry exactly one update outcome"
           for id, outcome in setResp.updateResults.pairs:
             doAssert outcome.isOk,
               "implicit update must be Ok (got rawType=" & outcome.error.rawType & ")"
-            doAssert string(id).len > 0, "updated draft id must be non-empty"
+            doAssert ($id).len > 0, "updated draft id must be non-empty"
           implicitFound = true
       doAssert primaryFound, "captured response must contain EmailSubmission/set"
       doAssert implicitFound, "captured response must contain implicit Email/set"

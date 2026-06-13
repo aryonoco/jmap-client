@@ -16,17 +16,20 @@
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedSetErrorInvalidProperties:
+testCase tcapturedSetErrorInvalidProperties:
   let j = loadCapturedFixture("set-error-invalid-properties-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1
   let inv = resp.methodResponses[0]
   doAssert inv.rawName == "Email/set",
     "Email/set with notCreated must surface as Email/set, got " & inv.rawName
-  let setResp =
-    SetResponse[EmailCreatedItem].fromJson(inv.arguments).expect("SetResponse.fromJson")
+  let setResp = SetResponse[EmailCreatedItem, PartialEmail]
+    .fromJson(inv.arguments)
+    .expect("SetResponse.fromJson")
   let cidLabel = parseCreationId("phaseJ63").expect("parseCreationId")
   var found = false
   setResp.createResults.withValue(cidLabel, outcome):
@@ -34,9 +37,9 @@ block tcapturedSetErrorInvalidProperties:
     let se = outcome.error
     doAssert se.rawType == "invalidProperties",
       "Stalwart returns canonical 'invalidProperties' rawType, got " & se.rawType
-    doAssert se.errorType == setInvalidProperties,
-      "errorType must project to setInvalidProperties, got " & $se.errorType
-    doAssert se.errorType == parseSetErrorType(se.rawType),
+    doAssert se.kind == setInvalidProperties,
+      "errorType must project to setInvalidProperties, got " & $se.kind
+    doAssert se.kind == parseSetErrorKind(se.rawType),
       "errorType / rawType must be derived consistently"
     doAssert se.properties == @["id"],
       "Stalwart echoes the offending immutable-property name; got " & $se.properties

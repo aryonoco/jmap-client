@@ -22,9 +22,12 @@
 
 import std/json
 
-import jmap_client/types
-import jmap_client/serde
-import jmap_client/entity
+import jmap_client
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_diagnostics
+import jmap_client/internal/serialisation/serde_helpers
+import jmap_client/internal/serialisation/serde_primitives
+import jmap_client/internal/protocol/entity
 
 # =============================================================================
 # Entity type
@@ -48,8 +51,9 @@ type TestWidgetFilter* = object ## Filter condition for TestWidget/query.
 func methodEntity*(T: typedesc[TestWidget]): MethodEntity =
   meTest
 
-func capabilityUri*(T: typedesc[TestWidget]): string =
-  "urn:test:widget"
+func capabilityUri*(T: typedesc[TestWidget]): CapabilityUri =
+  # synthesised test URN, always parses Ok
+  parseCapabilityUri("urn:test:widget").get()
 
 func getMethodName*(T: typedesc[TestWidget]): MethodName =
   mnMailboxGet

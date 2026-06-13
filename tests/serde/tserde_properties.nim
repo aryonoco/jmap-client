@@ -10,25 +10,27 @@ import std/json
 import std/random
 import std/tables
 
-import jmap_client/methods_enum
-import jmap_client/serde
-import jmap_client/serde_envelope
-import jmap_client/serde_session
-import jmap_client/serde_framework
-import jmap_client/serde_errors
-import jmap_client/primitives
-import jmap_client/identifiers
-import jmap_client/capabilities
-import jmap_client/session
-import jmap_client/envelope
-import jmap_client/framework
-import jmap_client/errors
-import jmap_client/validation
+import jmap_client/internal/types/methods_enum
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_envelope
+import jmap_client/internal/serialisation/serde_primitives
+import jmap_client/internal/serialisation/serde_session
+import jmap_client/internal/serialisation/serde_framework
+import jmap_client/internal/serialisation/serde_errors
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/session
+import jmap_client/internal/types/envelope
+import jmap_client/internal/types/framework
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/validation
 
 import ../massertions
 import ../mfixtures
 import ../mproperty
 import ../mserde_fixtures
+import ../mtestblock
 
 # =============================================================================
 # A. Round-trip properties: fromJson(toJson(x)) == x
@@ -41,11 +43,11 @@ checkProperty "CoreCapabilities serde round-trip":
 
 checkProperty "ServerCapability serde round-trip":
   let original = rng.genServerCapability()
-  let rt = ServerCapability.fromJson(original.rawUri, original.toJson()).get()
+  let rt = ServerCapability.fromJson(original.uri(), original.toJson()).get()
   doAssert capEq(rt, original), "ServerCapability round-trip values differ"
 
 checkProperty "Account serde round-trip":
-  let original = rng.genValidAccount()
+  let original = rng.genAccount()
   discard Account.fromJson(original.toJson())
 
 checkPropertyN "Session serde round-trip", ThoroughTrials:
@@ -55,8 +57,8 @@ checkPropertyN "Session serde round-trip", ThoroughTrials:
   doAssert v.username == original.username
   doAssert v.apiUrl == original.apiUrl
   doAssert v.state == original.state
-  doAssert v.capabilities.len == original.capabilities.len
-  doAssert capsEq(v.capabilities, original.capabilities)
+  doAssert v.capabilities().len == original.capabilities().len
+  doAssert capsEq(v.capabilities(), original.capabilities())
 
 checkProperty "Invocation serde round-trip (complex args)":
   let original = rng.genInvocationWithArgs()
@@ -76,17 +78,6 @@ checkPropertyN "Request serde round-trip", ThoroughTrials:
     doAssert v.methodCalls[i].arguments == original.methodCalls[i].arguments
   doAssert v.createdIds.isSome == original.createdIds.isSome
 
-checkPropertyN "Response serde round-trip", ThoroughTrials:
-  let original = rng.genResponse()
-  let v = Response.fromJson(original.toJson()).get()
-  doAssert v.methodResponses.len == original.methodResponses.len
-  doAssert v.sessionState == original.sessionState
-  for i in 0 ..< v.methodResponses.len:
-    doAssert v.methodResponses[i].name == original.methodResponses[i].name
-    doAssert v.methodResponses[i].methodCallId ==
-      original.methodResponses[i].methodCallId
-  doAssert v.createdIds.isSome == original.createdIds.isSome
-
 checkProperty "Filter[int] serde round-trip":
   let original = rng.genFilter(4)
   let rt = Filter[int].fromJson(original.toJson(), fromIntCondition).get()
@@ -96,7 +87,7 @@ checkProperty "Comparator serde round-trip":
   let original = rng.genComparator()
   let v = Comparator.fromJson(original.toJson()).get()
   doAssert v.property == original.property
-  doAssert v.isAscending == original.isAscending
+  doAssert v.direction == original.direction
   doAssert v.collation == original.collation
 
 checkProperty "AddedItem serde round-trip":
@@ -247,7 +238,7 @@ checkProperty "Invocation serialisation idempotence":
 # D. Composition chain error propagation
 # =============================================================================
 
-block compositionSessionNestedError:
+testCase compositionSessionNestedError:
   ## Session -> ServerCapability -> CoreCapabilities -> UnsignedInt:
   ## Invalid UnsignedInt at bottom should propagate to Session.fromJson error.
   var j = validSessionJson()
@@ -255,46 +246,35 @@ block compositionSessionNestedError:
   assertErr Session.fromJson(j)
   assertErrType Session.fromJson(j), "UnsignedInt"
 
-block compositionSessionMissingCoreCaps:
+testCase compositionSessionMissingCoreCaps:
   ## Session without ckCore capability should fail at Session validation.
   var j = validSessionJson()
   j["capabilities"] = %*{"urn:ietf:params:jmap:mail": {}}
   assertErr Session.fromJson(j)
   assertErrContains Session.fromJson(j), "capabilities must include"
 
-block compositionRequestNestedError:
+testCase compositionRequestNestedError:
   ## Request -> Invocation -> MethodCallId: invalid mcid should propagate.
   let j =
     %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": [["Mailbox/get", {}, ""]]}
   assertErr Request.fromJson(j)
   assertErrContains Request.fromJson(j), "must not be empty"
 
-block compositionSetErrorVariantPreservation:
+testCase compositionSetErrorVariantPreservation:
   ## SetError invalidProperties variant: properties list survives round-trip.
   let original =
     setErrorInvalidProperties("invalidProperties", @["from", "subject", "to"])
   let v = SetError.fromJson(original.toJson()).get()
-  doAssert v.errorType == setInvalidProperties
+  doAssert v.kind == setInvalidProperties
   assertEq v.properties.len, 3
   doAssert "from" in v.properties
   doAssert "subject" in v.properties
   doAssert "to" in v.properties
 
-block compositionSetErrorAlreadyExistsPreservation:
+testCase compositionSetErrorAlreadyExistsPreservation:
   ## SetError alreadyExists variant: existingId survives round-trip.
   let eid = parseIdFromServer("msg42").get()
   let original = setErrorAlreadyExists("alreadyExists", eid)
   let v = SetError.fromJson(original.toJson()).get()
-  doAssert v.errorType == setAlreadyExists
-  assertEq string(v.existingId), "msg42"
-
-block compositionResponseCreatedIdsPreservation:
-  ## Response createdIds table survives round-trip with correct keys and values.
-  var tbl = initTable[CreationId, Id]()
-  tbl[makeCreationId("new1")] = makeId("id1")
-  tbl[makeCreationId("new2")] = makeId("id2")
-  tbl[makeCreationId("new3")] = makeId("id3")
-  let original = makeResponse(createdIds = Opt.some(tbl))
-  let v = Response.fromJson(original.toJson()).get()
-  doAssert v.createdIds.isSome
-  assertEq v.createdIds.get().len, 3
+  doAssert v.kind == setAlreadyExists
+  assertEq $v.existingId, "msg42"
