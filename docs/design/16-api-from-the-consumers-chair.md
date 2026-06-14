@@ -178,7 +178,52 @@ error seq, Result-of-Opt read-back, Opt-vs-value drift) is where a thin
 write-combinator layer would pay for itself many times over.
 
 ## Sending: the EmailSubmission path
-<!-- filled in Task 13 -->
+
+This is the path where the question "would a competent developer reach for
+this directly, or wrap it?" (P7) gets its sharpest answer — and the honest
+answer is **they will wrap it, but they can build the wrapper.** It works:
+the bench sent a real message alice→bob in one request that created the
+draft, submitted it, and moved it to Sent on success, all verified against
+live Stalwart. Nothing about the use case is blocked. But getting there
+exercises almost every friction the rest of the API hints at, concentrated
+in one place.
+
+Two things dominate. First, **there is no plain-text body shorthand.** A
+one-line string body becomes a four-layer hand-build —
+`BlueprintBodyValue → BlueprintLeafPart{bpsInline} → BlueprintBodyPart{
+text/plain} → flatBody` — with raw case-object literals (no smart
+constructor), a `contentType` string that must be *exactly* `"text/plain"`
+or a deferred validation rejects it, and a mandatory `partId` that can only
+be minted by `parsePartIdFromServer` — a function whose name says
+*receive-side* but which the *send* path is forced to call. Every mail
+client sends plain text; every one will hit this first.
+
+Second, the **compound builder misleads by its name.**
+`addEmailSubmissionAndEmailSet` does not create the email — its `create` is
+the submission table only, and the "AndEmailSet" is the server's *implicit*
+Email/set driven by `onSuccessUpdateEmail` (an update). The draft is created
+by a *separate* `addEmailSet` on the same builder, and the submission points
+back at it through `emailId` — which is a plain `Id` with no typed
+forward-reference, so the same-request link is smuggled as
+`parseIdFromServer("#" & $draftCid)` because the strict `parseId` rejects
+the `#`. The `onSuccessUpdateEmail` map is then keyed by the *submission's*
+creation id, not the email's. None of this is discoverable from types; it
+was recoverable only by reading the source. The compound builder even
+returns a `Result` wrapping an *uncopyable* builder, so the Ok tuple must be
+`move`d rather than `.get()`d — a one-off ceremony unlike every other
+builder.
+
+And yet — the underlying design is *correct*. RFC 8621's onSuccess
+semantics are faithfully exposed; the send is genuinely atomic; the
+three-response compound (`CompoundResults.primary`/`.implicit` plus the
+draft create) models exactly what the server does. The verdict for sending:
+the **protocol fidelity is excellent and the safety is real, but the
+ergonomic surface is the strongest argument in the whole library for a
+thin, blessed convenience layer** — a `sendPlainText(account, identity,
+from, to, subject, body)` that hides the body chain, the `#`-ref smuggle,
+the two-creation wiring, and the move ceremony. Without it, every consumer
+writes that wrapper, which is precisely the P7 smell. With it, jmap-client
+would be a library a competent developer reaches for directly.
 
 ## Search and the convenience layer
 <!-- filled in Tasks 14–15 -->

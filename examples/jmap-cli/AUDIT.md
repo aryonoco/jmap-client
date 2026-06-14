@@ -69,6 +69,12 @@ These are about the *build contract*, not a specific call site.
   is fully type-checked — no manual id plumbing, no second round-trip, and
   the generic pins the referenced shape to `seq[Id]`. The ceremony is real
   but it buys a genuinely safe server-side back-reference. [open]
+- email send:atomic-send-works: despite the friction, the hard thing is
+  POSSIBLE and ATOMIC — a single request created the draft, submitted it,
+  and (via `onSuccessUpdateEmail`) moved it to Sent, with live delivery
+  alice->bob confirmed. The RFC 8621 §7 onSuccess semantics are faithfully
+  exposed and the whole compound is one network round-trip. The API does
+  not block the use case; it taxes the path to it. [open]
 
 ## Findings by command
 
@@ -119,6 +125,27 @@ These are about the *build contract*, not a specific call site.
 
 ### vacation
 ### email send
+_The longest section by design — this is the highest-friction public path. It nonetheless works end-to-end: a single request created the draft, submitted it, and moved it to Sent on success; live delivery alice->bob was verified (bob's inbox received `hello from jmap-cli`)._
+
+Blueprint / body construction:
+- email send:no-body-helper (**high**): there is NO plain-text body shorthand anywhere on the hub (no `textBody(str)`, no `plainTextBody`, no `initBlueprintLeafPart`). The single most common case — a plain string body — requires hand-building a 4-layer chain `BlueprintBodyValue -> BlueprintLeafPart{bpsInline} -> BlueprintBodyPart{text/plain} -> flatBody` before `parseEmailBlueprint`. This is the headline send-ergonomics gap [open]
+- email send:parsePartIdFromServer: the ONLY hub-public `PartId` mint is `parsePartIdFromServer`, whose name and docstring say "lenient, server-provided, receive-side (Postel)", yet the SEND path MUST call it to create a client-chosen creation-time partId; the plan's `parsePartId` does not exist — a discoverability/naming trap (a send-side call named `FromServer`) [open]
+- email send:raw-case-literals: `BlueprintLeafPart` and `BlueprintBodyPart` are constructed as raw case-object literals (no smart constructor), so the caller hand-writes the discriminator literals `source: bpsInline` / `isMultipart: false` and must know which fields belong to which branch — counter to "smart constructors only / raw constructors private" [open]
+- email send:contentType-stringly: `BlueprintBodyPart.contentType` is a bare `string`, but `parseEmailBlueprint` rejects anything != "text/plain" for a text body (`ebcTextBodyNotTextPlain`) — a stringly-typed field guarded by deferred validation, with no compile-time aid [open]
+- email send:blueprint-error-rail: `parseEmailBlueprint` returns `Result[_, EmailBlueprintErrors]` — a custom OPAQUE accumulator (not `seq[ValidationError]`), with no aggregate render-to-string helper, so the caller iterates `items`/`head` and joins `.message` itself [open]
+- email send:recipient-double-wrap: `parseEmailBlueprint`'s `fromAddr`/`to` are `Opt[seq[EmailAddress]]`, so a single recipient is `Opt.some(@[addr])` (Opt + seq) — ceremony for the common single-recipient case [open]
+
+Submission + the compound two-creation wiring (the centrepiece):
+- email send:builder-does-not-create (**high**): `addEmailSubmissionAndEmailSet` does NOT create the email — its `create` table holds ONLY `EmailSubmissionBlueprint`; the "AndEmailSet" suffix is the SERVER's implicit Email/set emitted from `onSuccessUpdateEmail` (an UPDATE, not a create). The draft must be created by a SEPARATE `addEmailSet(create=...)` on the SAME builder. The builder name actively misleads; no convenience ties an Email create to a submission [open]
+- email send:emailId-no-forward-ref (**high**): `EmailSubmissionBlueprint.emailId` is a plain `Id` with NO typed forward-reference, so pointing the submission at the freshly-created draft in one request has no type-level representation; the only hub-public encoding is `parseIdFromServer("#" & $draftCid)` — abusing the server-lenient parser to smuggle a client back-reference. The discoverable strict `parseId("#draft")` REJECTS the '#' (verified live) [open]
+- email send:onSuccess-key: `onSuccessUpdateEmail` is keyed by `creationRef(subCid)` — the SUBMISSION's creation id, NOT the email's — a non-obvious indirection enforced only at runtime; easy to mis-key with the draft cid [open]
+- email send:uncopyable-move: `addEmailSubmissionAndEmailSet` returns `Result[(RequestBuilder, EmailSubmissionHandles), ValidationError]` wrapping an UNCOPYABLE `RequestBuilder`, so the Ok value cannot be read with `.get()`/`.value` — the caller must `var r = ...; if r.isErr: ...; let (b, h) = move(r.value)`. Bespoke move ceremony unlike every other (bare-tuple) `add*` builder [open]
+- email send:raw-envelope: `SubmissionAddress(mailbox:, parameters:)` and `Envelope(mailFrom:, rcptTo:)` are raw object literals with no smart constructor; the overwhelmingly common no-params recipient must spell `Opt.none(SubmissionParams)`, and there is no `rcpt(mailbox)` / `envelope(from, @[to])` shorthand [open]
+- email send:sealing-pileup: four+ sealing constructors precede the build (`parseNonEmptyMailboxIdSet`, `parseEmailAddress`×2, `parsePartIdFromServer`, `parseRFC5321Mailbox`×2, `parseNonEmptyRcptList`, `parseEmailSubmissionBlueprint`, `initEmailUpdateSet`, `parseNonEmptyOnSuccessUpdateEmail`), each a separate Result the caller threads — some single-`ValidationError`, some accumulating `seq[ValidationError]`, the blueprint a third opaque shape: the caller adapts between THREE error-rail shapes in one command [open]
+- email send:three-response-shapes: one logical "send" yields three response shapes — the draft Email/set (`emailHandle`) plus the compound `getBoth` -> `CompoundResults{primary, implicit}` where `primary` is the EmailSubmission/set and `implicit` is the onSuccess Email/set update; nothing in `.primary`/`.implicit` says which carries `createResults` vs `updateResults` [open]
+- email send:nested-id-read: reading the created submission id is a nested rail — `getBoth().valueOr` then `primary.createResults` table-lookup then `res.value.id` (three unwraps) [open]
+- email send:freeze-not-build: the builder finaliser is `freeze` (sink), there is no `build`; combined with its absence from the snapshot, a discoverability trap at the dispatch site [open]
+
 ### thread
 - thread:th.id / th.emailIds: `Thread` exposes NO public fields (empty type-shape); reads go through accessor funcs `id()`/`emailIds()` (the latter returning `lent seq[Id]`), diverging from `Mailbox`/`Identity` direct-field access — inconsistent entity read ergonomics across the same library [open]
 - thread:addThreadGet ids: fetching explicit ids repeats the `Opt.some(direct(@[id]))` `Referencable`-wrapping ceremony seen in `email read` — no `seq[Id]` convenience overload for the common literal-ids case [open]
