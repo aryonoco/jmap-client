@@ -139,7 +139,43 @@ finding: the API would feel more learnable if its read-models shared one
 access idiom.
 
 ## Mutating: flags, moves, vacation
-<!-- filled in Tasks 10–12 -->
+
+The write path is where the type system's discipline is most visible and
+most expensive. The DSL verbs are excellent: `markRead()`,
+`moveToMailbox(id)`, `setIsEnabled(true)` are total, named, and read like
+the spec (P18 — sum-typed operations, not flag soup). The cost sits in
+the envelope around them. Flagging *one* email is a two-layer seal —
+`initEmailUpdateSet(@[markRead()])` then
+`parseNonEmptyEmailUpdates(@[(id, set)])` — so the single-email case still
+pays the whole-batch `NonEmptyEmailUpdates` wrap, and *both* layers ride
+an **accumulating `seq[ValidationError]`** rail. That last detail is a
+genuine ergonomic tax: every other smart constructor in the library
+(`parseId`, `parseKeyword`) returns a single `ValidationError` with a
+`.message`, but these two return a *seq*, so the call site needs
+`error.mapIt(it.message).join("; ")` — a different error-rendering idiom
+for the write path than the read path. `email move` is the same chain
+verbatim with `moveToMailbox` swapped for `markRead`; the repetition begs
+for an `addEmailUpdate(account, id, @[ops])` one-shot.
+
+Reading the result back is a *third* layer: `updateResults` is
+`Table[Id, Result[Opt[PartialEmail], SetError]]`, a Result-of-Opt whose
+inner `Opt` is almost always `none` for a flag — so the happy path is
+"check `isOk`, ignore the payload," and the nested shape carries more
+structure than the common case uses.
+
+Vacation adds two instructive wrinkles. First, an *inconsistency*:
+`addVacationResponseSet` takes its update set **by value**, while
+`addEmailSet` takes `Opt[...]` — two `/set` builders, two conventions, no
+way to muscle-memory one. Second, a *phantom done right but hidden*: the
+set response is `SetResponse[NoCreate, PartialVacationResponse]`, where the
+`NoCreate` marker in the first generic slot encodes "this singleton has no
+create rail" — correct and principled (P16), but the consumer only learns
+it by reading the return type, and the echo fields are `FieldEcho` again,
+so rendering state cleanly means re-fetching through the plain-`Opt`
+`VacationResponse` get. The verdict for mutation: the *operations* are a
+model of typed-DSL design; the *plumbing* (triple seal, accumulating
+error seq, Result-of-Opt read-back, Opt-vs-value drift) is where a thin
+write-combinator layer would pay for itself many times over.
 
 ## Sending: the EmailSubmission path
 <!-- filled in Task 13 -->

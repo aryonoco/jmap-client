@@ -107,7 +107,17 @@ These are about the *build contract*, not a specific call site.
 - email read:id-parser-choice: the command must choose between strict `parseId` and lenient `parseIdFromServer` for a CLI-supplied id with no guidance — the strict/lenient pair (a sensible internal Postel's-law split) leaks to the consumer as a decision [open]
 
 ### email flag
+- email flag:set-construction: a single-email flag pays a two-layer sealing ceremony — `initEmailUpdateSet(ops).valueOr` then `parseNonEmptyEmailUpdates(@[(eid, updSet)]).valueOr` — so the "update ONE email" case still wraps the whole-container `NonEmptyEmailUpdates`; a one-shot `addEmailUpdate(acc, id, @[ops])` shorthand is missing [open]
+- email flag:accumulating-rail: both `initEmailUpdateSet` and `parseNonEmptyEmailUpdates` return `Result[_, seq[ValidationError]]` for what is conceptually one construct, forcing `error.mapIt(it.message).join("; ")` rendering instead of the single `.message` that `parseId`/`parseKeyword`/`parseAccountId` give — two error-rail shapes in one command [open]
+- email flag:updateResults: the per-item success payload is `Result[Opt[PartialEmail], SetError]` — a Result-of-Opt double layer whose inner `Opt[PartialEmail]` is almost always `none` for a flag, so callers check `res.isOk` and discard the Opt; the three-layer unwrap reads awkwardly [open]
+- email flag:SetError: only `se.message`/`se.description`/`se.rawType` are flat; structured detail (invalid property names, etc.) needs a `kind` case-match or the separate `mail_errors` helpers, which are easy to miss [open]
+
 ### email move
+- email move:repetition: identical triple-sealing chain to `email flag` (`initEmailUpdateSet` -> `parseNonEmptyEmailUpdates` -> `addEmailSet(update = Opt.some(...))`) — the only difference is `moveToMailbox(id)` vs `markRead()`; the recurring boilerplate is a cross-cutting wrapper trigger [open]
+- email move:Opt-vs-value: `addEmailSet.update` is `Opt[NonEmptyEmailUpdates]` (needs an explicit `Opt.some(updates)`), whereas `addVacationResponseSet.update` takes its update set BY VALUE — the two `/set` builders disagree on the Opt-vs-value convention, so the consumer cannot muscle-memory one shape [open]
+- email move:moveToMailbox: the DSL verb itself reads well and is total — `moveToMailbox(id)` clearly expresses full-replace mailbox membership; the friction is entirely in the sealing/dispatch envelope around it [open]
+
+### vacation
 ### email send
 ### thread
 - thread:th.id / th.emailIds: `Thread` exposes NO public fields (empty type-shape); reads go through accessor funcs `id()`/`emailIds()` (the latter returning `lent seq[Id]`), diverging from `Mailbox`/`Identity` direct-field access — inconsistent entity read ergonomics across the same library [open]
@@ -118,6 +128,11 @@ These are about the *build contract*, not a specific call site.
 - identity:read: `Identity` reads cleanly via direct public fields (`id`, `name`, `email`); the only friction is the universal one — like every read, there is no single hub-public call that builds+dispatches+extracts a bare Get (the convenience module covers query/changes pairs, not plain gets) [open]
 
 ### vacation
+- vacation:NoCreate-phantom: discovering that the create generic must be the `NoCreate` phantom requires reading the builder's return type `SetResponse[NoCreate, PartialVacationResponse]`; the phantom occupies the FIRST (create) slot, which is non-obvious, and `createResults` stays permanently empty — the "this singleton has no create rail" fact is encoded in a type position the consumer must reverse-engineer [open]
+- vacation:set-echo-FieldEcho: the `/set` echo type is `PartialVacationResponse` with three-state `FieldEcho[T]` fields (no read accessor), so rendering the echoed state needs manual `case` dispatch; to show state cleanly the CLI re-fetches via `addVacationResponseGet`, whose `VacationResponse` has plain `Opt` fields — a missing `FieldEcho.toOpt`/value convenience forces the extra round-trip [open]
+- vacation:singleton-id: `VacationResponseSingletonId` is a raw `string` ("singleton"), not a typed `Id`, so looking the singleton up in `updateResults` (`Table[Id, _]`) would need `parseId(VacationResponseSingletonId).get()` first — a newtype leak on the one place the id matters [open]
+- vacation:get-clean: the GET path is genuinely clean — `VacationResponse.isEnabled` is a plain `bool` and `subject`/`textBody` are plain `Opt[string]`, so reading vacation state is a simple Opt unwrap with none of the set path's FieldEcho ceremony [open]
+
 ### search
 ### convenience
 
