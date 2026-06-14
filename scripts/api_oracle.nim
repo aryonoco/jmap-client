@@ -77,11 +77,30 @@ proc loadGraph(): (ModuleGraph, ConfigRef) =
 # Rendering helpers
 # ---------------------------------------------------------------------------
 
+func stripGensym(s: string): string =
+  ## Template-expanded symbols render with a ``\`gensymN`` suffix (e.g.
+  ## ``a\`gensym3``) on their introduced identifiers. It is an expansion
+  ## artefact — never part of the contract — and its counter can shift between
+  ## builds, so drop it for a stable, readable snapshot.
+  result = newStringOfCap(s.len)
+  var i = 0
+  while i < s.len:
+    if s[i] == '`' and s.continuesWith("gensym", i + 1):
+      i += 1 + "gensym".len
+      while i < s.len and s[i] in {'0' .. '9'}:
+        inc i
+    else:
+      result.add s[i]
+      inc i
+
 proc rnd(n: PNode): string =
-  ## Render an AST node to its source-like spelling (no comments), collapsed
-  ## to single spaces for a stable one-line form.
-  if n == nil: ""
-  else: renderTree(n, {renderNoComments}).splitWhitespace().join(" ")
+  ## Render an AST node to its source-like spelling (no comments), collapsed to
+  ## single spaces and with template gensym suffixes stripped, for a stable
+  ## one-line form.
+  if n == nil:
+    ""
+  else:
+    stripGensym(renderTree(n, {renderNoComments}).splitWhitespace().join(" "))
 
 func kindWord(k: TSymKind): string =
   ## ``skFunc`` → ``func``; the contract uses the source keyword.

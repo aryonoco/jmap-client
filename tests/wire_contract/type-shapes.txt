@@ -1,9 +1,10 @@
-# Public-type-shape snapshot — the public-field signature of every type
-# reachable through `import jmap_client` / `import jmap_client/convenience`
-# (A25). Private fields are excluded. Locked by
-# tests/lint/h17_type_shape_snapshot.nim (P1/P2).
+# Public-type-shape surface — the public-field shape of every
+# repo-owned type reachable through `import jmap_client` and
+# `import jmap_client/convenience`, rendered from the compiler's
+# post-sem type AST by scripts/api_oracle.nim. A faithful description
+# of public type shapes (private fields excluded); locked by
+# tests/lint/h17_type_shape_snapshot.nim so any drift is deliberate.
 # Regenerate with: just freeze-type-shapes
-# Update PR label: [TYPE-SHAPE-CHANGE]
 ## Account [jmap_client/internal/types/session]
 
 ## AccountCapabilityEntry [jmap_client/internal/types/account_capability_schemas]
@@ -45,6 +46,8 @@
 
 ## BlobId [jmap_client/internal/types/identifiers]
 
+## BlueprintBodyHeaderName [jmap_client/internal/mail/headers]
+
 ## BlueprintBodyPart [jmap_client/internal/mail/body]
   contentType*: string
   name*: Opt[string]
@@ -61,6 +64,25 @@
 
 ## BlueprintBodyValue [jmap_client/internal/mail/body]
   value*: string
+
+## BlueprintEmailHeaderName [jmap_client/internal/mail/headers]
+
+## BlueprintHeaderMultiValue [jmap_client/internal/mail/headers]
+  case form*: HeaderForm
+  of hfRaw:
+    rawValues*: NonEmptySeq[string]
+  of hfText:
+    textValues*: NonEmptySeq[string]
+  of hfAddresses:
+    addressLists*: NonEmptySeq[seq[EmailAddress]]
+  of hfGroupedAddresses:
+    groupLists*: NonEmptySeq[seq[EmailAddressGroup]]
+  of hfMessageIds:
+    messageIdLists*: NonEmptySeq[seq[string]]
+  of hfDate:
+    dateValues*: NonEmptySeq[Date]
+  of hfUrls:
+    urlLists*: NonEmptySeq[seq[string]]
 
 ## BlueprintLeafPart [jmap_client/internal/mail/body]
   case source*: BlueprintPartSource
@@ -159,6 +181,7 @@
   cekRequest
 
 ## CloseProc [jmap_client/internal/transport]
+  proc () {.closure, raises: [].}
 
 ## CollationAlgorithm [jmap_client/internal/types/collation]
   case rawKind: CollationAlgorithmKind
@@ -231,6 +254,7 @@
 ## Date [jmap_client/internal/types/primitives]
 
 ## DebugCallback [jmap_client/internal/client]
+  proc (direction: WireDirection; bytes: openArray[byte]) {.closure, gcsafe, raises: [].}
 
 ## DeleteAuthority [jmap_client/internal/mail/identity]
   daUnreported
@@ -386,7 +410,7 @@
   case rawKind: EmailBodyPropertyKind
   of ebpkHeader:
   of ebpkOther:
-  of ebpkPartId, ebpkBlobId, ebpkSize, ebpkName, ebpkType, ebpkCharset, ebpkDisposition,
+  of ebpkPartId, ebpkBlobId, ebpkSize, ebpkName, ebpkType, ebpkCharset, ebpkDisposition, ebpkCid, ebpkLanguage, ebpkLocation, ebpkSubParts, ebpkHeaders:
 
 ## EmailBodyPropertyKind [jmap_client/internal/mail/email]
   ebpkPartId = "partId"
@@ -424,6 +448,7 @@
   eckKeyword
 
 ## EmailCopyHandles [jmap_client/internal/mail/mail_builders]
+  CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]]
 
 ## EmailCopyItem [jmap_client/internal/mail/email]
   id*: Id
@@ -432,6 +457,7 @@
   receivedAt*: Opt[UTCDate]
 
 ## EmailCopyResults [jmap_client/internal/mail/mail_builders]
+  CompoundResults[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]]
 
 ## EmailCreatedItem [jmap_client/internal/mail/email]
   id*: Id
@@ -465,7 +491,7 @@
   case rawKind: EmailGetPropertyKind
   of egkHeader:
   of egkOther:
-  of egkId, egkBlobId, egkThreadId, egkMailboxIds, egkKeywords, egkSize, egkReceivedAt,
+  of egkId, egkBlobId, egkThreadId, egkMailboxIds, egkKeywords, egkSize, egkReceivedAt, egkHeaders, egkMessageId, egkInReplyTo, egkReferences, egkSender, egkFrom, egkTo, egkCc, egkBcc, egkReplyTo, egkSubject, egkSentAt, egkBodyStructure, egkBodyValues, egkTextBody, egkHtmlBody, egkAttachments, egkHasAttachment, egkPreview:
 
 ## EmailGetPropertyKind [jmap_client/internal/mail/email]
   egkId = "id"
@@ -516,16 +542,30 @@
   newState*: Opt[JmapState]
   createResults*: Table[CreationId, Result[EmailCreatedItem, SetError]]
 
+## EmailParseResponse [jmap_client/internal/mail/mail_methods]
+  accountId*: AccountId
+  parsed*: Table[BlobId, ParsedEmail]
+  notParseable*: seq[BlobId]
+  notFound*: seq[BlobId]
+
+## EmailQuerySnippetChain [jmap_client/internal/mail/mail_methods]
+  queryH*: ResponseHandle[QueryResponse[Email]]
+  snippetsH*: ResponseHandle[SearchSnippetGetResponse]
+
+## EmailQuerySnippetResults [jmap_client/internal/mail/mail_methods]
+  query*: QueryResponse[Email]
+  snippets*: SearchSnippetGetResponse
+
 ## EmailQueryThreadChain [jmap_client/internal/mail/mail_builders]
   queryH*: ResponseHandle[QueryResponse[Email]]
   threadIdFetchH*: ResponseHandle[GetResponse[PartialEmail]]
-  threadsH*: ResponseHandle[GetResponse[thread.Thread]]
+  threadsH*: ResponseHandle[GetResponse[Thread]]
   displayH*: ResponseHandle[GetResponse[PartialEmail]]
 
 ## EmailQueryThreadResults [jmap_client/internal/mail/mail_builders]
   query*: QueryResponse[Email]
   threadIdFetch*: GetResponse[PartialEmail]
-  threads*: GetResponse[thread.Thread]
+  threads*: GetResponse[Thread]
   display*: GetResponse[PartialEmail]
 
 ## EmailSubmission [jmap_client/internal/mail/email_submission]
@@ -564,7 +604,7 @@
 ## EmailSubmissionGetProperty [jmap_client/internal/mail/email_submission]
   case rawKind: EmailSubmissionGetPropertyKind
   of esgkOther:
-  of esgkId, esgkIdentityId, esgkEmailId, esgkThreadId, esgkEnvelope, esgkSendAt,
+  of esgkId, esgkIdentityId, esgkEmailId, esgkThreadId, esgkEnvelope, esgkSendAt, esgkUndoStatus, esgkDeliveryStatus, esgkDsnBlobIds, esgkMdnBlobIds:
 
 ## EmailSubmissionGetPropertyKind [jmap_client/internal/mail/email_submission]
   esgkId = "id"
@@ -580,10 +620,13 @@
   esgkOther
 
 ## EmailSubmissionHandles [jmap_client/internal/mail/email_submission]
+  CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]]
 
 ## EmailSubmissionResults [jmap_client/internal/mail/email_submission]
+  CompoundResults[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]]
 
 ## EmailSubmissionSetResponse [jmap_client/internal/mail/email_submission]
+  SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]
 
 ## EmailSubmissionSortProperty [jmap_client/internal/mail/email_submission]
   esspEmailId = "emailId"
@@ -609,6 +652,8 @@
   of euSetMailboxIds:
     mailboxes*: NonEmptyMailboxIdSet
 
+## EmailUpdateSet [jmap_client/internal/mail/email_update]
+
 ## EmailUpdateVariantKind [jmap_client/internal/mail/email_update]
   euAddKeyword
   euRemoveKeyword
@@ -621,6 +666,10 @@
   klass*: StatusCodeClass
   subject*: SubjectCode
   detail*: DetailCode
+
+## Envelope [jmap_client/internal/mail/submission_envelope]
+  mailFrom*: ReversePath
+  rcptTo*: NonEmptyRcptList
 
 ## FieldEcho [jmap_client/internal/types/field_echo]
   case kind*: FieldEchoKind
@@ -695,13 +744,20 @@
 
 ## HeaderValue [jmap_client/internal/mail/headers]
   case form*: HeaderForm
-  of hfRaw: rawValue*: string
-  of hfText: textValue*: string
-  of hfAddresses: addresses*: seq[EmailAddress]
-  of hfGroupedAddresses: groups*: seq[EmailAddressGroup]
-  of hfMessageIds: messageIds*: Opt[seq[string]]
-  of hfDate: date*: Opt[Date]
-  of hfUrls: urls*: Opt[seq[string]]
+  of hfRaw:
+    rawValue*: string
+  of hfText:
+    textValue*: string
+  of hfAddresses:
+    addresses*: seq[EmailAddress]
+  of hfGroupedAddresses:
+    groups*: seq[EmailAddressGroup]
+  of hfMessageIds:
+    messageIds*: Opt[seq[string]]
+  of hfDate:
+    date*: Opt[Date]
+  of hfUrls:
+    urls*: Opt[seq[string]]
 
 ## HoldForSeconds [jmap_client/internal/mail/submission_param]
 
@@ -756,7 +812,7 @@
 ## IdentityGetProperty [jmap_client/internal/mail/identity]
   case rawKind: IdentityGetPropertyKind
   of igkOther:
-  of igkId, igkName, igkEmail, igkReplyTo, igkBcc, igkTextSignature, igkHtmlSignature,
+  of igkId, igkName, igkEmail, igkReplyTo, igkBcc, igkTextSignature, igkHtmlSignature, igkMayDelete:
 
 ## IdentityGetPropertyKind [jmap_client/internal/mail/identity]
   igkId = "id"
@@ -798,6 +854,7 @@
 ## JmapInt [jmap_client/internal/types/primitives]
 
 ## JmapResult [jmap_client/internal/types]
+  Result[T, ClientError]
 
 ## JmapState [jmap_client/internal/types/identifiers]
 
@@ -862,7 +919,7 @@
 ## MailboxGetProperty [jmap_client/internal/mail/mailbox]
   case rawKind: MailboxGetPropertyKind
   of mgkOther:
-  of mgkId, mgkName, mgkParentId, mgkRole, mgkSortOrder, mgkTotalEmails,
+  of mgkId, mgkName, mgkParentId, mgkRole, mgkSortOrder, mgkTotalEmails, mgkUnreadEmails, mgkTotalThreads, mgkUnreadThreads, mgkMyRights, mgkIsSubscribed:
 
 ## MailboxGetPropertyKind [jmap_client/internal/mail/mailbox]
   mgkId = "id"
@@ -894,7 +951,7 @@
 ## MailboxRole [jmap_client/internal/mail/mailbox]
   case rawKind: MailboxRoleKind
   of mrOther:
-  of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
+  of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll, mrFlagged, mrSubscriptions:
 
 ## MailboxRoleKind [jmap_client/internal/mail/mailbox]
   mrInbox = "inbox"
@@ -1015,6 +1072,8 @@
 
 ## NonEmptyEmailSubmissionUpdates [jmap_client/internal/mail/email_submission]
 
+## NonEmptyEmailUpdates [jmap_client/internal/mail/email_update]
+
 ## NonEmptyIdSeq [jmap_client/internal/mail/email_submission]
 
 ## NonEmptyIdentityUpdates [jmap_client/internal/mail/identity]
@@ -1027,11 +1086,16 @@
 
 ## NonEmptyOnSuccessUpdateEmail [jmap_client/internal/mail/email_submission]
 
+## NonEmptyRcptList [jmap_client/internal/mail/submission_envelope]
+
 ## NonEmptySeq [jmap_client/internal/types/primitives]
 
 ## NotifySet [jmap_client/internal/mail/submission_param]
 
 ## OrcptAddrType [jmap_client/internal/types/submission_atoms]
+
+## ParseProc [jmap_client/internal/protocol/dispatch]
+  proc (args: JsonNode): Result[T, SerdeViolation] {.noSideEffect, raises: [].}
 
 ## ParsedDeliveredState [jmap_client/internal/mail/submission_status]
   state*: DeliveredState
@@ -1194,6 +1258,8 @@
 
 ## RFC5321Keyword [jmap_client/internal/types/submission_atoms]
 
+## RFC5321Mailbox [jmap_client/internal/mail/submission_mailbox]
+
 ## RefPath [jmap_client/internal/types/methods_enum]
   rpUnknown
   rpIds = "/ids"
@@ -1204,6 +1270,11 @@
   rpUpdatedProperties = "/updatedProperties"
   rpListThreadId = "/list/*/threadId"
   rpListEmailIds = "/list/*/emailIds"
+
+## Referencable [jmap_client/internal/types/envelope]
+  case rawKind: ReferencableKind
+  of rkDirect:
+  of rkReference:
 
 ## ReplyCode [jmap_client/internal/mail/submission_status]
 
@@ -1224,12 +1295,31 @@
   retLimit = "urn:ietf:params:jmap:error:limit"
   retUnknown
 
+## ResponseHandle [jmap_client/internal/protocol/dispatch]
+
+## ReversePath [jmap_client/internal/mail/submission_envelope]
+  case kind*: ReversePathKind
+  of rpkNullPath:
+    nullPathParams*: Opt[SubmissionParams]
+  of rpkMailbox:
+    sender*: SubmissionAddress
+
+## ReversePathKind [jmap_client/internal/mail/submission_envelope]
+  rpkNullPath
+  rpkMailbox
+
 ## SearchSnippet [jmap_client/internal/mail/snippet]
   emailId*: Id
   subject*: Opt[string]
   preview*: Opt[string]
 
+## SearchSnippetGetResponse [jmap_client/internal/mail/mail_methods]
+  accountId*: AccountId
+  list*: seq[SearchSnippet]
+  notFound*: seq[Id]
+
 ## SendProc [jmap_client/internal/transport]
+  proc (req: HttpRequest): Result[HttpResponse, TransportError] {.closure, raises: [].}
 
 ## ServerCapability [jmap_client/internal/types/capabilities]
   case kind*: CapabilityKind
@@ -1351,6 +1441,10 @@
 
 ## SubmissionAccountCapabilities [jmap_client/internal/types/account_capability_schemas]
 
+## SubmissionAddress [jmap_client/internal/mail/submission_envelope]
+  mailbox*: RFC5321Mailbox
+  parameters*: Opt[SubmissionParams]
+
 ## SubmissionExtensionMap [jmap_client/internal/types/submission_atoms]
 
 ## SubmissionParam [jmap_client/internal/mail/submission_param]
@@ -1372,7 +1466,7 @@
   case kind*: SubmissionParamKind
   of spkExtension:
     extName*: RFC5321Keyword
-  of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt, spkHoldFor,
+  of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt, spkHoldFor, spkHoldUntil, spkBy, spkMtPriority:
 
 ## SubmissionParamKind [jmap_client/internal/mail/submission_param]
   spkBody = "BODY"
@@ -1464,7 +1558,7 @@
 ## VacationResponseGetProperty [jmap_client/internal/mail/vacation]
   case rawKind: VacationResponseGetPropertyKind
   of vrgkOther:
-  of vrgkId, vrgkIsEnabled, vrgkFromDate, vrgkToDate, vrgkSubject, vrgkTextBody,
+  of vrgkId, vrgkIsEnabled, vrgkFromDate, vrgkToDate, vrgkSubject, vrgkTextBody, vrgkHtmlBody:
 
 ## VacationResponseGetPropertyKind [jmap_client/internal/mail/vacation]
   vrgkId = "id"

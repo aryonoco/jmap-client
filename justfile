@@ -456,10 +456,19 @@ lint-error-messages:
 # Regenerate the public-API surface snapshot (A26/F6). Developer convenience
 # for legitimate surface changes — review the diff before committing and tag
 # the PR [API-CHANGE]. CI does not run this recipe.
-freeze-api:
+# (private) Build the compiler-as-library API oracle, which derives the
+# contract from the compiler's own post-sem symbol table (the api_surface text
+# scraper is retired). Needs the compiler package: -d:nimcore + --path:$nim
+# (the same prefix nimalyzer/`just analyse` uses; $nim expands to it).
+_api-oracle:
+    @nim c --hints:off --warnings:off -d:nimcore --path:'$nim' \
+      -o:/tmp/jmap_api_oracle scripts/api_oracle.nim
+
+freeze-api: _api-oracle
     @echo "Regenerating tests/wire_contract/public-api.txt..."
     @mkdir -p tests/wire_contract
-    nim r --hints:off --warnings:off scripts/freeze_public_api.nim \
+    @API_ORACLE_MODE=api /tmp/jmap_api_oracle check --mm:arc --threads:on --panics:on \
+      --path:src --path:vendor/nim-results scripts/api_probe.nim \
       > tests/wire_contract/public-api.txt.new
     @mv tests/wire_contract/public-api.txt.new tests/wire_contract/public-api.txt
     @echo "Snapshot regenerated. Review the diff before committing."
@@ -467,27 +476,32 @@ freeze-api:
 # H16 public-API snapshot lock lint. Backs A26/F6 (P1, P5, P2). The symbols
 # reachable through `import jmap_client` / `import jmap_client/convenience`
 # must match tests/wire_contract/public-api.txt exactly.
-lint-public-api:
+lint-public-api: _api-oracle
     @echo "Running H16 public-API snapshot lint..."
-    nim r --hints:off --warnings:off tests/lint/h16_public_api_snapshot.nim
+    @API_ORACLE_MODE=api /tmp/jmap_api_oracle check --mm:arc --threads:on --panics:on \
+      --path:src --path:vendor/nim-results scripts/api_probe.nim > /tmp/jmap_api_live.txt
+    nim r --hints:off --warnings:off tests/lint/h16_public_api_snapshot.nim /tmp/jmap_api_live.txt
     @echo "H16 public-API snapshot lint passed"
 
 # Regenerate the public-type-shape snapshot (A25/A25b). Developer convenience
 # for legitimate type-shape changes — review the diff before committing and tag
 # the PR [TYPE-SHAPE-CHANGE]. CI does not run this recipe.
-freeze-type-shapes:
+freeze-type-shapes: _api-oracle
     @echo "Regenerating tests/wire_contract/type-shapes.txt..."
     @mkdir -p tests/wire_contract
-    nim r --hints:off --warnings:off scripts/freeze_type_shapes.nim \
+    @API_ORACLE_MODE=type-shapes /tmp/jmap_api_oracle check --mm:arc --threads:on --panics:on \
+      --path:src --path:vendor/nim-results scripts/api_probe.nim \
       > tests/wire_contract/type-shapes.txt.new
     @mv tests/wire_contract/type-shapes.txt.new tests/wire_contract/type-shapes.txt
     @echo "Snapshot regenerated. Review the diff before committing."
 
 # H17 type-shape snapshot lock lint. Backs A25 (P1, P2). The public-field
 # signature of every public type must match tests/wire_contract/type-shapes.txt.
-lint-type-shapes:
+lint-type-shapes: _api-oracle
     @echo "Running H17 type-shape snapshot lint..."
-    nim r --hints:off --warnings:off tests/lint/h17_type_shape_snapshot.nim
+    @API_ORACLE_MODE=type-shapes /tmp/jmap_api_oracle check --mm:arc --threads:on --panics:on \
+      --path:src --path:vendor/nim-results scripts/api_probe.nim > /tmp/jmap_shapes_live.txt
+    nim r --hints:off --warnings:off tests/lint/h17_type_shape_snapshot.nim /tmp/jmap_shapes_live.txt
     @echo "H17 type-shape snapshot lint passed"
 
 # Static analysis with nimalyzer
