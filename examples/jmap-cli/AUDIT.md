@@ -56,6 +56,9 @@ These are about the *build contract*, not a specific call site.
 - session:accessors: `session.username` / `session.apiUrl` are clean direct
   accessors; live Stalwart returns `alice` / `http://stalwart:8080/jmap/`
   (the plan's worry that `username` might be empty did not materialise). [open]
+- identity:fields: `Identity`'s `id`/`name`/`email` are direct public fields
+  — reading a list of identities is a clean two-liner with no Opt/FieldEcho
+  ceremony. The entity read-models are at their best when flat. [open]
 - session:type-safety: the verbose lifecycle is *type-safe* — `freeze`
   consumes the builder by `sink` (a second `send` of the same `BuiltRequest`
   is a compile error), and the `ResponseHandle[T]` returned by `add*Get`
@@ -107,7 +110,13 @@ These are about the *build contract*, not a specific call site.
 ### email move
 ### email send
 ### thread
+- thread:th.id / th.emailIds: `Thread` exposes NO public fields (empty type-shape); reads go through accessor funcs `id()`/`emailIds()` (the latter returning `lent seq[Id]`), diverging from `Mailbox`/`Identity` direct-field access — inconsistent entity read ergonomics across the same library [open]
+- thread:addThreadGet ids: fetching explicit ids repeats the `Opt.some(direct(@[id]))` `Referencable`-wrapping ceremony seen in `email read` — no `seq[Id]` convenience overload for the common literal-ids case [open]
+- thread:source: a `threadId` is only obtainable by first fetching it as the `egpThreadId` property of an email (`email query`/`email read`); there is no thread-of-this-email shortcut, so "show me this message's thread" is a two-step dance [open]
+
 ### identity
+- identity:read: `Identity` reads cleanly via direct public fields (`id`, `name`, `email`); the only friction is the universal one — like every read, there is no single hub-public call that builds+dispatches+extracts a bare Get (the convenience module covers query/changes pairs, not plain gets) [open]
+
 ### vacation
 ### search
 ### convenience

@@ -124,6 +124,20 @@ papercuts pile on: reading a returned field forces `import std/tables`
 is wrong — it is RFC fidelity — but `email.decodedTextBody()` is the one
 convenience whose absence every mail client will feel immediately.
 
+**Threads and identities** expose the read-model's *inconsistency*.
+`Identity` is flat and direct — `id`/`name`/`email` are public fields, and
+`identity list` is a clean two-liner. `Thread`, by contrast, is a sealed
+type with *no* public fields: `id` and `emailIds` are accessor functions
+(`emailIds` returning a `lent seq`). Both are defensible in isolation, but
+a consumer learning the library meets three different read shapes for
+three entities — direct fields (`Mailbox`, `Identity`), accessor funcs
+(`Thread`), and the dual Opt/FieldEcho split (`Email`/`PartialEmail`) —
+with no signposting of which to expect. And a `threadId` is only reachable
+as an email property, so "show this message's thread" is inherently two
+round-trips. These are small frictions, but their *unevenness* is the
+finding: the API would feel more learnable if its read-models shared one
+access idiom.
+
 ## Mutating: flags, moves, vacation
 <!-- filled in Tasks 10–12 -->
 

@@ -58,8 +58,9 @@ proc run*(args: seq[string]): int =
   )
   # Back-reference Email/query "#ids" into Email/get "ids" (one round-trip).
   let idsRef = reference[seq[Id]](queryH, mnEmailQuery, rpIds)
-  let props =
-    parseNonEmptySeq(@[egpId, egpFrom, egpSubject, egpReceivedAt, egpPreview]).get()
+  let props = parseNonEmptySeq(
+    @[egpId, egpThreadId, egpFrom, egpSubject, egpReceivedAt, egpPreview]
+  ).get()
   let (b2, getH) =
     b1.addPartialEmailGet(ctx.mailAccount, ids = Opt.some(idsRef), properties = props)
 
@@ -75,11 +76,12 @@ proc run*(args: seq[string]): int =
     return 1
   for pe in gr.list: # pe is PartialEmail
     let idStr = if pe.id.isSome: $pe.id.get() else: "(no id)" # Opt[Id]
+    let tid = if pe.threadId.isSome: $pe.threadId.get() else: "-" # Opt[Id]
     let subject = fieldEchoOr(pe.subject, "(no subject)") # FieldEcho[string]
     let fromAddrs = fieldEchoOr(pe.fromAddr, @[]) # FieldEcho[seq[EmailAddress]]
     let sender =
       if fromAddrs.len > 0: fromAddrs[0].name.valueOr(fromAddrs[0].email)
       else: "(no sender)"
     let preview = pe.preview.valueOr("") # Opt[string]
-    echo idStr, "  ", sender, "  ", subject, "  ", preview
+    echo idStr, "  thread=", tid, "  ", sender, "  ", subject, "  ", preview
   return 0
