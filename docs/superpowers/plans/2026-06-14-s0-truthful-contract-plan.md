@@ -51,8 +51,8 @@ Assisted-by: Claude:claude-4.8-opus
 
 **Progress ledger** (update the marker as each phase lands; record the commit
 hash):
-- [ ] Phase 0 — branch + commit spec & plan — `<hash>`
-- [ ] Phase 1 — oracle enumeration core (names + modules) — `<hash>`
+- [x] Phase 0 — branch + commit spec & plan — `b6d0666` (spec intentionally gitignored per `docs/superpowers/*`; plan tracked; spec on disk)
+- [x] Phase 1 — oracle enumeration core (names + modules) — done: errorCounter=0, 1232 distinct names (strict superset of old 621, 0 regressions), swallowed families + operators recovered, build OK under repo config.nims with `--hints:off --warnings:off -d:nimcore --path:"$NIMPREFIX"` (NIMPREFIX via `dirname×2 readlink $(command -v nim)`); see git log
 - [ ] Phase 2 — signature rendering → `--mode:api` body — `<hash>`
 - [ ] Phase 3 — type-shape rendering → `--mode:type-shapes` body — `<hash>`
 - [ ] Phase 4 — rewire freeze recipes, retire scraper, regenerate baseline — `<hash>`
