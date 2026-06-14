@@ -53,7 +53,7 @@ Assisted-by: Claude:claude-4.8-opus
 hash):
 - [x] Phase 0 — branch + commit spec & plan — `b6d0666` (spec intentionally gitignored per `docs/superpowers/*`; plan tracked; spec on disk)
 - [x] Phase 1 — oracle enumeration core (names + modules) — done: errorCounter=0, 1232 distinct names (strict superset of old 621, 0 regressions), swallowed families + operators recovered, build OK under repo config.nims with `--hints:off --warnings:off -d:nimcore --path:"$NIMPREFIX"` (NIMPREFIX via `dirname×2 readlink $(command -v nim)`); see git log
-- [ ] Phase 2 — signature rendering → `--mode:api` body — `<hash>`
+- [x] Phase 2 — signature rendering → `--mode:api` body — done: 1678 rows; signatures from compiler AST (routine [generics]+params+return, const types, type generic params); operators + grouped-const members present; nim-results provenance section; 0 phantom unbound-T rows; deterministic. Build: `nim c --hints:off --warnings:off -d:nimcore --path:"$NIMPREFIX" -o:/tmp/api_oracle scripts/api_oracle.nim`; run: `API_ORACLE_MODE=api /tmp/api_oracle check --mm:arc --threads:on --panics:on --path:src --path:vendor/nim-results scripts/api_probe.nim`. See git log.
 - [ ] Phase 3 — type-shape rendering → `--mode:type-shapes` body — `<hash>`
 - [ ] Phase 4 — rewire freeze recipes, retire scraper, regenerate baseline — `<hash>`
 - [ ] Phase 5 — rewire H16/H17 lints + negative-control proof — `<hash>`
