@@ -74,6 +74,10 @@ These are about the *build contract*, not a specific call site.
 - session:config: no config-file/loader in the API; the consumer hand-reads three env vars itself [open]
 
 ### mailbox
+- mailbox:dr.get(handle): typed extraction is the same repeated ceremony as `session` — `newBuilder` -> `add*Get` (tuple) -> `freeze` -> `send.valueOr` -> `dr.get(handle).valueOr` -> iterate `.list`; no single-call get shorthand for the common "fetch all of one entity" case [open]
+- mailbox:rightsSummary: no `canRead`/`canMutate`/`canDelete` (or any) roll-up over `MailboxRights`' nine independent `may*` bools (tracker C4) — every consumer hand-rolls an ACL digest; a hub-public rights predicate/digest helper would remove guesswork about which flags constitute "can write" [open]
+- mailbox:mb.role: role is `Opt[MailboxRole]`; display needs an Opt unwrap then `identifier`/`$`, and "is this the inbox?" needs one of three divergent idioms — `role.kind == mrInbox`, the snapshot-UNLISTED const `roleInbox`, or `parseMailboxRole("inbox").get()` (a sealing chain) — none discoverable from the frozen snapshot [open]
+
 ### email query
 ### email read
 ### email flag

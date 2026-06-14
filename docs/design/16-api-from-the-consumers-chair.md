@@ -64,7 +64,22 @@ bench proceeds against what genuinely compiles through `import
 jmap_client`; the snapshot generator needs fixing before the freeze.
 
 ## Reading: mailboxes, queries, messages, threads, identities
-<!-- filled in Tasks 5–9 -->
+
+**Mailboxes.** `mailbox list` is the cleanest read in the API once the
+connect helper exists: `addMailboxGet(account)` with no id filter fetches
+all of them, and `Mailbox`'s fields are direct and well-named (`name`,
+`unreadEmails`, `totalEmails`, `myRights`, `role`). Two rough edges. The
+role is `Opt[MailboxRole]`, and there are three unrelated ways to ask "is
+this the inbox?" — `role.kind == mrInbox`, a named `roleInbox` constant,
+or `parseMailboxRole("inbox")` — with no single blessed idiom and (worse)
+the constants invisible in the frozen contract. And `MailboxRights` is
+nine independent ACL booleans with no roll-up: the CLI had to invent a
+`rwas` digest and *guess* that "can write" means
+`mayAddItems and mayRemoveItems and maySetSeen and maySetKeywords`
+(tracker C4). A `canWrite`/`canAdminister` predicate would turn a guess
+into a contract. The dispatch ceremony — `newBuilder → add*Get → freeze →
+send → get` — is identical to every other read; type-safe, but repeated
+verbatim each time.
 
 ## Mutating: flags, moves, vacation
 <!-- filled in Tasks 10–12 -->
