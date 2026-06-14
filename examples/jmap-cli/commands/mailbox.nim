@@ -40,7 +40,15 @@ proc run*(args: seq[string]): int =
     stderr.writeLine "Mailbox/get failed: " & error.message
     return 1
   for mb in resp.list:
-    echo $mb.id, "  ", roleLabel(mb.role), "  unread=", $mb.unreadEmails,
-      " total=", $mb.totalEmails, "  rights=", rightsSummary(mb.myRights), "  ",
+    echo $mb.id,
+      "  ",
+      roleLabel(mb.role),
+      "  unread=",
+      $mb.unreadEmails,
+      " total=",
+      $mb.totalEmails,
+      "  rights=",
+      rightsSummary(mb.myRights),
+      "  ",
       mb.name
   return 0

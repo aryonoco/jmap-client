@@ -32,12 +32,17 @@ proc doGet(ctx: CliContext): int =
 
 proc doSet(ctx: CliContext, body: string): int =
   let updSet = initVacationResponseUpdateSet(
-      @[setIsEnabled(true), setSubject(Opt.some("Out of office")), setTextBody(Opt.some(body))]
-    ).valueOr:
+    @[
+      setIsEnabled(true),
+      setSubject(Opt.some("Out of office")),
+      setTextBody(Opt.some(body)),
+    ]
+  ).valueOr:
     stderr.writeLine "invalid vacation update: " & error.mapIt(it.message).join("; ")
     return 1
   # update is passed BY VALUE here, unlike addEmailSet's Opt[...] update.
-  let (b, handle) = ctx.client.newBuilder().addVacationResponseSet(ctx.mailAccount, updSet)
+  let (b, handle) =
+    ctx.client.newBuilder().addVacationResponseSet(ctx.mailAccount, updSet)
   let dr = ctx.client.send(b.freeze()).valueOr:
     stderr.writeLine "send failed: " & error.message
     return 1

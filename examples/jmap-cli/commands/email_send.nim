@@ -109,7 +109,8 @@ proc buildSubmissionBlueprint(
     return err("RFC5321 from: " & error.message)
   let toMb = parseRFC5321Mailbox(toAddress).valueOr:
     return err("RFC5321 to: " & error.message)
-  let fromSa = SubmissionAddress(mailbox: fromMb, parameters: Opt.none(SubmissionParams))
+  let fromSa =
+    SubmissionAddress(mailbox: fromMb, parameters: Opt.none(SubmissionParams))
   let toSa = SubmissionAddress(mailbox: toMb, parameters: Opt.none(SubmissionParams))
   let rcpts = parseNonEmptyRcptList(@[toSa]).valueOr:
     return err("rcpt list: " & joinErrs(error))
@@ -173,11 +174,14 @@ proc run*(args: seq[string]): int =
   subCreate[subCid] = subBp
 
   let b0 = ctx.client.newBuilder()
-  let (b1, emailHandle) = b0.addEmailSet(ctx.mailAccount, create = Opt.some(emailCreate))
+  let (b1, emailHandle) =
+    b0.addEmailSet(ctx.mailAccount, create = Opt.some(emailCreate))
   # addEmailSubmissionAndEmailSet returns a Result wrapping an UNCOPYABLE
   # RequestBuilder, so the Ok tuple is moved, never .get()'d.
   var r = b1.addEmailSubmissionAndEmailSet(
-    ctx.mailAccount, create = Opt.some(subCreate), onSuccessUpdateEmail = Opt.some(onSucc)
+    ctx.mailAccount,
+    create = Opt.some(subCreate),
+    onSuccessUpdateEmail = Opt.some(onSucc),
   )
   if r.isErr:
     stderr.writeLine "compound builder rejected: " & r.error.message

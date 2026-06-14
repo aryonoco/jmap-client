@@ -48,8 +48,8 @@ proc viaConvenience(ctx: CliContext, unreadOnly: bool): int =
       Opt.none(Filter[EmailFilterCondition])
   let qp = QueryParams(limit: Opt.some(parseUnsignedInt(10).get()))
   let (b, handles) = ctx.client.newBuilder().addEmailQueryThenGet(
-    ctx.mailAccount, filter = filter, queryParams = qp
-  )
+      ctx.mailAccount, filter = filter, queryParams = qp
+    )
   let dr = ctx.client.send(b.freeze()).valueOr:
     stderr.writeLine "send failed: " & error.message
     return 1
@@ -81,16 +81,17 @@ proc run*(args: seq[string]): int =
   let qp = QueryParams(limit: Opt.some(parseUnsignedInt(20).get()))
 
   let (b1, queryH) = ctx.client.newBuilder().addEmailQuery(
-    ctx.mailAccount,
-    filter = Opt.some(filter),
-    sort = Opt.some(sort),
-    queryParams = qp,
-  )
+      ctx.mailAccount,
+      filter = Opt.some(filter),
+      sort = Opt.some(sort),
+      queryParams = qp,
+    )
   # Back-reference Email/query "#ids" into Email/get "ids" (one round-trip).
   let idsRef = reference[seq[Id]](queryH, mnEmailQuery, rpIds)
   let props = parseNonEmptySeq(
-    @[egpId, egpThreadId, egpFrom, egpSubject, egpReceivedAt, egpPreview]
-  ).get()
+      @[egpId, egpThreadId, egpFrom, egpSubject, egpReceivedAt, egpPreview]
+    )
+    .get()
   let (b2, getH) =
     b1.addPartialEmailGet(ctx.mailAccount, ids = Opt.some(idsRef), properties = props)
 
@@ -105,13 +106,23 @@ proc run*(args: seq[string]): int =
     stderr.writeLine "Email/get failed: " & error.message
     return 1
   for pe in gr.list: # pe is PartialEmail
-    let idStr = if pe.id.isSome: $pe.id.get() else: "(no id)" # Opt[Id]
-    let tid = if pe.threadId.isSome: $pe.threadId.get() else: "-" # Opt[Id]
+    let idStr =
+      if pe.id.isSome:
+        $pe.id.get()
+      else:
+        "(no id)" # Opt[Id]
+    let tid =
+      if pe.threadId.isSome:
+        $pe.threadId.get()
+      else:
+        "-" # Opt[Id]
     let subject = fieldEchoOr(pe.subject, "(no subject)") # FieldEcho[string]
     let fromAddrs = fieldEchoOr(pe.fromAddr, @[]) # FieldEcho[seq[EmailAddress]]
     let sender =
-      if fromAddrs.len > 0: fromAddrs[0].name.valueOr(fromAddrs[0].email)
-      else: "(no sender)"
+      if fromAddrs.len > 0:
+        fromAddrs[0].name.valueOr(fromAddrs[0].email)
+      else:
+        "(no sender)"
     let preview = pe.preview.valueOr("") # Opt[string]
     echo idStr, "  thread=", tid, "  ", sender, "  ", subject, "  ", preview
   return 0

@@ -13,7 +13,8 @@
 ## not trapped inside a live response.
 
 import jmap_client
-import jmap_client/convenience # opt-in; addEmailChangesToGet + getBoth(ChangesGetHandles)
+import
+  jmap_client/convenience # opt-in; addEmailChangesToGet + getBoth(ChangesGetHandles)
 import ./cli_session
 
 proc currentEmailState(ctx: CliContext): Result[JmapState, string] =
@@ -21,8 +22,8 @@ proc currentEmailState(ctx: CliContext): Result[JmapState, string] =
   ## not the query state, so the cursor is read from an Email/get. An empty
   ## ids list returns the state with no records to ship.
   let (b, h) = ctx.client.newBuilder().addEmailGet(
-    ctx.mailAccount, ids = Opt.some(direct(newSeq[Id]()))
-  )
+      ctx.mailAccount, ids = Opt.some(direct(newSeq[Id]()))
+    )
   let dr = ctx.client.send(b.freeze()).valueOr:
     return err("send failed: " & error.message)
   let resp = dr.get(h).valueOr:
@@ -58,8 +59,13 @@ proc run*(args: seq[string]): int =
     stderr.writeLine "changes extraction failed: " & error.message
     return 1
 
-  echo "created=", $res.changes.created.len, " updated=", $res.changes.updated.len,
-    " destroyed=", $res.changes.destroyed.len, " hasMore=",
+  echo "created=",
+    $res.changes.created.len,
+    " updated=",
+    $res.changes.updated.len,
+    " destroyed=",
+    $res.changes.destroyed.len,
+    " hasMore=",
     $res.changes.hasMoreChanges
   echo "state: ", $res.changes.oldState, " -> ", $res.changes.newState
   # The *ChangesToGet convenience back-references ONLY /created into the get,
@@ -67,7 +73,11 @@ proc run*(args: seq[string]): int =
   # reported as ids only (fetching their bodies needs the manual
   # addEmailChanges + addPartialEmailGet with rpUpdated).
   for e in res.get.list: # full Email records — created only
-    let idStr = if e.id.isSome: $e.id.get() else: "?"
+    let idStr =
+      if e.id.isSome:
+        $e.id.get()
+      else:
+        "?"
     echo "  created ", idStr, "  ", e.subject.valueOr("(no subject)")
   for id in res.changes.updated:
     echo "  updated ", $id

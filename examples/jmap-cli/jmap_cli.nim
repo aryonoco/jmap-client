@@ -49,19 +49,33 @@ when isMainModule:
   # Dispatch returns an int exit code; commands print their own errors.
   let code =
     case args[0]
-    of "session": sessionCmd.run(args[1 .. ^1])
-    of "mailbox": mailboxCmd.run(args[1 .. ^1])
+    of "session":
+      sessionCmd.run(args[1 .. ^1])
+    of "mailbox":
+      mailboxCmd.run(args[1 .. ^1])
     of "email":
-      if args.len >= 2 and args[1] == "query": emailQueryCmd.run(args[2 .. ^1])
-      elif args.len >= 2 and args[1] == "read": emailReadCmd.run(args[2 .. ^1])
-      elif args.len >= 2 and args[1] == "flag": emailFlagCmd.run(args[2 .. ^1])
-      elif args.len >= 2 and args[1] == "move": emailMoveCmd.run(args[2 .. ^1])
-      elif args.len >= 2 and args[1] == "send": emailSendCmd.run(args[2 .. ^1])
-      elif args.len >= 2 and args[1] == "sync": emailSyncCmd.run(args[2 .. ^1])
-      else: (usage(); 2)
-    of "thread": threadCmd.run(args[1 .. ^1])
-    of "identity": identityCmd.run(args[1 .. ^1])
-    of "vacation": vacationCmd.run(args[1 .. ^1])
-    of "search": searchCmd.run(args[1 .. ^1])
-    else: (usage(); 2)
+      if args.len >= 2 and args[1] == "query":
+        emailQueryCmd.run(args[2 .. ^1])
+      elif args.len >= 2 and args[1] == "read":
+        emailReadCmd.run(args[2 .. ^1])
+      elif args.len >= 2 and args[1] == "flag":
+        emailFlagCmd.run(args[2 .. ^1])
+      elif args.len >= 2 and args[1] == "move":
+        emailMoveCmd.run(args[2 .. ^1])
+      elif args.len >= 2 and args[1] == "send":
+        emailSendCmd.run(args[2 .. ^1])
+      elif args.len >= 2 and args[1] == "sync":
+        emailSyncCmd.run(args[2 .. ^1])
+      else:
+        (usage(); 2)
+    of "thread":
+      threadCmd.run(args[1 .. ^1])
+    of "identity":
+      identityCmd.run(args[1 .. ^1])
+    of "vacation":
+      vacationCmd.run(args[1 .. ^1])
+    of "search":
+      searchCmd.run(args[1 .. ^1])
+    else:
+      (usage(); 2)
   quit(code)

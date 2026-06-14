@@ -20,6 +20,35 @@ state `FieldEcho[T]` reads; back-reference enum discovery
 that must be learned before the simple thing works; a command that
 cannot be expressed with hub-public symbols at all (highest severity).
 
+## Summary
+
+- **Commands exercised: 13** — `session`, `mailbox`, `email query` /
+  `read` / `flag` / `move` / `send` / `sync`, `thread`, `identity`,
+  `vacation`, `search`, and the convenience pipeline. Every public
+  RFC 8620/8621 entity area is covered (see [Coverage](#coverage)),
+  live-verified against Stalwart — including real alice → bob delivery and
+  an incremental-sync delta.
+- **Findings: 92 ledger lines** — ≈16 positives (what is genuinely good)
+  and ≈76 friction findings. Severity is tagged on the cross-cutting and
+  headline items: **6 high, 7 medium, 2 low**; the remaining per-command
+  lines are local observations catalogued for triage (effectively low
+  under the observe-only posture).
+- **Blocked commands (inexpressible with hub-public symbols): NONE.**
+  Every command compiles and round-trips through `import jmap_client`
+  (+ `jmap_client/convenience`) only — verified both in-tree under the
+  library's full strict battery and by a pristine out-of-tree build with
+  zero warnings. The nearest thing to a blocker is the snapshot-integrity
+  finding: a strict "only `public-api.txt` counts" reading of *hub-public*
+  would make the whole CLI un-expressible, because `newBuilder`/`freeze`/
+  `client.send` are reachable-but-unlisted — a freeze-blocking **tooling**
+  defect, not an API expressibility gap.
+- **Headline (high-severity) findings:** the frozen `public-api.txt`
+  snapshot omits the request-lifecycle bookends (contract/tooling); the
+  4-call connect preamble (C5/C8 wrapper trigger); the pervasive
+  sealing-chain ceremony; and on the send path — no plain-text body
+  helper, the misleading `addEmailSubmissionAndEmailSet` two-creation
+  wiring, and the untyped `emailId` forward-reference.
+
 ## Build environment (Phase 0)
 
 Facts established while standing up the bench, before any command ran.
@@ -33,11 +62,14 @@ These are about the *build contract*, not a specific call site.
 - build:config-inheritance: an in-tree consumer under `examples/` cannot
   escape the library's root `config.nims`; the compiler walks up from the
   source file and applies the full `warningAsError` battery + `strictDefs`
-  + `panics`/`floatChecks`/`overflowChecks`. So this bench builds *under*
-  the library's own strictness, not a pristine consumer's. The "does the
-  API leak strictness onto consumers?" hypothesis (nim.cfg note in the
-  plan) can only be tested by an out-of-tree build with the sample copied
-  outside the repo — done once in the final task. [open]
+  + `panics`/`floatChecks`/`overflowChecks`. So the in-tree bench builds
+  *under* the library's own strictness, not a pristine consumer's.
+  **Resolved (the experiment was run):** copying the sources outside the
+  repo and building with ONLY `--mm:arc --threads:on --panics:on` (no
+  `config.nims` in scope — confirmed: only the two system config files are
+  used) compiles `SuccessX` with **zero warnings**. So the API leaks NO
+  strictness onto consumers: the sample compiles identically with and
+  without the library's warning-as-error battery. A genuine positive. [open]
 - build:transport-deps: `import jmap_client` transitively pulls in
   `std/httpclient`, `std/asyncdispatch`, `std/asyncfutures`, `std/random`
   — the default L4 transport is std-`httpclient`-based. A consumer who
@@ -85,6 +117,12 @@ These are about the *build contract*, not a specific call site.
   genuinely smoother read than the hand-wired partial back-reference, and
   the P6 quarantine (opt-in import) is correctly applied so the core stays
   uncontaminated. This is the model the send path is crying out for. [open]
+- build:no-strictness-leak: the **pristine out-of-tree build** (sources
+  copied outside the repo, built with only `--mm:arc --threads:on
+  --panics:on`, no `config.nims`) compiles `SuccessX` with zero warnings —
+  proving the API imposes none of its own warning-as-error/strictDefs
+  battery on consumers. The strict contract is the *library's* discipline,
+  not a tax on its users. [open]
 
 ## Findings by command
 
@@ -133,7 +171,6 @@ These are about the *build contract*, not a specific call site.
 - email move:Opt-vs-value: `addEmailSet.update` is `Opt[NonEmptyEmailUpdates]` (needs an explicit `Opt.some(updates)`), whereas `addVacationResponseSet.update` takes its update set BY VALUE — the two `/set` builders disagree on the Opt-vs-value convention, so the consumer cannot muscle-memory one shape [open]
 - email move:moveToMailbox: the DSL verb itself reads well and is total — `moveToMailbox(id)` clearly expresses full-replace mailbox membership; the friction is entirely in the sealing/dispatch envelope around it [open]
 
-### vacation
 ### email send
 _The longest section by design — this is the highest-friction public path. It nonetheless works end-to-end: a single request created the draft, submitted it, and moved it to Sent on success; live delivery alice->bob was verified (bob's inbox received `hello from jmap-cli`)._
 
@@ -217,9 +254,53 @@ Submission + the compound two-creation wiring (the centrepiece):
   what actually compiles via `import jmap_client`, verified by build, not
   against the snapshot. This is the single most consequential finding of
   the bench and a freeze-blocker in its own right. [open]
-- *all commands*: required a 4-call connect+session+account preamble;
-  extracted to `cli_session.connect()`; confirms the C5/C8 connect-helper
-  wrapper trigger [open]
+- *all commands* (connect preamble, **high**): every command needs the same
+  4-call connect+session+account preamble (`directEndpoint` -> `basicCredential`
+  -> `initJmapClient` -> `fetchSession` -> `primaryAccount(ckMail)`), which the
+  bench had to extract into `cli_session.connect()`. The API makes you build
+  the connect wrapper it should ship — the concrete C5/C8 wrapper trigger [open]
+- *all commands* (sealing-chain ceremony, **high**): the dominant friction
+  across the bench is the `parseX(...).get()/valueOr` -> `parseY(...).get()`
+  ladder before a useful call — `directEndpoint`+`basicCredential`+`initJmapClient`
+  (session); `parseUnsignedInt`+`filterCondition`+`parseNonEmptySeq` (query);
+  `initEmailUpdateSet`+`parseNonEmptyEmailUpdates` (flag/move); and a 9-deep
+  pile-up in send (mailbox set, addresses, partId, RFC5321, rcpt list, blueprints,
+  update set, onSuccess). Each construct is individually principled (parse-don't-
+  validate), but the consumer threads many fallible bookends before any wire call,
+  with few one-shot shorthands [open]
+- *all commands* (two error rails per dispatch, **medium**): every command
+  that dispatches bridges TWO error types by hand — `client.send` returns
+  `JmapResult`/`ClientError`, but `dr.get`/`dr.getBoth` return `Result[_, GetError]`,
+  and the smart constructors return `ValidationError` (or `seq[ValidationError]`,
+  or `EmailBlueprintErrors`). No single `?`/`valueOr` style spans
+  build -> send -> extract; the rails do not auto-convert and there is no
+  hub-public lift between them [open]
+- read commands (no bare-get combinator, **medium**): mailbox/thread/identity/read
+  all repeat `newBuilder` -> `add*Get` -> `freeze` -> `send` -> `get` -> iterate
+  `.list` verbatim; the convenience module covers query/changes *pairs* and
+  `*ThenGet`, but there is no one-call build-dispatch-extract for a plain Get,
+  so the most basic read still costs the full five-symbol lifecycle [open]
+- write commands (accumulating seq[ValidationError] rail, **medium**):
+  `initEmailUpdateSet`/`parseNonEmptyEmailUpdates`/`parseNonEmptyRcptList`/
+  `parseEmailSubmissionBlueprint`/`parseNonEmptyOnSuccessUpdateEmail` all return
+  `Result[_, seq[ValidationError]]` (and `parseEmailBlueprint` an opaque
+  `EmailBlueprintErrors`), so single-value constructions render errors via
+  `mapIt(it.message).join` instead of the single `.message` the L1 parsers give —
+  three distinct error-render idioms across flag/move/send/vacation [open]
+- query + vacation (FieldEcho has no read accessor, **medium**): `FieldEcho[T]`
+  (three-state absent/null/value) appears on `PartialEmail` header fields and the
+  vacation `/set` echo, but the hub ships only the `fieldAbsent`/`fieldNull`/
+  `fieldValue` CONSTRUCTORS and the public `value*` field — no reader — so every
+  consumer hand-writes the same `fieldEchoOr` matcher [open]
+- write commands (Result-of-Opt update read, **low**): `SetResponse.updateResults`
+  is `Table[Id, Result[Opt[U], SetError]]` (flag/move/vacation), a three-layer
+  unwrap whose inner `Opt[U]` is almost always `none`; callers check `isOk` and
+  discard the Opt [open]
+- read commands (Referencable id-wrapping, **low**): passing literal ids to
+  `addEmailGet`/`addThreadGet` is `Opt.some(direct(@[id]))` (seq + `direct` +
+  `Opt.some`) in email read/thread/sync; the in-tree `directIds` shorthand is
+  unlisted and `Opt.some(directIds(...))` is a hard double-Opt error — no
+  `seq[Id]` convenience overload [open]
 - email query / email read (same-field optionality split, **medium**): the
   SAME logical field is read two different ways depending on which get was
   issued — `subject` is `FieldEcho[string]` on `PartialEmail` (partial get)
@@ -228,4 +309,38 @@ Submission + the compound two-creation wiring (the centrepiece):
   and `addEmailGet` must change its read idiom for fields that look
   identical, with no type-level cue at the call site that they differ [open]
 
-<!-- friction that recurs across commands; promoted in Task 16 -->
+## Coverage
+
+The brainstorming decision was **full-entity coverage** — every public
+RFC 8620/8621 entity area exercised at least once, including the
+`EmailSubmission` send path. That bar is met:
+
+| Entity area | Command(s) | Key builder |
+|---|---|---|
+| Session / capabilities | `session` | `fetchSession`, `primaryAccount(ckMail)`, `coreCapabilities` |
+| Mailbox (get) | `mailbox`, + role resolution in query/move/send | `addMailboxGet` |
+| Email/query + back-ref | `email query` | `addEmailQuery` + `reference` + `addPartialEmailGet` |
+| Email/get (full) | `email read` | `addEmailGet` (+ body values) |
+| Email/set (update) | `email flag`, `email move` | `addEmailSet(update=)` |
+| Email/set (create) | `email send` | `addEmailSet(create=)` |
+| Email/changes | `email sync` | `addEmailChangesToGet` (convenience) |
+| Thread | `thread show` | `addThreadGet` |
+| Identity | `identity list` | `addIdentityGet` |
+| EmailSubmission | `email send` | `addEmailSubmissionAndEmailSet` (+ onSuccess) |
+| VacationResponse (get/set) | `vacation` | `addVacationResponseGet`/`Set` |
+| SearchSnippet | `search` | `addEmailQueryWithSnippets` + `getBoth` |
+| Convenience pipeline | `email query --via-convenience`, `email sync` | `addEmailQueryThenGet`, `addEmailChangesToGet` |
+
+**Deliberately out of scope** (method-level surfaces beyond the entity bar;
+recorded here so the ledger reads as a *choice*, not an oversight). These
+compile and are hub-public but were not driven by the CLI: structural
+`/set` — `addMailboxSet` (folder create/rename/delete), `addIdentitySet`;
+the `EmailSubmission` *read* path (`addEmailSubmissionGet`/`Query`/`Changes`,
+the `AnyEmailSubmission` `undoStatus`/`deliveryStatus` model); cross-account
+`addEmailCopy`/`addEmailCopyAndDestroy`; `addMailboxQuery` and the
+`*QueryChanges` variants; `addEmailQueryWithThreads` (conversation view);
+the non-Email partial gets; and four of the five `*ChangesToGet` convenience
+combinators (only `addEmailChangesToGet` was exercised). Of the 8 public
+convenience combinators, 2 were driven (`addEmailQueryThenGet`,
+`addEmailChangesToGet`). Blob upload/download and Push are deferred
+project-wide and are correctly absent.

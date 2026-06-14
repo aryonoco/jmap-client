@@ -279,5 +279,87 @@ the blessed convenience layer to cover the send path and the snippet
 compound, and fix the snapshot so consumers can find what already exists.
 
 ## Cross-cutting verdict
-<!-- filled in Task 17: would a competent developer reach for this
-     directly, or wrap it? (P7) -->
+
+The bench set out to answer one question (P29): build a real consumer
+against the public API only, and treat its sore spots as bugs in the API,
+not the user. Thirteen commands later — every RFC 8620/8621 entity area
+exercised, real mail delivered alice → bob, an incremental-sync delta
+observed — the headline is reassuring: **nothing was inexpressible.** Not
+one command had to reach into `jmap_client/internal`; every path compiled
+through `import jmap_client` (+ the opt-in `convenience`) and round-tripped
+against a live server, under the library's own full strict battery *and*
+in a pristine out-of-tree build with zero warnings. The protocol core is
+sound, safe, and complete.
+
+**Would a competent developer reach for it directly, or wrap it? (P7)** —
+the honest answer is *area-dependent*:
+
+- **Reading (mailbox, query, read, thread, identity, sync): reach for it
+  directly.** The entity models are clean, the server-side back-reference
+  (`reference[seq[Id]]`) is a genuine highlight that a hand-rolled client
+  gets wrong, and the convenience `*ThenGet`/`*ChangesToGet` combinators
+  already smooth the common pairs. A thin `fieldEchoOr` and a bare-get
+  one-shot are the only things a reader writes twice.
+- **Mutating (flag, move, vacation): reach for it, but write one helper.**
+  The DSL verbs (`markRead`, `moveToMailbox`, `setIsEnabled`) are exemplary
+  (P18); the triple-seal + accumulating-error envelope around them is the
+  one thing every consumer will wrap in an `addEmailUpdate(account, id,
+  ops)` shorthand.
+- **Sending (EmailSubmission): they will wrap it — today.** This is the one
+  area that trips the P7 wire: no plain-text body helper, a misleadingly
+  named compound that does not create the email, an untyped `emailId`
+  forward-reference smuggled through a `#`-prefixed lenient parse, and a
+  `move`-not-`get` Result tuple. It *works*, atomically and correctly, but
+  no application developer will hand-write that sequence twice. A blessed
+  `sendPlainText(...)` convenience would flip this area from "wrap it" to
+  "reach for it."
+- **Search: reach for it — if you can find the good path.** `addEmailQuery
+  WithSnippets` is the API at its best, but it is invisible in the frozen
+  contract, so a snapshot-guided developer would hand-roll the tedious
+  manual back-reference instead.
+
+**The first fifteen minutes (P29).** A newcomer meets ~8 concepts before
+`session` prints, reaches a trustworthy answer well inside the window, and
+— tellingly — writes a connect helper on the way, because the 4-call
+preamble has no shorthand (the concrete C5/C8 trigger). Discoverable and
+safe, but front-loaded.
+
+**What is genuinely excellent — and should not change.** The single
+re-exporting hub that also surfaces the `results` vocabulary (P5); the
+phantom-typed lifecycle where `freeze` consumes the builder by `sink` and
+`ResponseHandle[T]` pins the get's result type, so illegal sequences are
+*compile* errors (P16, P21); the named-variant error rail
+(`ClientError`/`GetError`/`SetError`/`ValidationError`, each with
+`.message`) instead of stringly errors (P13); sealed smart constructors
+that parse-once-trust-forever (P15); the type-safe server-side
+back-references (P19); and the correctly-quarantined convenience layer
+(P6). These are the decisions that age well, exactly as the great-library
+case studies in doc 14 predict.
+
+**What grates — and is cheap to fix before 1.0.** Almost all of it is
+*envelope*, not *core*: the pervasive sealing-chain ceremony; the absence
+of a plain-text body helper and a `decodedTextBody` reader; `FieldEcho`
+shipped without a reader accessor; the accumulating `seq[ValidationError]`
+rail on single constructions; the two-error-rail split between `send`
+(`ClientError`) and `get` (`GetError`); and the read-model unevenness
+(direct fields vs accessor funcs vs Opt-vs-FieldEcho for the same field).
+A small, blessed convenience layer — `connect`, `sendPlainText`,
+`addEmailUpdate`, `fieldEchoOr`, `decodedTextBody` — would erase the
+friction without touching the principled core.
+
+**The most consequential finding is not ergonomic at all.** The frozen
+`public-api.txt` contract — the thing meant to lock the surface at 1.0
+(P1/P2) — does not actually capture the public surface: `newBuilder`,
+`freeze`, `client.send`, and the 2-arg `initJmapClient` are reachable and
+load-bearing yet absent, because the snapshot generator runs aground on a
+typed literal and a comment-stripping bug. The H16 lint passes only because
+the snapshot and the resolver share the blind spot. A consumer who took the
+contract literally could not issue a request at all. **That must be fixed
+before the freeze** — a contract that omits the entry points is worse than
+no contract, because it certifies a surface nobody can use.
+
+**One-line verdict.** *A protocol-faithful, type-safe core that a competent
+developer can already use directly for everything but sending — bring the
+send path and the snippet compound into a thin blessed convenience layer,
+and fix the freeze snapshot to enumerate the lifecycle, and jmap-client is
+a library people reach for rather than wrap.*

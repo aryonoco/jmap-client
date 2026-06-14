@@ -20,8 +20,8 @@ proc run*(args: seq[string]): int =
     stderr.writeLine error
     return 1
   let (b, handle) = ctx.client.newBuilder().addThreadGet(
-    ctx.mailAccount, ids = Opt.some(direct(@[threadId]))
-  )
+      ctx.mailAccount, ids = Opt.some(direct(@[threadId]))
+    )
   let dr = ctx.client.send(b.freeze()).valueOr:
     stderr.writeLine "send failed: " & error.message
     return 1

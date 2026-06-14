@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2026 Aryan Ameri
 # Fails if the sample reaches past the public surface into jmap_client/internal.
 # This is the honesty mechanism for the P29 bench (mirrors tracker H7).
 set -euo pipefail
