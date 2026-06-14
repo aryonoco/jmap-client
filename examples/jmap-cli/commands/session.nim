@@ -17,8 +17,10 @@ proc run*(args: seq[string]): int =
   let user = getEnv("JMAP_TEST_STALWART_ALICE_USER")
   let pass = getEnv("JMAP_TEST_STALWART_ALICE_PASSWORD")
   if sessionUrl.len == 0 or user.len == 0 or pass.len == 0:
+    # Exit convention: 2 = bad CLI usage (args), 1 = runtime/setup failure.
+    # Missing env is a setup failure — matches the connect()-based commands.
     stderr.writeLine "missing env; source /tmp/stalwart-env.sh first"
-    return 2
+    return 1
 
   # 2. Smart constructors (each fallible, each on the ValidationError rail).
   let endpoint = directEndpoint(sessionUrl).valueOr:

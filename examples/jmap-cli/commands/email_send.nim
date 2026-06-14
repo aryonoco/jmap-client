@@ -43,17 +43,27 @@ proc firstIdentity(ctx: CliContext): Result[(Id, string), string] =
     return err("no identity to send from")
   ok((resp.list[0].id, resp.list[0].email))
 
-proc resolveRole(ctx: CliContext, want: MailboxRoleKind): Result[Id, string] =
+proc resolveRoles(ctx: CliContext): Result[(Id, Id), string] =
+  ## One Mailbox/get, scanned for BOTH the Drafts and Sent roles — sending
+  ## needs both, and a single fetch returns the whole list.
   let (b, h) = ctx.client.newBuilder().addMailboxGet(ctx.mailAccount)
   let dr = ctx.client.send(b.freeze()).valueOr:
     return err("send failed: " & error.message)
   let resp = dr.get(h).valueOr:
     return err("Mailbox/get failed: " & error.message)
+  var draftsId = Opt.none(Id)
+  var sentId = Opt.none(Id)
   for mb in resp.list:
     for role in mb.role:
-      if role.kind == want:
-        return ok(mb.id)
-  err("mailbox role not found: " & $want)
+      if role.kind == mrDrafts:
+        draftsId = Opt.some(mb.id)
+      elif role.kind == mrSent:
+        sentId = Opt.some(mb.id)
+  let drafts = draftsId.valueOr:
+    return err("Drafts mailbox not found")
+  let sent = sentId.valueOr:
+    return err("Sent mailbox not found")
+  ok((drafts, sent))
 
 proc buildDraftBlueprint(
     draftsId: Id, fromEmail, toAddress, subject, body: string
@@ -123,10 +133,7 @@ proc run*(args: seq[string]): int =
   let (identityId, fromEmail) = firstIdentity(ctx).valueOr:
     stderr.writeLine error
     return 1
-  let draftsId = resolveRole(ctx, mrDrafts).valueOr:
-    stderr.writeLine error
-    return 1
-  let sentId = resolveRole(ctx, mrSent).valueOr:
+  let (draftsId, sentId) = resolveRoles(ctx).valueOr:
     stderr.writeLine error
     return 1
 

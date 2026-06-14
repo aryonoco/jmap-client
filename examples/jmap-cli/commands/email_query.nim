@@ -34,15 +34,22 @@ proc resolveInbox(ctx: CliContext): Result[Id, string] =
         return ok(mb.id)
   err("no Inbox mailbox found")
 
-proc viaConvenience(ctx: CliContext): int =
+proc viaConvenience(ctx: CliContext, unreadOnly: bool): int =
   ## Contrast with the hand-wired back-reference below: the opt-in convenience
   ## combinator builds Email/query -> Email/get (FULL Email, not PartialEmail)
   ## in ONE call and ONE getBoth. It requires the explicit
   ## `import jmap_client/convenience` — the headline `import jmap_client`
-  ## deliberately does not re-export it.
+  ## deliberately does not re-export it. `--unread` is honoured here too
+  ## (account-wide, since this path does not resolve the Inbox).
+  let filter =
+    if unreadOnly:
+      Opt.some(filterCondition(EmailFilterCondition(notKeyword: Opt.some(kwSeen))))
+    else:
+      Opt.none(Filter[EmailFilterCondition])
   let qp = QueryParams(limit: Opt.some(parseUnsignedInt(10).get()))
-  let (b, handles) =
-    ctx.client.newBuilder().addEmailQueryThenGet(ctx.mailAccount, queryParams = qp)
+  let (b, handles) = ctx.client.newBuilder().addEmailQueryThenGet(
+    ctx.mailAccount, filter = filter, queryParams = qp
+  )
   let dr = ctx.client.send(b.freeze()).valueOr:
     stderr.writeLine "send failed: " & error.message
     return 1
@@ -60,7 +67,7 @@ proc run*(args: seq[string]): int =
     stderr.writeLine error
     return 1
   if "--via-convenience" in args:
-    return viaConvenience(ctx)
+    return viaConvenience(ctx, unreadOnly)
   let inboxId = resolveInbox(ctx).valueOr:
     stderr.writeLine error
     return 1

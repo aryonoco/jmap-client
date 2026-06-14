@@ -15,6 +15,7 @@ import commands/email_read as emailReadCmd
 import commands/email_flag as emailFlagCmd
 import commands/email_move as emailMoveCmd
 import commands/email_send as emailSendCmd
+import commands/email_sync as emailSyncCmd
 import commands/thread as threadCmd
 import commands/identity as identityCmd
 import commands/vacation as vacationCmd
@@ -30,6 +31,7 @@ usage:
   jmap-cli email flag <emailId>
   jmap-cli email move <emailId> <mailboxId>
   jmap-cli email send <toAddress> <subject> <bodyText>
+  jmap-cli email sync [<sinceState>]
   jmap-cli thread show <threadId>
   jmap-cli identity list
   jmap-cli vacation get
@@ -55,6 +57,7 @@ when isMainModule:
       elif args.len >= 2 and args[1] == "flag": emailFlagCmd.run(args[2 .. ^1])
       elif args.len >= 2 and args[1] == "move": emailMoveCmd.run(args[2 .. ^1])
       elif args.len >= 2 and args[1] == "send": emailSendCmd.run(args[2 .. ^1])
+      elif args.len >= 2 and args[1] == "sync": emailSyncCmd.run(args[2 .. ^1])
       else: (usage(); 2)
     of "thread": threadCmd.run(args[1 .. ^1])
     of "identity": identityCmd.run(args[1 .. ^1])

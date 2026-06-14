@@ -116,7 +116,7 @@ These are about the *build contract*, not a specific call site.
 ### email read
 - email read:maxBodyValueBytes: a compile-time-constant byte cap (65536) must be sealed through `parseUnsignedInt(65536).get()` then re-wrapped `Opt.some(...)` — a smart-constructor+get+Opt ceremony for a literal that can never fail; no `UnsignedInt` literal helper, no `EmailBodyFetchOptions.textBodies(maxBytes)` convenience [open]
 - email read:ids: a single id is `Opt.some(direct(@[id]))` (seq-wrap + `direct` + `Opt.some`); the in-tree `directIds` shorthand that would remove the nesting is ABSENT from public-api.txt, and the plan's `Opt.some(directIds(...))` is a hard double-Opt type error (`directIds` already returns `Opt[Referencable[seq[Id]]]`) — an easy footgun with no compiler hint until call time [open]
-- email read:isMultipart: reaching a leaf part's `partId` forces a full `case part.isMultipart of true: discard of false: ...` with a dead `discard` arm purely to satisfy strictCaseObjects (an `if part.isMultipart` read is rejected); an `email.leafTextParts` iterator would erase this [open]
+- email read:isMultipart: `EmailBodyPart` is a case object on the `isMultipart` bool, so reaching a leaf's `partId`/`blobId` means matching the `of false` arm. (The consumer does NOT enable `strictCaseObjects` — it is a src/-only per-file pragma, verified by the pristine build — so a plain `if not part.isMultipart:` reads the field cleanly; there is no compiler-forced `case`.) The genuine residual ask is an `email.leafTextParts` iterator or an `email.decodedTextBody(): string` so a mail client need not re-implement the textBody-walk + bodyValues-by-partId join at all [open]
 - email read:bodyValues: `Email.bodyValues` is a `std/tables` Table, but the hub re-exports `results` and NOT std/tables, so the consumer must add `import std/tables` solely to read a returned field — inconsistent and non-obvious [open]
 - email read:decodeText: decoding the text body is a manual `textBody`-walk joined against the `bodyValues` table by partId; every consumer re-implements this part-id->value join. No `email.decodedTextBody(): string` exists despite it being the single most common read [open]
 - email read:truncation: `EmailBodyValue.isTruncated` / `.isEncodingProblem` are plain bools the happy path silently ignores; nothing ties a truncated value back to the `maxBodyValueBytes` cap, so correctness depends on the consumer remembering to check two booleans [open]
@@ -156,6 +156,11 @@ Submission + the compound two-creation wiring (the centrepiece):
 - email send:nested-id-read: reading the created submission id is a nested rail — `getBoth().valueOr` then `primary.createResults` table-lookup then `res.value.id` (three unwraps) [open]
 - email send:freeze-not-build: the builder finaliser is `freeze` (sink), there is no `build`; combined with its absence from the snapshot, a discoverability trap at the dispatch site [open]
 
+### email sync
+- email sync:state-roundtrips (POSITIVE): a `JmapState` cursor round-trips through `parseJmapState` (it is even in public-api.txt), so a consumer CAN persist a sync position to disk and resume after a process restart — the state is not trapped inside a live response object. This is exactly what incremental sync needs and the API gets it right [open]
+- email sync:changes-to-get-created-only (**medium**): the convenience `addEmailChangesToGet` (and its `*ChangesToGet` siblings) back-references ONLY the `/created` path into the Email/get, so the `ChangesGetResults.get.list` carries created records but NOT updated ones. A mail client doing incremental sync overwhelmingly cares about UPDATED messages (read/flag/move changes), yet to fetch their bodies it must abandon the one-call convenience and hand-compose `addEmailChanges` + `addPartialEmailGet(ids = reference[seq[Id]](ch, mnEmailChanges, rpUpdated))` — the convenience covers the rarer case and drops to manual for the common one (live-confirmed: flagging an email yielded `updated=1` with an empty `get.list`) [open]
+- email sync:state-acquisition: `Email/changes` diffs against the Email OBJECT state (`GetResponse.state`), not the query state, and no command surfaces that state by default — the CLI had to issue an empty-ids `Email/get` purely to read `resp.state` as the initial cursor; a `session`- or get-level "current state per type" accessor would remove the bootstrap round-trip [open]
+
 ### thread
 - thread:th.id / th.emailIds: `Thread` exposes NO public fields (empty type-shape); reads go through accessor funcs `id()`/`emailIds()` (the latter returning `lent seq[Id]`), diverging from `Mailbox`/`Identity` direct-field access — inconsistent entity read ergonomics across the same library [open]
 - thread:addThreadGet ids: fetching explicit ids repeats the `Opt.some(direct(@[id]))` `Referencable`-wrapping ceremony seen in `email read` — no `seq[Id]` convenience overload for the common literal-ids case [open]
@@ -187,15 +192,24 @@ Submission + the compound two-creation wiring (the centrepiece):
 - *all commands* (snapshot integrity, **high**): the frozen public-API
   contract `tests/wire_contract/public-api.txt` (locked by the H16 lint,
   regenerated by `scripts/freeze_public_api.nim` / `api_surface.nim`) is
-  NOT a faithful enumeration of the hub-public surface. It silently omits
-  the entire request-lifecycle verb set — `newBuilder` (0 hits), `freeze`
-  (0 hits), the 2-arg `initJmapClient`, plus `fetchSession`/`setCredential`/
-  `refreshSessionIfStale` — and all backtick operators (`$`/`==` on `Id`/
-  `AccountId`/`UnsignedInt`/`MailboxRole`), const-block members
-  (`roleInbox..`, `egp*`, `kw*`), and type-block continuation members
-  (`ResponseHandle[T]`). The scraper runs away on typed literals
-  (`0'u64` in `client.nim`, a parallel trap in `builder.nim`) and skips
-  operator/continuation lines by construction. Consequence: a consumer
+  NOT a faithful enumeration of the hub-public surface. It omits the
+  request-CONSTRUCTION bookends and the dispatch/session verbs — `newBuilder`
+  (0 hits), `freeze` (0 hits), the client-level `send` (only the unrelated
+  `Transport.send` is listed), the 2-arg `initJmapClient`, and
+  `fetchSession`/`setCredential`/`refreshSessionIfStale` — even though the
+  *middle* of the lifecycle (`add*Get`, `get`, `getBoth`, `direct`,
+  `reference`) DOES survive. It also drops all backtick operators (`$`/`==`
+  on `Id`/`AccountId`/`UnsignedInt`/`MailboxRole`), grouped const-block
+  members (`roleInbox..`, `egp*`, `kw*`), the snippet compound
+  (`addEmailQueryWithSnippets` + its chain/results + `getBoth` overload),
+  the `EmailUpdateSet`/`NonEmptyEmailUpdates` family, and type-block
+  continuation members (`ResponseHandle[T]`). The scraper runs away on a
+  typed literal (`0'u64` at `client.nim:139`, which is why the 3-arg
+  `initJmapClient` survives but everything after it is swallowed), an
+  analogous unbalanced-quote/comment trap in `builder.nim`, and a
+  `stripComment` defect in `email_update.nim`; it skips operator and
+  grouped-`const`/type continuation lines by construction. Consequence: a
+  consumer
   who trusts the snapshot as the contract literally cannot discover how to
   build or dispatch a request, and the H16 lint passes only because the
   snapshot and the live resolver share the same blind spots — giving FALSE

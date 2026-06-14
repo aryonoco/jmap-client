@@ -24,13 +24,12 @@ func textBodyFetchOptions(): EmailBodyFetchOptions =
 func decodeTextBody(email: Email): string =
   ## Join the decoded value of each non-multipart text body part. textBody
   ## parts reference values by partId; the values live in the separate
-  ## bodyValues table (RFC 8621 §4.1.4).
+  ## bodyValues table (RFC 8621 §4.1.4). The consumer does not enable
+  ## strictCaseObjects (a src/-only per-file pragma), so a plain `if` over
+  ## the bool discriminator reads `part.partId` on the leaf arm fine.
   result = ""
   for part in email.textBody:
-    case part.isMultipart # bool discriminator; partId is on the `of false` arm
-    of true:
-      discard
-    of false:
+    if not part.isMultipart: # leaf part — partId/blobId live on this arm
       email.bodyValues.withValue(part.partId, bv):
         result.add bv.value
 

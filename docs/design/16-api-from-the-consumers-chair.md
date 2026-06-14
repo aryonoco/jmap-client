@@ -17,8 +17,9 @@ answer — is **discoverable and type-safe, but front-loads ceremony**.
 A newcomer meets roughly eight concepts before `session` prints
 anything: the `Result` rail and `.valueOr`, `Opt`, `SessionEndpoint`,
 `Credential`, `CapabilityKind` (specifically the `ckMail` value),
-`UnsignedInt` (with only `.toInt64`), and the four-phase request
-lifecycle (`newBuilder` → `add*Get` → `freeze` → `send` → `get`). The
+`UnsignedInt` (with only `.toInt64`), and the four-type-phase request
+lifecycle — builder → built → dispatched → response — reached through the
+five-verb chain `newBuilder` → `add*Get` → `freeze` → `send` → `get`. The
 single import is a genuine kindness: `import jmap_client` re-exports the
 whole `results` vocabulary, so the error rail arrives for free with no
 second import to discover (P5 — one public surface).
@@ -104,6 +105,25 @@ on-ramp is a sequence of small sealing ceremonies that a thin combinator
 layer (a query-then-get helper, a `fieldEchoOr`, a limit shorthand) would
 smooth without losing any safety.
 
+**Incremental sync.** `email sync` exercises the path a real mail client
+actually lives on, and it surfaces both a quiet win and a real gap. The
+win: a `JmapState` cursor round-trips through `parseJmapState` (P15 — a
+smart constructor, and it is even in the snapshot), so a client can persist
+its sync position to disk and resume after a restart. The state is a
+first-class value, not something trapped inside a live response — exactly
+what sync needs. The gap is in the convenience layer: `addEmailChangesToGet`
+back-references only the `/created` path into its Email/get, so the
+returned records cover *created* messages but not *updated* ones. For a mail
+client, "updated" (read/flag/move) is the dominant case, so the moment you
+want the bodies of changed messages you drop out of the one-call
+convenience and hand-compose `addEmailChanges` + `addPartialEmailGet(ids =
+reference(ch, mnEmailChanges, rpUpdated))`. The change *counts* are all
+there (`created`/`updated`/`destroyed` ids on the response), so the delta is
+honest; it is only the fetch that is created-biased. One bootstrap wrinkle:
+the diff is against the Email *object* state (`GetResponse.state`), which no
+command surfaces by default, so the CLI issues an empty-ids `Email/get` just
+to read the initial cursor.
+
 **Messages.** `email read` reads cleanly once you accept that decoding a
 plain-text body is a manual join: `addEmailGet` returns the full `Email`
 (no `properties` arg — that is the separate `addPartialEmailGet`, which
@@ -116,9 +136,10 @@ body itself is the bigger ask. RFC 8621 separates body *structure*
 (`textBody`) from body *values* (`bodyValues`, keyed by `partId`), and the
 API faithfully mirrors that — correct, but it means every consumer
 hand-writes a `textBody`-walk that joins against the `bodyValues` table,
-reaching each leaf through a `case part.isMultipart of true: discard of
-false: …` whose dead arm exists only to satisfy strict case objects. Two
-papercuts pile on: reading a returned field forces `import std/tables`
+reaching each leaf through the `isMultipart` discriminator (a plain `if not
+part.isMultipart` suffices — the consumer does not inherit the library's
+`strictCaseObjects`, which is a src/-only pragma). Two papercuts pile on:
+reading a returned field forces `import std/tables`
 (the hub re-exports `results` but not `tables`), and the `isTruncated` /
 `isEncodingProblem` flags on a body value are easy to forget. None of this
 is wrong — it is RFC fidelity — but `email.decodedTextBody()` is the one

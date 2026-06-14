@@ -52,8 +52,13 @@ proc doSet(ctx: CliContext, body: string): int =
   return 0
 
 proc run*(args: seq[string]): int =
-  if args.len < 1:
+  # Validate the subcommand BEFORE any network call (mirrors thread.nim), so a
+  # bogus verb is rejected without a wasted connect/fetchSession round-trip.
+  if args.len < 1 or args[0] notin ["get", "set"]:
     stderr.writeLine "usage: jmap-cli vacation get | vacation set <bodyText>"
+    return 2
+  if args[0] == "set" and args.len < 2:
+    stderr.writeLine "usage: jmap-cli vacation set <bodyText>"
     return 2
   let ctx = connect().valueOr:
     stderr.writeLine error
@@ -62,10 +67,6 @@ proc run*(args: seq[string]): int =
   of "get":
     doGet(ctx)
   of "set":
-    if args.len < 2:
-      stderr.writeLine "usage: jmap-cli vacation set <bodyText>"
-      return 2
     doSet(ctx, args[1])
   else:
-    stderr.writeLine "usage: jmap-cli vacation get | vacation set <bodyText>"
-    2
+    2 # unreachable — verb validated above; case over string needs an else
