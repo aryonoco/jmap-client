@@ -95,6 +95,14 @@ These are about the *build contract*, not a specific call site.
 - email query:two error rails in one flow: `client.send` returns `JmapResult` (ClientError) while `dr.get(handle)` returns `Result[_, GetError]` — the call site cannot use one uniform `?`/`valueOr` style and bridges `ClientError` vs `GetError` manually [open]
 
 ### email read
+- email read:maxBodyValueBytes: a compile-time-constant byte cap (65536) must be sealed through `parseUnsignedInt(65536).get()` then re-wrapped `Opt.some(...)` — a smart-constructor+get+Opt ceremony for a literal that can never fail; no `UnsignedInt` literal helper, no `EmailBodyFetchOptions.textBodies(maxBytes)` convenience [open]
+- email read:ids: a single id is `Opt.some(direct(@[id]))` (seq-wrap + `direct` + `Opt.some`); the in-tree `directIds` shorthand that would remove the nesting is ABSENT from public-api.txt, and the plan's `Opt.some(directIds(...))` is a hard double-Opt type error (`directIds` already returns `Opt[Referencable[seq[Id]]]`) — an easy footgun with no compiler hint until call time [open]
+- email read:isMultipart: reaching a leaf part's `partId` forces a full `case part.isMultipart of true: discard of false: ...` with a dead `discard` arm purely to satisfy strictCaseObjects (an `if part.isMultipart` read is rejected); an `email.leafTextParts` iterator would erase this [open]
+- email read:bodyValues: `Email.bodyValues` is a `std/tables` Table, but the hub re-exports `results` and NOT std/tables, so the consumer must add `import std/tables` solely to read a returned field — inconsistent and non-obvious [open]
+- email read:decodeText: decoding the text body is a manual `textBody`-walk joined against the `bodyValues` table by partId; every consumer re-implements this part-id->value join. No `email.decodedTextBody(): string` exists despite it being the single most common read [open]
+- email read:truncation: `EmailBodyValue.isTruncated` / `.isEncodingProblem` are plain bools the happy path silently ignores; nothing ties a truncated value back to the `maxBodyValueBytes` cap, so correctness depends on the consumer remembering to check two booleans [open]
+- email read:id-parser-choice: the command must choose between strict `parseId` and lenient `parseIdFromServer` for a CLI-supplied id with no guidance — the strict/lenient pair (a sensible internal Postel's-law split) leaks to the consumer as a decision [open]
+
 ### email flag
 ### email move
 ### email send
@@ -128,5 +136,12 @@ These are about the *build contract*, not a specific call site.
 - *all commands*: required a 4-call connect+session+account preamble;
   extracted to `cli_session.connect()`; confirms the C5/C8 connect-helper
   wrapper trigger [open]
+- email query / email read (same-field optionality split, **medium**): the
+  SAME logical field is read two different ways depending on which get was
+  issued — `subject` is `FieldEcho[string]` on `PartialEmail` (partial get)
+  but `Opt[string]` on the full `Email`; `fromAddr` is `FieldEcho[seq[…]]`
+  vs `Opt[seq[…]]`. A consumer who switches between `addPartialEmailGet`
+  and `addEmailGet` must change its read idiom for fields that look
+  identical, with no type-level cue at the call site that they differ [open]
 
 <!-- friction that recurs across commands; promoted in Task 16 -->

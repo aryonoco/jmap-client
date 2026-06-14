@@ -104,6 +104,26 @@ on-ramp is a sequence of small sealing ceremonies that a thin combinator
 layer (a query-then-get helper, a `fieldEchoOr`, a limit shorthand) would
 smooth without losing any safety.
 
+**Messages.** `email read` reads cleanly once you accept that decoding a
+plain-text body is a manual join: `addEmailGet` returns the full `Email`
+(no `properties` arg — that is the separate `addPartialEmailGet`, which
+also flips the result type to `PartialEmail`), whose `subject` is a plain
+`Opt[string]` and `preview` a bare `string`. That is *easier* than the
+partial get — and that is itself the surprise: the same `subject` field is
+`FieldEcho` on `PartialEmail` and `Opt` on `Email`, so switching between
+the two gets silently changes the read idiom with no call-site cue. The
+body itself is the bigger ask. RFC 8621 separates body *structure*
+(`textBody`) from body *values* (`bodyValues`, keyed by `partId`), and the
+API faithfully mirrors that — correct, but it means every consumer
+hand-writes a `textBody`-walk that joins against the `bodyValues` table,
+reaching each leaf through a `case part.isMultipart of true: discard of
+false: …` whose dead arm exists only to satisfy strict case objects. Two
+papercuts pile on: reading a returned field forces `import std/tables`
+(the hub re-exports `results` but not `tables`), and the `isTruncated` /
+`isEncodingProblem` flags on a body value are easy to forget. None of this
+is wrong — it is RFC fidelity — but `email.decodedTextBody()` is the one
+convenience whose absence every mail client will feel immediately.
+
 ## Mutating: flags, moves, vacation
 <!-- filled in Tasks 10–12 -->
 
