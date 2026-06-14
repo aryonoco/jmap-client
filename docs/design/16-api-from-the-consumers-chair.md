@@ -81,6 +81,29 @@ into a contract. The dispatch ceremony — `newBuilder → add*Get → freeze �
 send → get` — is identical to every other read; type-safe, but repeated
 verbatim each time.
 
+**Queries.** `email query` is where the API's best and worst instincts
+sit side by side. The best: the server-side back-reference. `reference[
+seq[Id]](queryH, mnEmailQuery, rpIds)` threads the Email/query result ids
+straight into a partial Email/get in a *single* request, fully type-
+checked — no client round-trip, no manual id plumbing (P19, schema-driven
+references). That is genuinely excellent and is exactly what a hand-rolled
+HTTP client gets wrong. The worst: the friction to *get there*. The limit
+is a triple wrap (`Opt.some(parseUnsignedInt(20).get())`); the filter is a
+raw all-`Opt` object literal double-wrapped through `filterCondition`; the
+back-reference makes you restate the method `queryH` already knows and
+pick `rpIds` out of nine `RefPath` members; and the property list is
+`parseNonEmptySeq(@[…]).get()` — a fallible parse of a literal that cannot
+be empty. Then the read side splits its optionality model:
+`PartialEmail.id`/`receivedAt`/`preview` are `Opt[T]`, but
+`subject`/`fromAddr` are `FieldEcho[T]` (absent/null/value) with **no read
+accessor on the hub** — so every consumer writes the same `fieldEchoOr`
+three-state matcher. The echo is principled (it distinguishes "server
+omitted" from "server sent null"), but shipping it without a reader pushes
+that principle onto every call site. Net: the power is real and safe; the
+on-ramp is a sequence of small sealing ceremonies that a thin combinator
+layer (a query-then-get helper, a `fieldEchoOr`, a limit shorthand) would
+smooth without losing any safety.
+
 ## Mutating: flags, moves, vacation
 <!-- filled in Tasks 10–12 -->
 

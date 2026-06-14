@@ -61,6 +61,11 @@ These are about the *build contract*, not a specific call site.
   is a compile error), and the `ResponseHandle[T]` returned by `add*Get`
   binds the get's result type, so `dr.get(handle)` cannot be mis-typed.
   Ceremony bought genuine compile-time guarantees. [open]
+- email query:back-reference type-safety: `reference[seq[Id]](queryH, …)`
+  threads the Email/query result ids into Email/get within ONE request and
+  is fully type-checked — no manual id plumbing, no second round-trip, and
+  the generic pins the referenced shape to `seq[Id]`. The ceremony is real
+  but it buys a genuinely safe server-side back-reference. [open]
 
 ## Findings by command
 
@@ -79,6 +84,16 @@ These are about the *build contract*, not a specific call site.
 - mailbox:mb.role: role is `Opt[MailboxRole]`; display needs an Opt unwrap then `identifier`/`$`, and "is this the inbox?" needs one of three divergent idioms — `role.kind == mrInbox`, the snapshot-UNLISTED const `roleInbox`, or `parseMailboxRole("inbox").get()` (a sealing chain) — none discoverable from the frozen snapshot [open]
 
 ### email query
+- email query:QueryParams.limit: a constant page size is a triple wrap `Opt.some(parseUnsignedInt(20).get())` — `int64` -> `Result[UnsignedInt]` -> `.get()` -> `Opt.some`; no plain-int convenience or `withLimit(20)` [open]
+- email query:filter: `EmailFilterCondition` is a raw object literal with every field `Opt[...]`, so a two-field filter needs `Opt.some` on each; `addEmailQuery.filter` is `Opt[Filter[EmailFilterCondition]]`, so a single condition double-wraps as `Opt.some(filterCondition(cond))`; `notKeyword` takes `Opt[Keyword]` (not a string); no filter-builder DSL [open]
+- email query:sort: `addEmailQuery.sort` is `Opt[seq[EmailComparator]]` — one comparator becomes `Opt.some(@[plainComparator(...)])`; no single-comparator overload [open]
+- email query:reference: the back-reference `reference[seq[Id]](queryH, mnEmailQuery, rpIds)` makes the caller restate the producing method (`mnEmailQuery`) that `queryH` already encodes, pick the right `RefPath` member (`rpIds` among nine JSON-pointer variants), AND supply the generic `seq[Id]`, then wrap `Opt.some(...)`; a `queryH.idsReference()` helper would erase three enum-discovery foot-guns [open]
+- email query:properties: `NonEmptySeq[EmailGetProperty]` is REQUIRED but declared after the defaulted `ids`, so it must be passed by name; building it is `parseNonEmptySeq(@[...]).get()` — a `.get()` sealing chain on a literal that cannot be empty [open]
+- email query:PartialEmail dual optionality: `id`/`threadId`/`receivedAt`/`preview` are `Opt[T]` but `subject`/`fromAddr`/`to`/`cc`/`bcc` are `FieldEcho[T]`; the consumer must remember which read style applies per field [open]
+- email query:FieldEcho: `FieldEcho[T]` has NO read accessor on the hub (only the `fieldAbsent`/`fieldNull`/`fieldValue` constructors + the public `value*` field), so reading subject/fromAddr requires a hand-written `case fe.kind of fekValue: fe.value of fekAbsent, fekNull: default` — every consumer reinvents `fieldEchoOr` [open]
+- email query:tooling: the `egp*` selectors and `kwSeen` (and `kwDraft`/`kwFlagged`/...) are `*`-exported and COMPILE via `import jmap_client`, yet are ABSENT from public-api.txt — `api_surface.nim` records a decl only when the logical line STARTS with a `DeclKinds` keyword, so grouped `const`-block members are silently dropped. Snapshot-strict consumers must fall back to `parseEmailGetProperty("id").get()` / `parseKeyword("$seen").get()` per value [open]
+- email query:two error rails in one flow: `client.send` returns `JmapResult` (ClientError) while `dr.get(handle)` returns `Result[_, GetError]` — the call site cannot use one uniform `?`/`valueOr` style and bridges `ClientError` vs `GetError` manually [open]
+
 ### email read
 ### email flag
 ### email move
