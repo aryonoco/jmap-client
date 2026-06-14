@@ -226,7 +226,36 @@ writes that wrapper, which is precisely the P7 smell. With it, jmap-client
 would be a library a competent developer reaches for directly.
 
 ## Search and the convenience layer
-<!-- filled in Tasks 14–15 -->
+
+These two commands show what the API looks like when it *does* ship the
+combinator — and it is a different, better library. `search` uses
+`addEmailQueryWithSnippets`: one call wires the Email/query result ids into
+a SearchSnippet/get, and a single `getBoth(chain)` returns `.query.ids`
+alongside `.snippets.list`. It worked live the first time (54 matches with
+`<mark>`-highlighted snippets). This is the same back-reference machinery
+that felt like ceremony in `email query`, but packaged — and packaged, it
+is a pleasure. The catch is pure tooling: all four symbols of this compound
+(`addEmailQueryWithSnippets`, `EmailQuerySnippetChain`,
+`EmailQuerySnippetResults`, the `getBoth` overload) are missing from the
+frozen `public-api.txt`, so a consumer reading the contract would never
+find the good path and would hand-roll the tedious one. The best ergonomics
+in the library are the ones the contract hides.
+
+The opt-in convenience module makes the same point deliberately.
+`addEmailQueryThenGet` builds Email/query → Email/get returning *full*
+`Email` records (plain `Opt` fields, no `FieldEcho`) in one call and one
+`getBoth`. It is exactly the smoothing the read path wanted, and it is
+correctly quarantined (P6): you reach it only through an explicit `import
+jmap_client/convenience`, so the core surface stays uncontaminated and the
+import guard still passes. The residual friction is minor and honest — the
+`.query`/`.get` field names read as verbs, the `getBoth`/`send` two-rail
+split persists, and the module covers query-then-get but not
+query-then-snippets. The lesson the two commands teach together is the
+through-line of this whole document: **the protocol core is sound and
+safe, the convenience layer proves the library knows how to package it, and
+the gap between them is exactly where the pre-1.0 work should go** — extend
+the blessed convenience layer to cover the send path and the snippet
+compound, and fix the snapshot so consumers can find what already exists.
 
 ## Cross-cutting verdict
 <!-- filled in Task 17: would a competent developer reach for this

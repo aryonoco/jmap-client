@@ -10,6 +10,7 @@
 ## owns the hand-wired Email/query -> #ids -> Email/get back-reference.)
 
 import jmap_client
+import jmap_client/convenience # opt-in; NOT re-exported by `import jmap_client`
 import ./cli_session
 
 func fieldEchoOr[T](fe: FieldEcho[T], fallback: T): T =
@@ -33,11 +34,33 @@ proc resolveInbox(ctx: CliContext): Result[Id, string] =
         return ok(mb.id)
   err("no Inbox mailbox found")
 
+proc viaConvenience(ctx: CliContext): int =
+  ## Contrast with the hand-wired back-reference below: the opt-in convenience
+  ## combinator builds Email/query -> Email/get (FULL Email, not PartialEmail)
+  ## in ONE call and ONE getBoth. It requires the explicit
+  ## `import jmap_client/convenience` — the headline `import jmap_client`
+  ## deliberately does not re-export it.
+  let qp = QueryParams(limit: Opt.some(parseUnsignedInt(10).get()))
+  let (b, handles) =
+    ctx.client.newBuilder().addEmailQueryThenGet(ctx.mailAccount, queryParams = qp)
+  let dr = ctx.client.send(b.freeze()).valueOr:
+    stderr.writeLine "send failed: " & error.message
+    return 1
+  let both = dr.getBoth(handles).valueOr: # QueryGetResults{query, get}
+    stderr.writeLine "getBoth failed: " & error.message
+    return 1
+  echo "query matched ", $both.query.ids.len, ", got ", $both.get.list.len, " emails"
+  for e in both.get.list: # full Email (not PartialEmail) — subject is Opt[string]
+    echo e.subject.valueOr("(no subject)")
+  return 0
+
 proc run*(args: seq[string]): int =
   let unreadOnly = "--unread" in args
   let ctx = connect().valueOr:
     stderr.writeLine error
     return 1
+  if "--via-convenience" in args:
+    return viaConvenience(ctx)
   let inboxId = resolveInbox(ctx).valueOr:
     stderr.writeLine error
     return 1

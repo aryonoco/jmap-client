@@ -75,6 +75,16 @@ These are about the *build contract*, not a specific call site.
   alice->bob confirmed. The RFC 8621 §7 onSuccess semantics are faithfully
   exposed and the whole compound is one network round-trip. The API does
   not block the use case; it taxes the path to it. [open]
+- search:compound-ergonomics: `addEmailQueryWithSnippets` + `getBoth(chain)`
+  is the API at its ERGONOMIC BEST — one call, one extraction, `.query.ids`
+  + `.snippets.list`, the query->snippet back-reference wired and type-safe.
+  When the API ships a purpose-built compound, the result is excellent; the
+  problem is only that this one is invisible in the frozen contract. [open]
+- convenience:full-email-path: `addEmailQueryThenGet` returns FULL `Email`
+  (plain `Opt` fields, no `FieldEcho`) in one call + one `getBoth` — a
+  genuinely smoother read than the hand-wired partial back-reference, and
+  the P6 quarantine (opt-in import) is correctly applied so the core stays
+  uncontaminated. This is the model the send path is crying out for. [open]
 
 ## Findings by command
 
@@ -161,7 +171,16 @@ Submission + the compound two-creation wiring (the centrepiece):
 - vacation:get-clean: the GET path is genuinely clean — `VacationResponse.isEnabled` is a plain `bool` and `subject`/`textBody` are plain `Opt[string]`, so reading vacation state is a simple Opt unwrap with none of the set path's FieldEcho ceremony [open]
 
 ### search
+- search:helper-undiscoverable (**medium**): the ergonomic one-call compound `addEmailQueryWithSnippets` (+ `EmailQuerySnippetChain`, `EmailQuerySnippetResults`, `getBoth(chain)`) is exactly the right shape — one call wires the query result ids into the snippet get, one `getBoth` yields `.query.ids` and `.snippets.list` — and it works live (matched 54). Yet ALL FOUR symbols are absent from public-api.txt (the scraper truncates `mail_methods.nim` after `addSearchSnippetGetByRef`), so a snapshot-guided consumer would never find it and would hand-roll the manual `addEmailQuery` + `reference[seq[Id]]` + `addSearchSnippetGetByRef` path instead — the best ergonomics in the library, hidden by the broken contract [open]
+- search:SearchSnippetGetResponse-shape: `SearchSnippetGetResponse.list` is compile-accessible but the type has NO entry in `type-shapes.txt` (response types in indented `type` blocks are not scraped), so the field a search consumer must read is invisible to the type-shape contract [open]
+- search:snippet-opt: `SearchSnippet.subject`/`.preview` are `Opt[string]` (each needs an Opt unwrap) while `emailId` is a bare `Id` — the now-familiar mixed-optionality read [open]
+- search:two-rails: `client.send` is `ClientError`-tailed but `dr.getBoth(chain)` is `GetError`-tailed — the same two-error-rail bridging as every other dispatch+extract [open]
+
 ### convenience
+- convenience:import-discoverability: the pipeline combinators require an explicit `import jmap_client/convenience` and are deliberately NOT re-exported by `import jmap_client` (P6 quarantine — correct in principle), so the headline import alone cannot reach `addEmailQueryThenGet`/`getBoth`; the discoverability cost is the price of the (sound) quarantine [open]
+- convenience:result-shape: `getBoth` yields `QueryGetResults[Email]` exposing `.query` (a `QueryResponse` — read `.ids`) and `.get` (a `GetResponse` — read `.list`); two nested field hops, and the field names `query`/`get` read as verbs rather than nouns at the call site [open]
+- convenience:two-rails: `getBoth` returns `GetError` while the enclosing `send` returns `ClientError` — same bridging friction as the manual paths [open]
+- convenience:coverage-gap: the convenience module covers query-then-Email/get but has NO query-then-snippets analogue; the snippets compound lives un-snapshotted in `mail_methods`, so the opt-in layer cannot cover the search-highlight use case at all [open]
 
 ## Cross-cutting findings
 
