@@ -189,9 +189,10 @@ passwords.json
 .htpasswd
 
 # -----------------------------------------------------------------------------
-# Superpowers (plugin-generated plans, not project content)
+# Superpowers (plugin-generated; plans tracked as project content, rest ignored)
 # -----------------------------------------------------------------------------
-docs/superpowers/
+docs/superpowers/*
+!docs/superpowers/plans/
 
 # -----------------------------------------------------------------------------
 # AI/LLM Development Tools (following project standards)
