@@ -14,8 +14,9 @@
 - **Verification:** `just build` per fix; both gates (`just ci` + `clean &&
   jmap-reset && test-full`) at the end. Linux-kernel commits, 3 trailers.
 - **Status:** 🔜 starting.
-  - F1 header-null bug ⬜ · F2 mrSubscriptions ⬜ · F3 D5 toJson→fixture ⬜ ·
-    F4 VacationResponse vrgkId ⬜ · F5 deviation-register doc ⬜ · Gates ⬜.
+  - F1 header-null bug ✅ `7fdc941` · F2 mrSubscriptions ✅ `83c936e` · F3 D5 toJson→fixture ✅ `235f68e` ·
+    F4 VacationResponse vrgkId ✅ `539c178` · F5 deviation-register doc ✅ `884bfd5` ·
+    Gates 🔜.
 
 ## Findings ledger (from the 9-auditor RFC audit; high overall conformance)
 
