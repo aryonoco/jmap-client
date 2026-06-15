@@ -178,12 +178,12 @@ testCase tcombinedAdversarialRoundTripLive:
     # defined per D3.7 (response types are ``fromJson``-only with the
     # ``SetResponse.toJson`` / ``CopyResponse.toJson`` exceptions; see
     # ``methods.nim:7-9``). Per-record re-emission via
-    # ``Mailbox.toJson`` / ``Email.toJson`` / ``Identity.toJson``
-    # exercises the equivalent contract for read-back records that
-    # A3 typed end-to-end on the receive path.
+    # ``Mailbox.toJsonForFixture`` / ``Email.toJsonForFixture`` /
+    # ``Identity.toJson`` exercises the equivalent contract for read-back
+    # records that A3 typed end-to-end on the receive path.
     if mb.list.len > 0:
       let mailboxRec = mb.list[0]
-      discard mailboxRec.toJson()
+      discard mailboxRec.toJsonForFixture()
     if identResp.list.len > 0:
       let identRec = identResp.list[0]
       discard identRec.toJson()

@@ -36,10 +36,11 @@ testCase propRoundTripEmail:
   # genEmail covers the B11 "bodyValues populated + bodyStructure absent" shape
   # (the RFC 8621 §4.2 default Email/get shape); this round-trip proving Ok is
   # the property-level evidence that the parser must NOT reject it.
-  checkPropertyN "Email round-trip: emailFromJson(toJson(e)) == e", ThoroughTrials:
+  checkPropertyN "Email round-trip: emailFromJson(toJsonForFixture(e)) == e",
+    ThoroughTrials:
     let e = rng.genEmail()
     lastInput = (if e.id.isSome: $e.id.unsafeGet else: "Opt.none")
-    let j = e.toJson()
+    let j = e.toJsonForFixture()
     let rtResult = emailFromJson(j)
     doAssert rtResult.isOk, "Email round-trip fromJson failed"
     doAssert emailEq(rtResult.get(), e), "Email round-trip identity violated"
@@ -49,7 +50,7 @@ testCase propRoundTripPartialEmail:
     ThoroughTrials:
     let p = rng.genPartialEmail()
     lastInput = (if p.id.isSome: $p.id.unsafeGet else: "Opt.none")
-    let j = p.toJson()
+    let j = p.toJsonForFixture()
     let rtResult = emailFromJson(j)
     doAssert rtResult.isOk, "Partial Email round-trip fromJson failed"
     doAssert emailEq(rtResult.get(), p), "Partial Email round-trip identity violated"

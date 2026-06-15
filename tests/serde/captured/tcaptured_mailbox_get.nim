@@ -5,7 +5,7 @@
 ## response (``tests/testdata/captured/mailbox-get-all-stalwart.json``).
 ## Verifies the full Mailbox shape — ``myRights`` ACL, ``role`` enum,
 ## ``totalEmails``/``unreadEmails`` numeric fields — round-trips
-## through ``Mailbox.fromJson`` / ``Mailbox.toJson``.
+## through ``Mailbox.fromJson`` / ``Mailbox.toJsonForFixture``.
 
 {.push raises: [].}
 
@@ -29,7 +29,7 @@ testCase tcapturedMailboxGet:
       doAssert mb.name.len > 0, "every mailbox must have a non-empty name"
       doAssert mb.myRights.mayReadItems,
         "alice must have read rights on her own mailboxes"
-      let rt = Mailbox.fromJson(mb.toJson()).expect("Mailbox round-trip")
+      let rt = Mailbox.fromJson(mb.toJsonForFixture()).expect("Mailbox round-trip")
       doAssert rt.id == mb.id, "id must round-trip"
       doAssert rt.name == mb.name, "name must round-trip"
       doAssert rt.role == mb.role, "role must round-trip"

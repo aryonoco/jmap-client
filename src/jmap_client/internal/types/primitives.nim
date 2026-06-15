@@ -14,9 +14,12 @@ import std/sequtils
 import ./validation
 
 type Id* {.ruleOff: "objects".} = object
-  ## JMAP identifier: 1-255 octets, base64url charset (RFC 8620 §1.2).
-  ## Sealed Pattern-A object; ``rawValue`` is module-private. Requires
-  ## explicit construction via ``parseId`` or ``parseIdFromServer``.
+  ## JMAP identifier: 1-255 octets (RFC 8620 §1.2). The base64url charset
+  ## (``[A-Za-z0-9_-]``, no leading ``-``) is enforced only by the strict
+  ## ``parseId`` for client-constructed ids that go on the wire; a received id
+  ## is an opaque token echoed back verbatim, so ``parseIdFromServer`` is
+  ## lenient and accepts any non-control 1-255-octet token (Postel: liberal on
+  ## receive). Sealed Pattern-A object; ``rawValue`` is module-private.
   rawValue: string
 
 defineSealedStringOps(Id)

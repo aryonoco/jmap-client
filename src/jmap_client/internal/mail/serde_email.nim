@@ -320,7 +320,12 @@ func parseHeaderValueArray(
     node: JsonNode, form: HeaderForm, path: JsonPath
 ): Result[seq[HeaderValue], SerdeViolation] =
   ## Parses a JSON array of header values for ``:all`` dynamic header properties.
-  ## Each element parsed via parseHeaderValue with the given form.
+  ## Each element parsed via parseHeaderValue with the given form. RFC 8621
+  ## §4.1.3 returns an empty array (never null) for a ``:all`` request the
+  ## message lacks; be lenient and map an unexpected ``null`` to the empty
+  ## sequence rather than rejecting it.
+  if node.isNil or node.kind == JNull:
+    return ok(newSeq[HeaderValue]())
   ?expectKind(node, JArray, path)
   var values: seq[HeaderValue] = @[]
   for i, elem in node.getElems(@[]):
@@ -740,14 +745,19 @@ func emitDynamicHeaders(
 # Email.toJson
 # =============================================================================
 
-func toJson*(e: Email): JsonNode =
-  ## Serialise Email to JSON. Emits all domain fields always (D5):
-  ## ``Opt.none`` emits null, empty seq emits ``[]``, empty Table emits ``{}``.
-  ## The §4.1.3 raw-header fields (``headers``, ``requestedHeaders``,
-  ## ``requestedHeadersAll``) are the exception — being non-default properties
-  ## (§4.2), ``Opt.none`` omits the key entirely so an unfetched Email
-  ## round-trips to wire absence, not to a value the server never sent.
-  ## Dynamic headers emitted as N top-level keys.
+func toJsonForFixture*(e: Email): JsonNode =
+  ## TEST-FIXTURE ONLY. Emits null for every Opt.none, which is NOT a
+  ## conformant /get response (RFC 8620 §5.1 returns only the requested
+  ## properties, absent not null). Production code never serialises a full
+  ## Email/Mailbox — receive models are parsed via Partial*.fromJson and
+  ## re-emitted via Partial*.toJson, which omit absent fields. The distinct
+  ## name prevents accidental reuse as a response serialiser.
+  ##
+  ## Emits all domain fields always (D5): ``Opt.none`` emits null, empty seq
+  ## emits ``[]``, empty Table emits ``{}``. The §4.1.3 raw-header fields
+  ## (``headers``, ``requestedHeaders``, ``requestedHeadersAll``) are the
+  ## exception — being non-default properties (§4.2), ``Opt.none`` omits the
+  ## key entirely. Dynamic headers emitted as N top-level keys.
   ## ``fromAddr`` emits as ``"from"`` JSON key.
   var node = newJObject()
 

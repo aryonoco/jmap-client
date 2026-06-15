@@ -710,13 +710,13 @@
 ## HeaderValue [jmap_client/internal/mail/headers]
   case form*: HeaderForm
   of hfRaw:
-    rawValue*: string
+    rawValue*: Opt[string]
   of hfText:
-    textValue*: string
+    textValue*: Opt[string]
   of hfAddresses:
-    addresses*: seq[EmailAddress]
+    addresses*: Opt[seq[EmailAddress]]
   of hfGroupedAddresses:
-    groups*: seq[EmailAddressGroup]
+    groups*: Opt[seq[EmailAddressGroup]]
   of hfMessageIds:
     messageIds*: Opt[seq[string]]
   of hfDate:
@@ -945,7 +945,7 @@
 ## MailboxRole [jmap_client/internal/mail/mailbox]
   case rawKind: MailboxRoleKind
   of mrOther:
-  of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll, mrFlagged, mrSubscriptions:
+  of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll, mrFlagged:
 
 ## MailboxRoleKind [jmap_client/internal/mail/mailbox]
   mrInbox = "inbox"
@@ -957,7 +957,6 @@
   mrImportant = "important"
   mrAll = "all"
   mrFlagged = "flagged"
-  mrSubscriptions = "subscriptions"
   mrOther
 
 ## MailboxUpdate [jmap_client/internal/mail/mailbox]
@@ -1581,10 +1580,9 @@
 ## VacationResponseGetProperty [jmap_client/internal/mail/vacation]
   case rawKind: VacationResponseGetPropertyKind
   of vrgkOther:
-  of vrgkId, vrgkIsEnabled, vrgkFromDate, vrgkToDate, vrgkSubject, vrgkTextBody, vrgkHtmlBody:
+  of vrgkIsEnabled, vrgkFromDate, vrgkToDate, vrgkSubject, vrgkTextBody, vrgkHtmlBody:
 
 ## VacationResponseGetPropertyKind [jmap_client/internal/mail/vacation]
-  vrgkId = "id"
   vrgkIsEnabled = "isEnabled"
   vrgkFromDate = "fromDate"
   vrgkToDate = "toDate"

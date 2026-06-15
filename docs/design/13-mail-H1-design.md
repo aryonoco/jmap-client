@@ -1215,8 +1215,14 @@ Attributes registry (RFC 6154, RFC 5258) that RFC 8621 §2 references.
 | RFC 6154 | `important` | `mrImportant = "important"` | `src/jmap_client/mail/mailbox.nim:35` |
 | RFC 5258 | `all` | `mrAll = "all"` | `src/jmap_client/mail/mailbox.nim:36` |
 | RFC 5258 | `flagged` | `mrFlagged = "flagged"` | `src/jmap_client/mail/mailbox.nim:37` |
-| RFC 5465 | `subscriptions` | `mrSubscriptions = "subscriptions"` | `src/jmap_client/mail/mailbox.nim:38` |
-| (catch-all) | vendor-extension role | `mrOther` | `src/jmap_client/mail/mailbox.nim:39` |
+| (catch-all) | vendor-extension role | `mrOther` | `src/jmap_client/mail/mailbox.nim:38` |
+
+`subscriptions` is deliberately NOT a well-known role: it is not an
+entry in the IANA "IMAP Mailbox Name Attributes" registry that RFC 8621
+§2 binds `role` to (mailbox subscription state is the separate JMAP
+`isSubscribed` Boolean). The wire string `"subscriptions"`, like any
+other non-registry value, flows through `mrOther` and round-trips
+losslessly.
 
 ### 6.4. SetError codes (§10.6)
 
