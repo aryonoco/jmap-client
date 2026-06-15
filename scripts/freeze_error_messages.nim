@@ -17,7 +17,9 @@
 import jmap_client
 import jmap_client/internal/types/validation
 import jmap_client/internal/types/errors
+import jmap_client/internal/types/capabilities
 import jmap_client/internal/types/identifiers
+import jmap_client/internal/protocol/jmap_error
 
 proc emit(label, message: string) =
   echo "[" & label & "]"
@@ -32,25 +34,61 @@ proc main() =
   # --- ValidationError ----------------------------------------------------
   echo "## ValidationError"
   let ve1 = validationError("AccountId", "contains control characters", "")
-  emit("validationError(\"AccountId\", \"contains control characters\", \"\")", ve1.message)
+  emit(
+    "validationError(\"AccountId\", \"contains control characters\", \"\")", ve1.message
+  )
   let ve2 = validationError("Id", "length must be 1-255 octets", "")
   emit("validationError(\"Id\", \"length must be 1-255 octets\", \"\")", ve2.message)
   let ve3 = validationError("UnsignedInt", "must be non-negative", "-1")
-  emit("validationError(\"UnsignedInt\", \"must be non-negative\", \"-1\")", ve3.message)
+  emit(
+    "validationError(\"UnsignedInt\", \"must be non-negative\", \"-1\")", ve3.message
+  )
   let ve4 = validationError("Keyword", "contains forbidden character", "")
-  emit("validationError(\"Keyword\", \"contains forbidden character\", \"\")", ve4.message)
-  let ve5 = validationError("Account", "name contains control characters", "bad\x01name")
-  emit("validationError(\"Account\", \"name contains control characters\", \"bad\\x01name\")", ve5.message)
-  let ve6 = validationError("ServerCapability", "ckCore requires CoreCapabilities", "urn:ietf:params:jmap:core")
-  emit("validationError(\"ServerCapability\", \"ckCore requires CoreCapabilities\", \"urn:ietf:params:jmap:core\")", ve6.message)
-  let ve7 = validationError("AccountCapabilityEntry", "ckMail requires MailAccountCapabilities", "urn:ietf:params:jmap:mail")
-  emit("validationError(\"AccountCapabilityEntry\", \"ckMail requires MailAccountCapabilities\", \"urn:ietf:params:jmap:mail\")", ve7.message)
-  let ve8 = validationError("AccountCapabilityEntry", "ckSubmission requires SubmissionAccountCapabilities", "urn:ietf:params:jmap:submission")
-  emit("validationError(\"AccountCapabilityEntry\", \"ckSubmission requires SubmissionAccountCapabilities\", \"urn:ietf:params:jmap:submission\")", ve8.message)
-  let ve9 = validationError("MailAccountCapabilities", "maxMailboxesPerEmail must be >= 1", "0")
-  emit("validationError(\"MailAccountCapabilities\", \"maxMailboxesPerEmail must be >= 1\", \"0\")", ve9.message)
-  let ve10 = validationError("MailAccountCapabilities", "maxSizeMailboxName must be >= 100", "99")
-  emit("validationError(\"MailAccountCapabilities\", \"maxSizeMailboxName must be >= 100\", \"99\")", ve10.message)
+  emit(
+    "validationError(\"Keyword\", \"contains forbidden character\", \"\")", ve4.message
+  )
+  let ve5 =
+    validationError("Account", "name contains control characters", "bad\x01name")
+  emit(
+    "validationError(\"Account\", \"name contains control characters\", \"bad\\x01name\")",
+    ve5.message,
+  )
+  let ve6 = validationError(
+    "ServerCapability", "ckCore requires CoreCapabilities", "urn:ietf:params:jmap:core"
+  )
+  emit(
+    "validationError(\"ServerCapability\", \"ckCore requires CoreCapabilities\", \"urn:ietf:params:jmap:core\")",
+    ve6.message,
+  )
+  let ve7 = validationError(
+    "AccountCapabilityEntry", "ckMail requires MailAccountCapabilities",
+    "urn:ietf:params:jmap:mail",
+  )
+  emit(
+    "validationError(\"AccountCapabilityEntry\", \"ckMail requires MailAccountCapabilities\", \"urn:ietf:params:jmap:mail\")",
+    ve7.message,
+  )
+  let ve8 = validationError(
+    "AccountCapabilityEntry", "ckSubmission requires SubmissionAccountCapabilities",
+    "urn:ietf:params:jmap:submission",
+  )
+  emit(
+    "validationError(\"AccountCapabilityEntry\", \"ckSubmission requires SubmissionAccountCapabilities\", \"urn:ietf:params:jmap:submission\")",
+    ve8.message,
+  )
+  let ve9 =
+    validationError("MailAccountCapabilities", "maxMailboxesPerEmail must be >= 1", "0")
+  emit(
+    "validationError(\"MailAccountCapabilities\", \"maxMailboxesPerEmail must be >= 1\", \"0\")",
+    ve9.message,
+  )
+  let ve10 = validationError(
+    "MailAccountCapabilities", "maxSizeMailboxName must be >= 100", "99"
+  )
+  emit(
+    "validationError(\"MailAccountCapabilities\", \"maxSizeMailboxName must be >= 100\", \"99\")",
+    ve10.message,
+  )
   echo ""
 
   # --- TransportError -----------------------------------------------------
@@ -122,7 +160,9 @@ proc main() =
     "setErrorInvalidProperties(\"invalidProperties\", @[\"from\", \"to\"])", se1.message
   )
   let se2 = setErrorAlreadyExists("alreadyExists", parseId("abc123").get())
-  emit("setErrorAlreadyExists(\"alreadyExists\", parseId(\"abc123\").get())", se2.message)
+  emit(
+    "setErrorAlreadyExists(\"alreadyExists\", parseId(\"abc123\").get())", se2.message
+  )
   let se3 = setErrorBlobNotFound(
     "blobNotFound", @[parseBlobId("blob-1").get(), parseBlobId("blob-2").get()]
   )
@@ -131,7 +171,9 @@ proc main() =
     se3.message,
   )
   let se4 = setErrorInvalidEmail("invalidEmail", @["headers", "subject"])
-  emit("setErrorInvalidEmail(\"invalidEmail\", @[\"headers\", \"subject\"])", se4.message)
+  emit(
+    "setErrorInvalidEmail(\"invalidEmail\", @[\"headers\", \"subject\"])", se4.message
+  )
   let se5 =
     setErrorTooManyRecipients("tooManyRecipients", parseUnsignedInt(100'i64).get())
   emit(
@@ -154,31 +196,48 @@ proc main() =
   emit("setError(\"overQuota\")", se9.message)
   echo ""
 
-  # --- ClientError --------------------------------------------------------
-  echo "## ClientError"
-  let ce1 = clientError(httpStatusError(503, "Service Unavailable"))
-  emit("clientError(httpStatusError(503, \"Service Unavailable\"))", ce1.message)
-  let ce2 = clientError(
+  # --- JmapError ----------------------------------------------------------
+  # The single consumer rail. The jeTransport / jeRequest arms folded the
+  # retired ClientError; jeValidation / jeSession / jeMisuse / jeProtocol are
+  # the new arms. Method-level errors are response data (MethodOutcome), not a
+  # rail value, so the retired getErrorMethod sample has no successor here —
+  # its message is already covered by the MethodError section.
+  echo "## JmapError"
+  let je1 = jmapTransport(httpStatusError(503, "Service Unavailable"))
+  emit("jmapTransport(httpStatusError(503, \"Service Unavailable\"))", je1.message)
+  let je2 = jmapRequest(
     requestError("urn:ietf:params:jmap:error:limit", title = Opt.some("Limit Exceeded"))
   )
   emit(
-    "clientError(requestError(\"urn:ietf:params:jmap:error:limit\", title = Opt.some(\"Limit Exceeded\")))",
-    ce2.message,
+    "jmapRequest(requestError(\"urn:ietf:params:jmap:error:limit\", title = Opt.some(\"Limit Exceeded\")))",
+    je2.message,
   )
-  echo ""
-
-  # --- GetError -----------------------------------------------------------
-  echo "## GetError"
-  let ge1 = getErrorMethod(methodError("serverFail", Opt.some("internal")))
-  emit("getErrorMethod(methodError(\"serverFail\", Opt.some(\"internal\")))", ge1.message)
-  let ge2 = getErrorHandleMismatch(
+  let je3 =
+    jmapValidation(validationError("AccountId", "contains control characters", ""))
+  emit(
+    "jmapValidation(validationError(\"AccountId\", \"contains control characters\", \"\"))",
+    je3.message,
+  )
+  let je4 = jmapSession(sessionFault(sfCapabilityAbsent, ckMail))
+  emit("jmapSession(sessionFault(sfCapabilityAbsent, ckMail))", je4.message)
+  let je5 = jmapSession(sessionFault(sfPrimaryAccountAbsent, ckMail))
+  emit("jmapSession(sessionFault(sfPrimaryAccountAbsent, ckMail))", je5.message)
+  let je6 = jmapMisuse(
     initBuilderId(1'u64, 1'u64),
     initBuilderId(1'u64, 2'u64),
     parseMethodCallId("c0").get(),
   )
   emit(
-    "getErrorHandleMismatch(initBuilderId(1'u64, 1'u64), initBuilderId(1'u64, 2'u64), parseMethodCallId(\"c0\").get())",
-    ge2.message,
+    "jmapMisuse(initBuilderId(1'u64, 1'u64), initBuilderId(1'u64, 2'u64), parseMethodCallId(\"c0\").get())",
+    je6.message,
+  )
+  let je7 = jmapProtocol(protocolMissingCall(parseMethodCallId("c0").get()))
+  emit(
+    "jmapProtocol(protocolMissingCall(parseMethodCallId(\"c0\").get()))", je7.message
+  )
+  let je8 = jmapProtocol(protocolMalformedError(parseMethodCallId("c0").get()))
+  emit(
+    "jmapProtocol(protocolMalformedError(parseMethodCallId(\"c0\").get()))", je8.message
   )
 
 when isMainModule:

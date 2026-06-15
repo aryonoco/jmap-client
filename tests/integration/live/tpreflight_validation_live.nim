@@ -8,7 +8,7 @@
 ## ``maxObjectsInGet`` / ``maxObjectsInSet`` per-invocation; the
 ## post-serialisation size check compares the serialised JSON length
 ## against ``maxSizeRequest``. Each violation surfaces as a
-## ``Result.err(ClientError)`` carrying a diagnostic that names the
+## ``Result.err(JmapError)`` carrying a diagnostic that names the
 ## breached cap.
 ##
 ## Phase J Step 64. Four sub-tests, one per cap. The "no HTTP fired"

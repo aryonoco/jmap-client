@@ -18,6 +18,7 @@ import std/os
 import std/sets
 import std/tables
 import std/json
+import std/strutils
 
 {.push ruleOff: "hasDoc".}
 
@@ -1366,12 +1367,60 @@ proc makeStructuredBody*(
   ## Thin wrapper over the module helper.
   structuredBody(root)
 
+# Test-local blueprint-constraint classification --------------------------
+# The library internalised ``EmailBlueprintConstraint`` / ``EmailBlueprintError``
+# (each violation now flattens onto the shared ``NonEmptySeq[ValidationError]``
+# rail). Tests can no longer observe the typed arms, so this enum is recreated
+# locally purely as a test vocabulary: every value maps via
+# ``blueprintConstraintMarker`` to a stable substring of the source-side
+# ``ValidationError.reason``, which is the observable evidence that a given
+# constraint fired. Assertions match on that substring.
+type EmailBlueprintConstraint* = enum
+  ebcEmailTopLevelHeaderDuplicate
+  ebcBodyStructureHeaderDuplicate
+  ebcBodyPartHeaderDuplicate
+  ebcTextBodyNotTextPlain
+  ebcHtmlBodyNotTextHtml
+  ebcAllowedFormRejected
+  ebcBodyPartDepthExceeded
+
+func blueprintConstraintMarker*(c: EmailBlueprintConstraint): string =
+  ## The canonical ``ValidationError.reason`` substring emitted by
+  ## ``parseEmailBlueprint`` for each constraint. Pinned to the source
+  ## wording in ``email_blueprint.nim``'s ``toValidationError``.
+  case c
+  of ebcEmailTopLevelHeaderDuplicate:
+    "duplicate header representation at Email top level"
+  of ebcBodyStructureHeaderDuplicate:
+    "duplicates a header already defined on the Email top level"
+  of ebcBodyPartHeaderDuplicate:
+    "carries duplicate representations of header"
+  of ebcTextBodyNotTextPlain:
+    "textBody must be text/plain"
+  of ebcHtmlBodyNotTextHtml:
+    "htmlBody must be text/html"
+  of ebcAllowedFormRejected:
+    "not allowed for header name"
+  of ebcBodyPartDepthExceeded:
+    "exceeds maximum"
+
+func blueprintErrHasConstraint*(
+    errs: NonEmptySeq[ValidationError], c: EmailBlueprintConstraint
+): bool =
+  ## True iff some flattened ``ValidationError`` reason carries the
+  ## constraint's canonical marker AND brands the ``EmailBlueprint`` type.
+  let marker = blueprintConstraintMarker(c)
+  for e in errs:
+    if e.typeName == "EmailBlueprint" and marker in e.reason:
+      return true
+  false
+
 # I-12 -----------------------------------------------------------------------
 proc makeBlueprintWithDuplicateAt*(
     dupName = "from",
     dupKind = ebcEmailTopLevelHeaderDuplicate,
     loc: Opt[BodyPartLocation] = Opt.none(BodyPartLocation),
-): Result[EmailBlueprint, EmailBlueprintErrors] =
+): Result[EmailBlueprint, NonEmptySeq[ValidationError]] =
   ## Collapses the three duplicate-trigger scenarios (top-level,
   ## bodyStructure, body-part) into one factory. Returns the raw
   ## ``Result`` so tests can assert on ``.isErr`` / ``.error`` payloads.
@@ -1680,30 +1729,14 @@ proc emailBlueprintBodyEq*(a, b: EmailBlueprintBody): bool =
     flatBodyPartsEq(a, b)
 
 # K-1 ------------------------------------------------------------------------
-proc emailBlueprintErrorEq*(a, b: EmailBlueprintError): bool =
-  ## Case-object equality on the constraint enum. ``where`` delegates
-  ## to K-3 (``bodyPartLocationEq``).
-  if a.constraint != b.constraint:
-    return false
-  case a.constraint
-  of ebcEmailTopLevelHeaderDuplicate:
-    a.dupName == b.dupName
-  of ebcBodyStructureHeaderDuplicate:
-    a.bodyStructureDupName == b.bodyStructureDupName
-  of ebcBodyPartHeaderDuplicate:
-    a.bodyPartDupName == b.bodyPartDupName and bodyPartLocationEq(a.where, b.where)
-  of ebcTextBodyNotTextPlain:
-    a.actualTextType == b.actualTextType
-  of ebcHtmlBodyNotTextHtml:
-    a.actualHtmlType == b.actualHtmlType
-  of ebcAllowedFormRejected:
-    a.rejectedName == b.rejectedName and a.rejectedForm == b.rejectedForm
-  of ebcBodyPartDepthExceeded:
-    a.observedDepth == b.observedDepth and
-      bodyPartLocationEq(a.depthLocation, b.depthLocation)
+proc emailBlueprintErrorEq*(a, b: ValidationError): bool =
+  ## Structural equality on the flattened ``ValidationError`` rail. The
+  ## typed constraint arms are no longer observable, so equality is the
+  ## auto-derived field-by-field comparison (typeName, reason, value).
+  a == b
 
 # K-2 ------------------------------------------------------------------------
-proc emailBlueprintErrorsSetEq*(a, b: EmailBlueprintErrors): bool =
+proc emailBlueprintErrorsSetEq*(a, b: NonEmptySeq[ValidationError]): bool =
   ## Multiset equality — order-insensitive, duplicate-sensitive. Used
   ## for variant-coverage scenarios where emission order is incidental
   ## (e.g., design scenarios 7i, 101, 101a-c).
@@ -1722,19 +1755,12 @@ proc emailBlueprintErrorsSetEq*(a, b: EmailBlueprintErrors): bool =
   true
 
 # K-9 ------------------------------------------------------------------------
-proc emailBlueprintErrorsOrderedEq*(a, b: EmailBlueprintErrors): bool =
+proc emailBlueprintErrorsOrderedEq*(a, b: NonEmptySeq[ValidationError]): bool =
   ## Element-wise, order-sensitive. Contrast with K-2: used for the
   ## error-ordering determinism property (scenario 94) where the order
-  ## of emission IS the thing being verified.
-  if a.len != b.len:
-    return false
-  for i in 0 ..< a.len:
-    # i ∈ [0, a.len) — loop bounds prove non-negativity, so parseIdx.get
-    # cannot Err at runtime.
-    let ix = parseIdx(i).get()
-    if not emailBlueprintErrorEq(a[ix], b[ix]):
-      return false
-  true
+  ## of emission IS the thing being verified. Delegates to the sealed
+  ## ``NonEmptySeq`` ``==`` (itself the underlying ``seq`` comparison).
+  a == b
 
 # K-7 sub-helpers ------------------------------------------------------------
 

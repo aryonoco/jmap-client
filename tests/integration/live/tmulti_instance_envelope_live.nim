@@ -65,11 +65,13 @@ testCase tmultiInstanceEnvelopeLive:
     # (``Opt.some``), unrequested ones absent (``Opt.none``). No internal
     # envelope inspection needed: the typed surface IS the public path now.
     let fullResp =
-      resp.get(fullHandle).expect("Mailbox/get full extract[" & $target.kind & "]")
-    let sparseResp =
-      resp.get(sparseHandle).expect("Mailbox/get sparse extract[" & $target.kind & "]")
-    let countsResp =
-      resp.get(countsHandle).expect("Mailbox/get counts extract[" & $target.kind & "]")
+      resp.get(fullHandle).expectValue("Mailbox/get full extract[" & $target.kind & "]")
+    let sparseResp = resp.get(sparseHandle).expectValue(
+        "Mailbox/get sparse extract[" & $target.kind & "]"
+      )
+    let countsResp = resp.get(countsHandle).expectValue(
+        "Mailbox/get counts extract[" & $target.kind & "]"
+      )
 
     assertOn target, fullResp.list.len >= 1, "full Mailbox/get must surface mailboxes"
     assertOn target,

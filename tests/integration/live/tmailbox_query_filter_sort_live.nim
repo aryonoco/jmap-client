@@ -51,16 +51,14 @@ proc assertRoleFilter(client: JmapClient, mailAccountId: AccountId, inboxId: Id)
     initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(roleFilter)
   )
   let resp1 = client.send(b1.freeze()).expect("send Mailbox/query role filter")
-  let qResp1Extract = resp1.get(h1)
-  if qResp1Extract.isErr:
-    let getErr = qResp1Extract.unsafeError
-    doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
-    let methodErr = getErr.methodErr
+  let qResp1Outcome = resp1.get(h1).expect("Mailbox/query role filter dispatch")
+  if qResp1Outcome.kind == mokMethodError:
+    let methodErr = qResp1Outcome.error
     doAssert methodErr.kind in
       {metInvalidArguments, metUnsupportedFilter, metUnknownMethod},
       "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
     return
-  let qResp1 = qResp1Extract.unsafeValue
+  let qResp1 = qResp1Outcome.value
   var foundInbox = false
   for id in qResp1.ids:
     if id == inboxId:
@@ -89,7 +87,7 @@ proc setSortOrders(
     initRequestBuilder(makeBuilderId()), mailAccountId, update = Opt.some(updates)
   )
   let resp2u = client.send(b2u.freeze()).expect("send Mailbox/set sortOrder update")
-  discard resp2u.get(h2u).expect("Mailbox/set sortOrder update extract")
+  discard resp2u.get(h2u).expectValue("Mailbox/set sortOrder update extract")
 
 proc assertFilterSortOrder(
     client: JmapClient,
@@ -116,16 +114,14 @@ proc assertFilterSortOrder(
     recorder.lastResponseBody, "mailbox-query-filter-sort-" & targetSuffix
   )
     .expect("captureIfRequested filter+sort")
-  let qResp2Extract = resp2.get(h2)
-  if qResp2Extract.isErr:
-    let getErr = qResp2Extract.unsafeError
-    doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
-    let methodErr = getErr.methodErr
+  let qResp2Outcome = resp2.get(h2).expect("Mailbox/query filter+sort dispatch")
+  if qResp2Outcome.kind == mokMethodError:
+    let methodErr = qResp2Outcome.error
     doAssert methodErr.kind in
       {metInvalidArguments, metUnsupportedSort, metUnsupportedFilter, metUnknownMethod},
       "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
     return
-  let qResp2 = qResp2Extract.unsafeValue
+  let qResp2 = qResp2Outcome.value
   var alphaPos = -1
   var bravoPos = -1
   var charliePos = -1
@@ -158,16 +154,14 @@ proc assertSortAsTree(client: JmapClient, mailAccountId: AccountId) =
     sortAsTree = true,
   )
   let resp3 = client.send(b3.freeze()).expect("send Mailbox/query sortAsTree")
-  let qResp3Extract = resp3.get(h3)
-  if qResp3Extract.isErr:
-    let getErr = qResp3Extract.unsafeError
-    doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
-    let methodErr = getErr.methodErr
+  let qResp3Outcome = resp3.get(h3).expect("Mailbox/query sortAsTree dispatch")
+  if qResp3Outcome.kind == mokMethodError:
+    let methodErr = qResp3Outcome.error
     doAssert methodErr.kind in
       {metInvalidArguments, metUnsupportedSort, metUnsupportedFilter, metUnknownMethod},
       "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
     return
-  let qResp3 = qResp3Extract.unsafeValue
+  let qResp3 = qResp3Outcome.value
   doAssert qResp3.ids.len >= 1,
     "Mailbox/query hasAnyRole=true must return at least the Inbox"
   for id in qResp3.ids:
@@ -189,16 +183,15 @@ proc assertQueryChangesWithFilter(
   )
   let resp4 =
     client.send(b4.freeze()).expect("send Mailbox/query baseline for queryChanges")
-  let qResp4Extract = resp4.get(h4)
-  if qResp4Extract.isErr:
-    let getErr = qResp4Extract.unsafeError
-    doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
-    let methodErr = getErr.methodErr
+  let qResp4Outcome =
+    resp4.get(h4).expect("Mailbox/query baseline for queryChanges dispatch")
+  if qResp4Outcome.kind == mokMethodError:
+    let methodErr = qResp4Outcome.error
     doAssert methodErr.kind in
       {metInvalidArguments, metUnsupportedFilter, metUnknownMethod},
       "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
     return
-  let qResp4 = qResp4Extract.unsafeValue
+  let qResp4 = qResp4Outcome.value
   let baselineQueryState = qResp4.queryState
 
   let deltaId = resolveOrCreateMailbox(client, mailAccountId, "phase-i 49 delta").expect(
@@ -218,17 +211,15 @@ proc assertQueryChangesWithFilter(
     recorder.lastResponseBody, "mailbox-query-changes-with-filter-" & targetSuffix
   )
     .expect("captureIfRequested queryChanges")
-  let qcrExtract = resp5.get(h5)
-  if qcrExtract.isErr:
-    let getErr = qcrExtract.unsafeError
-    doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
-    let methodErr = getErr.methodErr
+  let qcrOutcome = resp5.get(h5).expect("Mailbox/queryChanges with filter dispatch")
+  if qcrOutcome.kind == mokMethodError:
+    let methodErr = qcrOutcome.error
     doAssert methodErr.kind in {
       metInvalidArguments, metUnsupportedFilter, metCannotCalculateChanges,
       metUnknownMethod,
     }, "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
     return
-  let qcr = qcrExtract.unsafeValue
+  let qcr = qcrOutcome.value
   doAssert $qcr.oldQueryState == $baselineQueryState,
     "oldQueryState must echo the supplied baseline"
   doAssert qcr.total.isSome,

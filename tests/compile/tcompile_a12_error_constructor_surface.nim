@@ -7,27 +7,43 @@
 ## constructors. App developers receive error values; they do not
 ## construct them. The Transport-contract producers
 ## (``transportError`` / ``httpStatusError`` / ``sizeLimitExceeded`` /
-## ``classifyTransportException`` / ``classifyException`` /
-## ``enforceBodySizeLimit``) remain public by A19 because custom
-## ``Transport`` implementations must return a ``TransportError`` on
-## failure. See ``docs/design/15-error-surface.md``.
+## ``classifyTransportException`` / ``enforceBodySizeLimit``) remain public by
+## A19 because custom ``Transport`` implementations must return a
+## ``TransportError`` on failure. See ``docs/design/15-error-surface.md``.
 
 import jmap_client
 
 static:
   # =========================================================================
-  # POSITIVE — the public diagnostic surface remains reachable.
+  # POSITIVE — the public diagnostic surface remains reachable. ``JmapError``
+  # is the single consumer rail; its arms are built via the public lifts.
   # =========================================================================
 
-  let ce = ClientError(
-    kind: cekTransport, transport: TransportError(kind: tekNetwork, detail: "")
-  )
-  doAssert compiles(ce.kind)
-  doAssert compiles(ce.message)
-  doAssert compiles($ce)
+  let je = jmapTransport(transportError(tekNetwork, ""))
+  doAssert compiles(je.kind)
+  doAssert compiles(je.message)
+  doAssert compiles($je)
 
   # =========================================================================
-  # NEGATIVE — library-internal error constructors are unreachable.
+  # POSITIVE — the sanctioned boundary lifts onto the one rail are public:
+  # app developers fold leaf rails into ``JmapError`` (they still do not mint
+  # the leaf error values themselves).
+  # =========================================================================
+
+  doAssert declared(jmapValidation)
+  doAssert declared(jmapTransport)
+  doAssert declared(jmapRequest)
+  doAssert declared(jmapSession)
+  doAssert declared(sessionFault)
+  doAssert declared(toJmapError)
+  doAssert declared(lift)
+  doAssert declared(requirePrimaryAccount)
+
+  # =========================================================================
+  # NEGATIVE — library-internal error constructors are unreachable. This
+  # includes the retired rails (ClientError / GetError producers) and the
+  # internal-only JmapError arm constructors (misuse / protocol / the
+  # MethodOutcome producers are minted by dispatch, not by consumers).
   # =========================================================================
 
   doAssert not declared(validationError)
@@ -47,6 +63,13 @@ static:
   doAssert not declared(getErrorMethod)
   doAssert not declared(getErrorHandleMismatch)
   doAssert not declared(toValidationError)
+  doAssert not declared(jmapMisuse)
+  doAssert not declared(jmapProtocol)
+  doAssert not declared(protocolMissingCall)
+  doAssert not declared(protocolMalformedError)
+  doAssert not declared(protocolDecode)
+  doAssert not declared(methodValue)
+  doAssert not declared(methodFailure)
 
   # =========================================================================
   # POSITIVE — Transport-contract producers remain public (A19).
@@ -56,7 +79,6 @@ static:
   doAssert declared(httpStatusError)
   doAssert declared(sizeLimitExceeded)
   doAssert declared(classifyTransportException)
-  doAssert declared(classifyException)
   doAssert declared(enforceBodySizeLimit)
 
   # =========================================================================

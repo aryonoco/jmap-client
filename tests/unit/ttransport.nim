@@ -22,8 +22,9 @@ testCase newTransportNilSendImpl:
     discard
   let res = newTransport(nil, validClose)
   doAssert res.isErr, "expected Err for nil sendImpl"
-  doAssert res.error.typeName == "Transport"
-  doAssert res.error.reason == "sendImpl must not be nil"
+  doAssert res.error.kind == jeValidation
+  doAssert res.error.validation.head.typeName == "Transport"
+  doAssert res.error.validation.head.reason == "sendImpl must not be nil"
 
 testCase newTransportNilCloseImpl:
   ## closeImpl must not be nil.
@@ -34,8 +35,9 @@ testCase newTransportNilCloseImpl:
     err(transportError(tekNetwork, "noop"))
   let res = newTransport(validSend, nil)
   doAssert res.isErr, "expected Err for nil closeImpl"
-  doAssert res.error.typeName == "Transport"
-  doAssert res.error.reason == "closeImpl must not be nil"
+  doAssert res.error.kind == jeValidation
+  doAssert res.error.validation.head.typeName == "Transport"
+  doAssert res.error.validation.head.reason == "closeImpl must not be nil"
 
 testCase newTransportValid:
   ## Both closures supplied — construction succeeds.

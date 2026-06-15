@@ -43,8 +43,9 @@ testCase temailChangesLive:
     )
     let resp1 =
       client.send(b1.freeze()).expect("send Email/get baseline[" & $target.kind & "]")
-    let getResp =
-      resp1.get(getHandle).expect("Email/get baseline extract[" & $target.kind & "]")
+    let getResp = resp1.get(getHandle).expectValue(
+        "Email/get baseline extract[" & $target.kind & "]"
+      )
     let baselineState = getResp.state
 
     # --- Seed two emails via mlive --------------------------------------
@@ -66,7 +67,7 @@ testCase temailChangesLive:
     )
     let resp2 =
       client.send(b2.freeze()).expect("send Email/changes happy[" & $target.kind & "]")
-    let cr = resp2.get(changesHandle).expect(
+    let cr = resp2.get(changesHandle).expectValue(
         "Email/changes happy extract[" & $target.kind & "]"
       )
     assertOn target,
@@ -92,13 +93,18 @@ testCase temailChangesLive:
     )
       .expect("captureIfRequested")
     let sadExtract = resp3.get(sadHandle)
+    # A bogus sinceState is a server method error, now carried as data on the
+    # dispatch ok rail (``MethodOutcome.mokMethodError``); only a dispatch
+    # fault would ride the rail.
     assertOn target,
-      sadExtract.isErr, "bogus sinceState must surface as a method-level error"
-    let getErr = sadExtract.error
+      sadExtract.isOk,
+      "dispatch must succeed on the rail; a bogus sinceState is a server " &
+        "method error carried as data"
+    let sadOutcome = sadExtract.unsafeValue
     assertOn target,
-      getErr.kind == gekMethod,
-      "bogus sinceState must surface as gekMethod, not gekHandleMismatch"
-    let methodErr = getErr.methodErr
+      sadOutcome.kind == mokMethodError,
+      "bogus sinceState must surface as a method-level error"
+    let methodErr = sadOutcome.error
     assertOn target,
       methodErr.kind in {metCannotCalculateChanges, metInvalidArguments},
       "method error must project as cannotCalculateChanges or invalidArguments " &

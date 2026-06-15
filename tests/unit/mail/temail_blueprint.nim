@@ -61,33 +61,31 @@ testCase textBodyTypeMismatch: # §6.1.1 scenario 5
   let htmlLeaf = makeBlueprintBodyPartInline(contentType = "text/html")
   let body = flatBody(textBody = Opt.some(htmlLeaf))
   let res = parseEmailBlueprint(mailboxIds = makeNonEmptyMailboxIdSet(), body = body)
-  assertBlueprintErrContains res, ebcTextBodyNotTextPlain, actualTextType, "text/html"
+  assertBlueprintErrContains res, ebcTextBodyNotTextPlain, "text/html"
 
 testCase htmlBodyTypeMismatch: # §6.1.1 scenario 6
   let textLeaf = makeBlueprintBodyPartInline(contentType = "text/plain")
   let body = flatBody(htmlBody = Opt.some(textLeaf))
   let res = parseEmailBlueprint(mailboxIds = makeNonEmptyMailboxIdSet(), body = body)
-  assertBlueprintErrContains res, ebcHtmlBodyNotTextHtml, actualHtmlType, "text/plain"
+  assertBlueprintErrContains res, ebcHtmlBodyNotTextHtml, "text/plain"
 
 testCase topLevelFromDuplicate: # §6.1.1 scenario 7
   let res = makeBlueprintWithDuplicateAt(
     dupName = "from", dupKind = ebcEmailTopLevelHeaderDuplicate
   )
-  assertBlueprintErrContains res, ebcEmailTopLevelHeaderDuplicate, dupName, "from"
+  assertBlueprintErrContains res, ebcEmailTopLevelHeaderDuplicate, "from"
 
 testCase bodyStructureSubjectDuplicate: # §6.1.1 scenario 7a
   let res = makeBlueprintWithDuplicateAt(
     dupName = "subject", dupKind = ebcBodyStructureHeaderDuplicate
   )
-  assertBlueprintErrContains res,
-    ebcBodyStructureHeaderDuplicate, bodyStructureDupName, "subject"
+  assertBlueprintErrContains res, ebcBodyStructureHeaderDuplicate, "subject"
 
 testCase bodyStructureFromSameInBoth: # §6.1.1 scenario 7b
   let res = makeBlueprintWithDuplicateAt(
     dupName = "from", dupKind = ebcBodyStructureHeaderDuplicate
   )
-  assertBlueprintErrContains res,
-    ebcBodyStructureHeaderDuplicate, bodyStructureDupName, "from"
+  assertBlueprintErrContains res, ebcBodyStructureHeaderDuplicate, "from"
 
 testCase bodyStructureRootUniqueCustom: # §6.1.1 scenario 7c
   # Root extraHeaders carries a name with no top-level counterpart —
@@ -122,8 +120,7 @@ testCase bodyPartContentTypeDuplicate: # §6.1.1 scenario 7e
   let res = makeBlueprintWithDuplicateAt(
     dupName = "content-type", dupKind = ebcBodyPartHeaderDuplicate
   )
-  assertBlueprintErrContains res,
-    ebcBodyPartHeaderDuplicate, bodyPartDupName, "content-type"
+  assertBlueprintErrContains res, ebcBodyPartHeaderDuplicate, "content-type"
 
 testCase bodyPartContentDispositionDuplicate: # §6.1.1 scenario 7f
   # Inline leaf with both ``disposition`` domain field AND a
@@ -149,8 +146,7 @@ testCase bodyPartContentDispositionDuplicate: # §6.1.1 scenario 7f
   let res = parseEmailBlueprint(
     mailboxIds = makeNonEmptyMailboxIdSet(), body = flatBody(textBody = Opt.some(leaf))
   )
-  assertBlueprintErrContains res,
-    ebcBodyPartHeaderDuplicate, bodyPartDupName, "content-disposition"
+  assertBlueprintErrContains res, ebcBodyPartHeaderDuplicate, "content-disposition"
 
 testCase bodyPartMultipartPathDepthTwo: # §6.1.1 scenario 7g
   # Build root -> child0(multipart) -> child2(multipart with dup). The
@@ -176,10 +172,11 @@ testCase bodyPartMultipartPathDepthTwo: # §6.1.1 scenario 7g
   )
   assertErr res
   let errs = res.unsafeError
+  # The location + offending header are flattened into the reason text now;
+  # the depth-2 multipart offender renders as "multipart at path @[0, 2]".
   var found = false
   for e in errs.items:
-    if e.constraint == ebcBodyPartHeaderDuplicate and e.where.kind == bplMultipart and
-        e.where.path == makeBodyPartPath(@[0, 2]) and e.bodyPartDupName == "content-type":
+    if "multipart at path @[0, 2]" in e.reason and "content-type" in e.reason:
       found = true
       break
   doAssert found, "expected multipart-at-depth-2 duplicate, got " & $errs
@@ -198,10 +195,10 @@ testCase bodyPartBlobRefAtDepthTwo: # §6.1.1 scenario 7h
     mailboxIds = makeNonEmptyMailboxIdSet(), body = structuredBody(root)
   )
   assertErr res
+  # A blob-ref offender renders its location as "blob-ref part <blobId>".
   var found = false
   for e in res.unsafeError.items:
-    if e.constraint == ebcBodyPartHeaderDuplicate and e.where.kind == bplBlobRef and
-        e.where.blobId == makeBlobId("blobDeep"):
+    if "blob-ref part blobDeep" in e.reason and "content-type" in e.reason:
       found = true
       break
   doAssert found, "expected blob-ref duplicate at depth 2, got " & $res.unsafeError
@@ -236,7 +233,7 @@ testCase sentAtDateAliasCollision: # §6.1.1 scenario 7j
     sentAt = Opt.some(parseDate("2026-04-13T12:00:00Z").get()),
     extraHeaders = topExtra,
   )
-  assertBlueprintErrContains res, ebcEmailTopLevelHeaderDuplicate, dupName, "date"
+  assertBlueprintErrContains res, ebcEmailTopLevelHeaderDuplicate, "date"
 
 testCase flatAttachmentsNestedPathEncoding: # §6.1.1 scenario 7k
   # Flat body with 3 attachments: attachments[2] is a multipart with a
@@ -253,10 +250,10 @@ testCase flatAttachmentsNestedPathEncoding: # §6.1.1 scenario 7k
   let body = flatBody(attachments = @[att0, att1, offender])
   let res = parseEmailBlueprint(mailboxIds = makeNonEmptyMailboxIdSet(), body = body)
   assertErr res
+  # attachments[2] encodes to first-path-element 4 → "multipart at path @[4]".
   var found = false
   for e in res.unsafeError.items:
-    if e.constraint == ebcBodyPartHeaderDuplicate and e.where.kind == bplMultipart and
-        e.where.path.len == 1 and e.where.path[idx(0)] == 4:
+    if "multipart at path @[4]" in e.reason and "content-type" in e.reason:
       found = true
       break
   doAssert found, "expected attachments[2] path @[4], got " & $res.unsafeError
@@ -279,48 +276,60 @@ testCase allowedFormRejected: # §6.1.1 scenario 9
     makeBhmvAddressesSingle(value = @[makeEmailAddress()])
   let res =
     parseEmailBlueprint(mailboxIds = makeNonEmptyMailboxIdSet(), extraHeaders = extra)
-  assertBlueprintErrContains res, ebcAllowedFormRejected, rejectedName, "subject"
-  assertBlueprintErrContains res, ebcAllowedFormRejected, rejectedForm, hfAddresses
+  assertBlueprintErrContains res, ebcAllowedFormRejected, "subject"
+  assertBlueprintErrContains res, ebcAllowedFormRejected, hfAddresses
 
 testCase messageRenderingSixVariants: # §6.1.1 scenario 11a
-  # Six distinct variants → six distinct human-readable renderings.
-  let path0 = makeBodyPartPath(@[0])
-  let errs = @[
-    EmailBlueprintError(constraint: ebcEmailTopLevelHeaderDuplicate, dupName: "from"),
-    EmailBlueprintError(
-      constraint: ebcBodyStructureHeaderDuplicate, bodyStructureDupName: "subject"
+  # Six distinct constraint triggers → six distinct human-readable reason
+  # renderings on the flattened ``NonEmptySeq[ValidationError]`` rail. Each
+  # trigger's HEAD error is its intended variant (accumulation order is
+  # deterministic), so the six head messages are pairwise distinct.
+  let textLeaf = makeBlueprintBodyPartInline(contentType = "text/html")
+  let htmlLeaf = makeBlueprintBodyPartInline(contentType = "text/plain")
+  var subjAddr = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+  subjAddr[makeBlueprintEmailHeaderName("subject")] =
+    makeBhmvAddressesSingle(value = @[makeEmailAddress()])
+  let results = @[
+    makeBlueprintWithDuplicateAt(
+      dupName = "from", dupKind = ebcEmailTopLevelHeaderDuplicate
     ),
-    EmailBlueprintError(
-      constraint: ebcBodyPartHeaderDuplicate,
-      where: BodyPartLocation(kind: bplMultipart, path: path0),
-      bodyPartDupName: "content-type",
+    makeBlueprintWithDuplicateAt(
+      dupName = "subject", dupKind = ebcBodyStructureHeaderDuplicate
     ),
-    EmailBlueprintError(
-      constraint: ebcTextBodyNotTextPlain, actualTextType: "text/html"
+    makeBlueprintWithDuplicateAt(
+      dupName = "content-type", dupKind = ebcBodyPartHeaderDuplicate
     ),
-    EmailBlueprintError(
-      constraint: ebcHtmlBodyNotTextHtml, actualHtmlType: "text/plain"
+    parseEmailBlueprint(
+      mailboxIds = makeNonEmptyMailboxIdSet(),
+      body = flatBody(textBody = Opt.some(textLeaf)),
     ),
-    EmailBlueprintError(
-      constraint: ebcAllowedFormRejected,
-      rejectedName: "subject",
-      rejectedForm: hfAddresses,
+    parseEmailBlueprint(
+      mailboxIds = makeNonEmptyMailboxIdSet(),
+      body = flatBody(htmlBody = Opt.some(htmlLeaf)),
+    ),
+    parseEmailBlueprint(
+      mailboxIds = makeNonEmptyMailboxIdSet(), extraHeaders = subjAddr
     ),
   ]
   var rendered = initHashSet[string]()
-  for e in errs:
-    rendered.incl message(e)
+  for r in results:
+    doAssert r.isErr
+    rendered.incl r.unsafeError.head.message
   doAssert rendered.len == 6, "expected six distinct messages, got " & $rendered.len
 
 testCase messageBoundedAndPure: # §6.1.1 scenario 11b
-  # Adversarial payload: NUL, CRLF, and 100 KB. message() must be
-  # bounded (≤ 8 KiB), NUL-stripped, and deterministic across calls.
+  # Adversarial content-type payload: NUL, CRLF, and 100 KB. The flattened
+  # ``ValidationError.message`` must be bounded (≤ 8 KiB), NUL-stripped, and
+  # deterministic across calls.
   let adversarial = "\x00\r\n" & "x".repeat(100_000)
-  let e = EmailBlueprintError(
-    constraint: ebcTextBodyNotTextPlain, actualTextType: adversarial
+  let leaf = makeBlueprintBodyPartInline(contentType = adversarial)
+  let res = parseEmailBlueprint(
+    mailboxIds = makeNonEmptyMailboxIdSet(), body = flatBody(textBody = Opt.some(leaf))
   )
-  let m1 = message(e)
-  let m2 = message(e)
+  assertErr res
+  let e = res.unsafeError.head
+  let m1 = e.message
+  let m2 = e.message
   doAssert m1 == m2, "message(e) must be deterministic"
   assertLe m1.len, 8192
   doAssert not m1.contains('\x00'), "NUL must be stripped from rendered message"

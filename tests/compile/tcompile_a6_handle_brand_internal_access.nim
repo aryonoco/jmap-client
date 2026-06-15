@@ -32,6 +32,6 @@ let id = initBuilderId(0'u64, 0'u64)
 doAssert id == initBuilderId(0'u64, 0'u64)
 doAssert id.clientBrand == 0'u64
 doAssert id.serial == 0'u64
-discard sizeof(GetError)
+discard sizeof(MethodError)
 discard sizeof(RequestBuilder)
 discard sizeof(DispatchedResponse)

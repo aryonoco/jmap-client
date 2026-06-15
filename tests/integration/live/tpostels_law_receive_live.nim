@@ -83,8 +83,9 @@ testCase tpostelsLawReceiveLive:
     )
     let respImp =
       client.send(bImp.freeze()).expect("send Email/import[" & $target.kind & "]")
-    let importResp =
-      respImp.get(importHandle).expect("Email/import extract[" & $target.kind & "]")
+    let importResp = respImp.get(importHandle).expectValue(
+        "Email/import extract[" & $target.kind & "]"
+      )
     var importedEmailId: Id
     var imported = false
     importResp.createResults.withValue(importCid, outcome):
@@ -114,7 +115,7 @@ testCase tpostelsLawReceiveLive:
     )
       .expect("captureIfRequested postel's law")
     let getResp =
-      respGet.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
+      respGet.get(getHandle).expectValue("Email/get extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1
     let email = getResp.list[0]
 
@@ -144,7 +145,7 @@ testCase tpostelsLawReceiveLive:
         "send Email/get keywords readback[" & $target.kind & "]"
       )
     let getResp2 =
-      respGet2.get(getHandle2).expect("Email/get extract[" & $target.kind & "]")
+      respGet2.get(getHandle2).expectValue("Email/get extract[" & $target.kind & "]")
     assertOn target, getResp2.list.len == 2
     # Wire-shape Postel diagnostic via the internal envelope module
     # (A2 seal — not part of the public application API; reachable
@@ -176,7 +177,7 @@ testCase tpostelsLawReceiveLive:
     let respClean = client.send(bClean.freeze()).expect(
         "send Email/set cleanup[" & $target.kind & "]"
       )
-    let cleanResp = respClean.get(cleanHandle).expect(
+    let cleanResp = respClean.get(cleanHandle).expectValue(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
     for id in @[outerId, importedEmailId]:

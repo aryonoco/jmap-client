@@ -5,7 +5,7 @@
 ## ``postRawJmap``, the internal classify pipeline correctly handles
 ## whatever wire shape Stalwart emits for cap-exceeded scenarios.
 ## Each rejection projects either through ``RequestError.fromJson``
-## (request-layer error → ``cekRequest`` arm) or through a method-
+## (request-layer error → ``jeRequest`` arm) or through a method-
 ## level ``MethodError.fromJson`` rail; in both cases ``rawType`` is
 ## losslessly preserved and the typed enum projection is consistent.
 ##
@@ -59,9 +59,9 @@ testCase tserverSideEnforcementParityLive:
       assertOn target, res.isErr, "Stalwart must reject oversize request body"
       let ce = res.error
       assertOn target,
-        ce.kind in {cekRequest, cekTransport},
-        "rejection must surface on a ClientError arm, got " & $ce.kind
-      if ce.kind == cekRequest:
+        ce.kind in {jeRequest, jeTransport},
+        "rejection must surface on a JmapError arm, got " & $ce.kind
+      if ce.kind == jeRequest:
         assertOn target,
           ce.request.rawType.len > 0, "rawType must be losslessly preserved (non-empty)"
         assertOn target,
@@ -88,9 +88,9 @@ testCase tserverSideEnforcementParityLive:
       if resp.isErr:
         let ce = resp.error
         assertOn target,
-          ce.kind in {cekRequest, cekTransport},
+          ce.kind in {jeRequest, jeTransport},
           "request-layer rejection arm, got " & $ce.kind
-        if ce.kind == cekRequest:
+        if ce.kind == jeRequest:
           assertOn target,
             ce.request.rawType.len > 0, "rawType must be losslessly preserved"
       else:
@@ -123,8 +123,8 @@ testCase tserverSideEnforcementParityLive:
       if res.isErr:
         let ce = res.error
         assertOn target,
-          ce.kind in {cekRequest, cekTransport}, "rejection arm, got " & $ce.kind
-        if ce.kind == cekRequest:
+          ce.kind in {jeRequest, jeTransport}, "rejection arm, got " & $ce.kind
+        if ce.kind == jeRequest:
           assertOn target,
             ce.request.rawType.len > 0, "rawType must be losslessly preserved"
       else:

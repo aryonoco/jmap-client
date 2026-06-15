@@ -23,9 +23,9 @@ testCase emailUpdateSetEmpty: # F22
   let res = initEmailUpdateSet(@[])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "EmailUpdateSet"
-  assertEq res.error[0].reason, "must contain at least one update"
-  assertEq res.error[0].value, ""
+  assertEq res.error.head.typeName, "EmailUpdateSet"
+  assertEq res.error.head.reason, "must contain at least one update"
+  assertEq res.error.head.value, ""
 
 # ============= B. Class 1 — duplicate target path (6 shapes) =============
 
@@ -34,17 +34,17 @@ testCase class1TwoAddKeyword: # §8.7.1 row 1
   let res = initEmailUpdateSet(@[addKeyword(k), addKeyword(k)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "EmailUpdateSet"
-  assertEq res.error[0].reason, "duplicate target path"
-  assertEq res.error[0].value, "keywords/$seen"
+  assertEq res.error.head.typeName, "EmailUpdateSet"
+  assertEq res.error.head.reason, "duplicate target path"
+  assertEq res.error.head.value, "keywords/$seen"
 
 testCase class1TwoRemoveKeyword: # §8.7.1 row 2
   let k = parseKeyword("$seen").get()
   let res = initEmailUpdateSet(@[removeKeyword(k), removeKeyword(k)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].reason, "duplicate target path"
-  assertEq res.error[0].value, "keywords/$seen"
+  assertEq res.error.head.reason, "duplicate target path"
+  assertEq res.error.head.value, "keywords/$seen"
 
 testCase class1TwoSetKeywords: # §8.7.1 row 3
   let ks1 = initKeywordSet(@[kwSeen])
@@ -52,24 +52,24 @@ testCase class1TwoSetKeywords: # §8.7.1 row 3
   let res = initEmailUpdateSet(@[setKeywords(ks1), setKeywords(ks2)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].reason, "duplicate target path"
-  assertEq res.error[0].value, "keywords"
+  assertEq res.error.head.reason, "duplicate target path"
+  assertEq res.error.head.value, "keywords"
 
 testCase class1TwoAddToMailbox: # §8.7.1 row 4
   let id = parseIdFromServer("m1").get()
   let res = initEmailUpdateSet(@[addToMailbox(id), addToMailbox(id)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].reason, "duplicate target path"
-  assertEq res.error[0].value, "mailboxIds/m1"
+  assertEq res.error.head.reason, "duplicate target path"
+  assertEq res.error.head.value, "mailboxIds/m1"
 
 testCase class1TwoRemoveFromMailbox: # §8.7.1 row 5
   let id = parseIdFromServer("m1").get()
   let res = initEmailUpdateSet(@[removeFromMailbox(id), removeFromMailbox(id)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].reason, "duplicate target path"
-  assertEq res.error[0].value, "mailboxIds/m1"
+  assertEq res.error.head.reason, "duplicate target path"
+  assertEq res.error.head.value, "mailboxIds/m1"
 
 testCase class1TwoSetMailboxIds: # §8.7.1 row 6
   let id1 = parseIdFromServer("m1").get()
@@ -79,8 +79,8 @@ testCase class1TwoSetMailboxIds: # §8.7.1 row 6
   let res = initEmailUpdateSet(@[setMailboxIds(ids1), setMailboxIds(ids2)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].reason, "duplicate target path"
-  assertEq res.error[0].value, "mailboxIds"
+  assertEq res.error.head.reason, "duplicate target path"
+  assertEq res.error.head.value, "mailboxIds"
 
 # ============= C. Class 2 — opposite operations (2 shapes) =============
 
@@ -89,17 +89,17 @@ testCase class2KeywordOpposite: # §8.7.2 row 1
   let res = initEmailUpdateSet(@[addKeyword(k), removeKeyword(k)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "EmailUpdateSet"
-  assertEq res.error[0].reason, "opposite operations on same sub-path"
-  assertEq res.error[0].value, "keywords/$seen"
+  assertEq res.error.head.typeName, "EmailUpdateSet"
+  assertEq res.error.head.reason, "opposite operations on same sub-path"
+  assertEq res.error.head.value, "keywords/$seen"
 
 testCase class2MailboxOpposite: # §8.7.2 row 2
   let id = parseIdFromServer("m1").get()
   let res = initEmailUpdateSet(@[addToMailbox(id), removeFromMailbox(id)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].reason, "opposite operations on same sub-path"
-  assertEq res.error[0].value, "mailboxIds/m1"
+  assertEq res.error.head.reason, "opposite operations on same sub-path"
+  assertEq res.error.head.value, "mailboxIds/m1"
 
 # ============= D. Class 3 — sub-path alongside full-replace (4 shapes) =============
 
@@ -109,10 +109,10 @@ testCase class3AddKeywordSetKeywords: # §8.7.3 row 1
   let res = initEmailUpdateSet(@[addKeyword(k), setKeywords(ks)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "EmailUpdateSet"
-  assertEq res.error[0].reason,
+  assertEq res.error.head.typeName, "EmailUpdateSet"
+  assertEq res.error.head.reason,
     "sub-path operation alongside full-replace on same parent"
-  assertEq res.error[0].value, "keywords"
+  assertEq res.error.head.value, "keywords"
 
 testCase class3RemoveKeywordSetKeywords: # §8.7.3 row 2
   let k = parseKeyword("$seen").get()
@@ -120,9 +120,9 @@ testCase class3RemoveKeywordSetKeywords: # §8.7.3 row 2
   let res = initEmailUpdateSet(@[removeKeyword(k), setKeywords(ks)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].reason,
+  assertEq res.error.head.reason,
     "sub-path operation alongside full-replace on same parent"
-  assertEq res.error[0].value, "keywords"
+  assertEq res.error.head.value, "keywords"
 
 testCase class3AddToMailboxSetMailboxIds: # §8.7.3 row 3
   let id1 = parseIdFromServer("m1").get()
@@ -131,9 +131,9 @@ testCase class3AddToMailboxSetMailboxIds: # §8.7.3 row 3
   let res = initEmailUpdateSet(@[addToMailbox(id1), setMailboxIds(ids)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].reason,
+  assertEq res.error.head.reason,
     "sub-path operation alongside full-replace on same parent"
-  assertEq res.error[0].value, "mailboxIds"
+  assertEq res.error.head.value, "mailboxIds"
 
 testCase class3RemoveFromMailboxSetMailboxIds: # §8.7.3 row 4
   let id1 = parseIdFromServer("m1").get()
@@ -142,9 +142,9 @@ testCase class3RemoveFromMailboxSetMailboxIds: # §8.7.3 row 4
   let res = initEmailUpdateSet(@[removeFromMailbox(id1), setMailboxIds(ids)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].reason,
+  assertEq res.error.head.reason,
     "sub-path operation alongside full-replace on same parent"
-  assertEq res.error[0].value, "mailboxIds"
+  assertEq res.error.head.value, "mailboxIds"
 
 # ============= E. Class 1 + 2 overlap (Class 2 wins) =============
 
@@ -156,9 +156,9 @@ testCase class1And2Overlap: # F2 §8.12 policy row
   let res = initEmailUpdateSet(@[addKeyword(k), removeKeyword(k)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "EmailUpdateSet"
-  assertEq res.error[0].reason, "opposite operations on same sub-path"
-  assertEq res.error[0].value, "keywords/$seen"
+  assertEq res.error.head.typeName, "EmailUpdateSet"
+  assertEq res.error.head.reason, "opposite operations on same sub-path"
+  assertEq res.error.head.value, "keywords/$seen"
 
 # ============= F. Independent — positive §8.7.4 (4 shapes) =============
 
@@ -239,8 +239,8 @@ testCase parseNonEmptyEmailUpdatesRejectsEmpty:
   let res = parseNonEmptyEmailUpdates(newSeq[(Id, EmailUpdateSet)]())
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "NonEmptyEmailUpdates"
-  assertEq res.error[0].reason, "must contain at least one entry"
+  assertEq res.error.head.typeName, "NonEmptyEmailUpdates"
+  assertEq res.error.head.reason, "must contain at least one entry"
 
 testCase parseNonEmptyEmailUpdatesRejectsDuplicateId:
   ## Duplicate ``Id`` keys are rejected — silent last-wins shadowing at
@@ -251,4 +251,4 @@ testCase parseNonEmptyEmailUpdatesRejectsDuplicateId:
   let res = parseNonEmptyEmailUpdates(@[(id1, us1), (id1, us2)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].reason, "duplicate email id"
+  assertEq res.error.head.reason, "duplicate email id"

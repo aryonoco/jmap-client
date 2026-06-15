@@ -54,7 +54,7 @@ testCase tthreadGetLive:
     )
     let resp1 = client.send(b1.freeze()).expect("send Email/get[" & $target.kind & "]")
     let emailResp =
-      resp1.get(emailHandle).expect("Email/get extract[" & $target.kind & "]")
+      resp1.get(emailHandle).expectValue("Email/get extract[" & $target.kind & "]")
     assertOn target, emailResp.list.len == 1, "Email/get must return the seeded message"
     let threadIdOpt = emailResp.list[0].threadId
     assertOn target,
@@ -70,7 +70,7 @@ testCase tthreadGetLive:
       let resp2 =
         client.send(b2.freeze()).expect("send Thread/get[" & $target.kind & "]")
       let threadResp =
-        resp2.get(threadHandle).expect("Thread/get extract[" & $target.kind & "]")
+        resp2.get(threadHandle).expectValue("Thread/get extract[" & $target.kind & "]")
       if threadResp.list.len == 1:
         thread = Opt.some(threadResp.list[0])
         break

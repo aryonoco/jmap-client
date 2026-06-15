@@ -9,8 +9,10 @@ import std/json
 import std/times
 
 import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
 import jmap_client/internal/types/errors
 import jmap_client/internal/types/capabilities
+import jmap_client/internal/protocol/jmap_error
 import jmap_client/internal/mail/email_blueprint
 import jmap_client/internal/mail/headers
 import jmap_client/internal/mail/submission_param
@@ -52,14 +54,19 @@ proc moveExpect*[T, E](r: sink Result[T, E], msg: string): T =
 
 template toValidationShape(err: untyped): ValidationError =
   ## Normalises an error rail value to ``ValidationError`` shape so the
-  ## existing substring/field-matching helpers dispatch against either
-  ## an L1 ``ValidationError`` (unchanged) or an L2 ``SerdeViolation``
-  ## (translated via ``toValidationError``). The ``rootType`` of
-  ## ``"Serde"`` is a synthetic label — tests should prefer
-  ## ``assertSvKind`` / ``assertSvInner`` when asserting at the serde
-  ## boundary; this bridge only preserves existing substring tests.
+  ## existing substring/field-matching helpers dispatch against an L1
+  ## ``ValidationError`` (unchanged), an L2 ``SerdeViolation`` (translated via
+  ## ``toValidationError`` with a ``"Serde"`` root), or a ``JmapError`` on the
+  ## ``jeValidation`` arm (a construction failure lifted onto the one rail —
+  ## projected to the head accumulated ``ValidationError``). The latter lets
+  ## ``assertErrFields`` & co. keep working against the JmapResult-returning
+  ## boundary constructors (``newTransport`` / ``newHttpTransport``). Tests
+  ## should prefer ``assertSvKind`` / ``assertSvInner`` at the serde boundary;
+  ## this bridge only preserves existing substring tests.
   when err is SerdeViolation:
     toValidationError(err, "Serde")
+  elif err is JmapError:
+    err.validation.head
   else:
     err
 
@@ -219,35 +226,38 @@ template assertSetOkEq*(expr: untyped, expected: SetError) =
 # ---------------------------------------------------------------------------
 
 template assertBlueprintErr*(expr: untyped, variant: EmailBlueprintConstraint) =
-  ## L-1: verifies a Result is err AND at least one error carries the
-  ## given ``EmailBlueprintConstraint`` variant. Delegates the isErr
-  ## check to ``assertErr`` so diagnostic wording stays consistent.
+  ## L-1: verifies a Result is err AND at least one flattened
+  ## ``ValidationError`` carries the ``EmailBlueprintConstraint``'s
+  ## canonical reason marker. The typed constraint arms are internalised,
+  ## so the marker substring is the observable evidence the check fired.
   let res = expr
   assertErr res
-  var found = false
-  for e in res.unsafeError.items:
-    if e.constraint == variant:
-      found = true
-      break
-  doAssert found,
-    "expected Err containing variant " & $variant & ", got " & $res.unsafeError
+  doAssert blueprintErrHasConstraint(res.unsafeError, variant),
+    "expected Err carrying constraint " & $variant & " (marker '" &
+      blueprintConstraintMarker(variant) & "'), got " & $res.unsafeError
 
 template assertBlueprintErrContains*(
-    expr: untyped, variant: EmailBlueprintConstraint, field, expected: untyped
+    expr: untyped, variant: EmailBlueprintConstraint, payload: untyped
 ) =
-  ## L-2: verifies a Result is err AND at least one error matches both
-  ## the variant discriminant and a variant-specific field value. The
-  ## discriminant guard precedes the field read, which is what keeps the
-  ## case-object field access safe at runtime.
+  ## L-2: verifies a Result is err AND at least one ``EmailBlueprint``
+  ## reason carries BOTH the variant's marker and the stringified
+  ## ``payload`` (the offending header name, content type, or rejected
+  ## form). The variant fields are no longer observable, so the payload is
+  ## matched against the flattened reason text rather than a case-object
+  ## field.
   let res = expr
   assertErr res
+  let marker = blueprintConstraintMarker(variant)
+  let needle = $payload
   var matched = false
   for e in res.unsafeError.items:
-    if e.constraint == variant and e.field == expected:
+    if e.typeName == "EmailBlueprint" and strutils.contains(e.reason, marker) and
+        strutils.contains(e.reason, needle):
       matched = true
       break
   doAssert matched,
-    "variant " & $variant & " with expected field value not found: " & $res.unsafeError
+    "variant " & $variant & " with payload '" & needle & "' not found: " &
+      $res.unsafeError
 
 template assertBlueprintErrCount*(expr: untyped, n: int) =
   ## L-3: exact-count assertion on the accumulated error rail. Verifies
@@ -297,16 +307,14 @@ template assertBlueprintErrAny*(
     expr: untyped, variants: set[EmailBlueprintConstraint]
 ) =
   ## L-7: every variant in ``variants`` must appear at least once on the
-  ## error rail. Useful for accumulated-failure scenarios where multiple
-  ## independent checks fire.
+  ## error rail (matched by its canonical reason marker). Useful for
+  ## accumulated-failure scenarios where multiple independent checks fire.
   let res = expr
   assertErr res
-  var seen: set[EmailBlueprintConstraint] = {}
-  for e in res.unsafeError.items:
-    if e.constraint in variants:
-      seen.incl e.constraint
-  let missing = variants - seen
-  doAssert missing == {}, "missing variants: " & $missing
+  for v in variants:
+    doAssert blueprintErrHasConstraint(res.unsafeError, v),
+      "missing constraint " & $v & " (marker '" & blueprintConstraintMarker(v) &
+        "'), got " & $res.unsafeError
 
 template assertBoundedRatio*(slowExpr, fastExpr: untyped, maxRatio: float) =
   ## L-8: runtime bound on the ratio of two ``cpuTime`` measurements.

@@ -7,7 +7,7 @@
 ## losslessly. ``parseMethodErrorKind`` is total: unknown URIs
 ## project to ``metUnknown``. ``resp.get(handle)`` for a method-
 ## level error invocation routes through ``MethodError.fromJson``
-## and returns the typed error on the inner railway.
+## and surfaces the typed error as data (``mokMethodError``).
 ##
 ## Phase J Step 62.  Four sequential ``sendRawInvocation`` calls
 ## drive Stalwart through four RFC 8620 §3.6.2 method-level

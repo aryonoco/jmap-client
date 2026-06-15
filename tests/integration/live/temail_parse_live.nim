@@ -83,7 +83,7 @@ testCase temailParseLive:
     let getRespOuter = client.send(bGet.freeze()).expect(
         "send Email/get attachments[" & $target.kind & "]"
       )
-    let getResp = getRespOuter.get(getHandle).expect(
+    let getResp = getRespOuter.get(getHandle).expectValue(
         "Email/get attachments extract[" & $target.kind & "]"
       )
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
@@ -109,7 +109,7 @@ testCase temailParseLive:
       client.send(bParse.freeze()).expect("send Email/parse[" & $target.kind & "]")
     captureIfRequested(recorder.lastResponseBody, "email-parse-rfc822-" & $target.kind)
       .expect("captureIfRequested")
-    let parseResp = parseRespOuter.get(parseHandle).expect(
+    let parseResp = parseRespOuter.get(parseHandle).expectValue(
         "Email/parse extract[" & $target.kind & "]"
       )
     assertOn target,

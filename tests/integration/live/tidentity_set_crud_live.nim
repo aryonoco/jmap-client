@@ -128,7 +128,7 @@ testCase tIdentitySetCrudLive:
       let resp3 =
         client.send(b3.freeze()).expect("send Identity/get[" & $target.kind & "]")
       let getResp =
-        resp3.get(getHandle).expect("Identity/get extract[" & $target.kind & "]")
+        resp3.get(getHandle).expectValue("Identity/get extract[" & $target.kind & "]")
       assertOn target,
         getResp.list.len == 1,
         "Identity/get must return exactly one entry for the updated id (got " &

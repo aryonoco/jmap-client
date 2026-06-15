@@ -37,6 +37,7 @@ import std/typedthreads
 import results
 
 import jmap_client/internal/types/primitives
+import jmap_client/internal/types/validation
 import jmap_client/internal/mail/body
 import jmap_client/internal/mail/email_blueprint
 import jmap_client/internal/mail/headers
@@ -200,7 +201,9 @@ testCase hashDosExtraHeaders: # scenario 99d
   let collisionNames = adversarialHashCollisionNames(n)
   doAssert collisionNames.len == n
 
-  proc buildRun(names: seq[string]): Result[EmailBlueprint, EmailBlueprintErrors] =
+  proc buildRun(
+      names: seq[string]
+  ): Result[EmailBlueprint, NonEmptySeq[ValidationError]] =
     ## Builds a blueprint whose ``extraHeaders`` contains one hfText entry
     ## per supplied name; used by both the non-colliding and colliding runs.
     var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
@@ -224,23 +227,22 @@ testCase hashDosExtraHeaders: # scenario 99d
 testCase bodyPartPathMessageTotality: # scenario 99f
   ## ``BodyPartPath`` distinct-cast carries arbitrary ``seq[int]``
   ## content — including negative / ``int.low`` / ``int.high`` values.
-  ## ``message(e)`` for ``ebcBodyPartHeaderDuplicate`` must remain total
-  ## and bounded (<4 KiB) regardless of the integer content. Runs under
-  ## ``--panics:on`` (config.nims:23), so any ``RangeDefect`` would
-  ## ``rawQuit(1)`` the process — implicit via test completion.
+  ## The location render that feeds a body-part-duplicate diagnostic is
+  ## ``"multipart at path " & $path``, so the path stringification must remain
+  ## total and bounded regardless of the integer content. The constraint
+  ## classification is now module-private; ``$BodyPartPath`` is the public
+  ## boundary that carries the adversarial integers into the renderer. Runs
+  ## under ``--panics:on`` (config.nims:23), so any ``RangeDefect`` would
+  ## ``rawQuit(1)`` the process — totality is implicit via test completion.
   let adversarialPaths = @[
     initBodyPartPath(@[-1]),
     initBodyPartPath(@[int.high]),
     initBodyPartPath(@[0, int.low, 1]),
   ]
   for p in adversarialPaths:
-    let err = EmailBlueprintError(
-      constraint: ebcBodyPartHeaderDuplicate,
-      where: BodyPartLocation(kind: bplMultipart, path: p),
-      bodyPartDupName: "x-custom",
-    )
-    let msg = message(err)
-    doAssert msg.len < 4096, "message length " & $msg.len & " >= 4 KiB for path " & $p
+    let rendered = "multipart at path " & $p
+    doAssert rendered.len < 4096,
+      "rendered length " & $rendered.len & " >= 4 KiB for path " & $p
 
 # =============================================================================
 # Section B — §6.4.3 Error-accumulation stress
@@ -312,9 +314,11 @@ testCase bodyPartDupTenThousand: # scenario 101a
   let res = parseEmailBlueprint(
     mailboxIds = makeNonEmptyMailboxIdSet(), body = structuredBody(root)
   )
+  # The exact-count assertion pins that every violation accumulated. The old
+  # ``capacity <= 2n`` allocation-efficiency check is dropped: the error
+  # aggregate is now the sealed ``NonEmptySeq[ValidationError]`` whose backing
+  # seq capacity is not part of the observable surface.
   assertBlueprintErrCount res, n
-  let cap = res.unsafeError.capacity
-  doAssert cap <= 2 * n, "error-seq capacity " & $cap & " exceeds 2x bound"
 
 testCase topLevelDupCeilingAtEleven: # scenario 101b
   ## Design notes the realistic ceiling: ``Email`` has eleven convenience
@@ -358,9 +362,10 @@ testCase topLevelDupCeilingAtEleven: # scenario 101b
     extraHeaders = extra,
   )
   doAssert res.isErr
+  let topMarker = blueprintConstraintMarker(ebcEmailTopLevelHeaderDuplicate)
   var topLevelDupCount = 0
   for e in res.unsafeError.items:
-    if e.constraint == ebcEmailTopLevelHeaderDuplicate:
+    if topMarker in e.reason:
       inc topLevelDupCount
   doAssert topLevelDupCount == convenienceNames.len,
     "expected " & $convenienceNames.len & " top-level dups, got " & $topLevelDupCount
@@ -399,14 +404,15 @@ testCase allowedFormRejectedTenThousand: # scenario 101c
     mailboxIds = makeNonEmptyMailboxIdSet(), body = structuredBody(root)
   )
   assertBlueprintErrCount res, n
-  var distinctForms: HashSet[HeaderForm] = initHashSet[HeaderForm]()
+  # The typed ``rejectedName`` / ``rejectedForm`` fields are internalised; each
+  # rejection's reason carries the allowed-form marker, the rejected header
+  # name ("subject"), and the rejected form's wire spelling ("asDate" = $hfDate).
+  let formMarker = blueprintConstraintMarker(ebcAllowedFormRejected)
+  let dateForm = $hfDate
   for e in res.unsafeError.items:
-    doAssert e.constraint == ebcAllowedFormRejected
-    doAssert e.rejectedName == "subject"
-    distinctForms.incl e.rejectedForm
-  doAssert distinctForms == toHashSet([hfDate])
-  let cap = res.unsafeError.capacity
-  doAssert cap <= 2 * n, "error-seq capacity " & $cap & " exceeds 2x bound"
+    doAssert formMarker in e.reason
+    doAssert "subject" in e.reason
+    doAssert dateForm in e.reason, "every rejection must be for the date form"
 
 # =============================================================================
 # Section C — §6.4.4 rows 102a, 102c

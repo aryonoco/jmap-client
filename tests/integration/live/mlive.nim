@@ -58,6 +58,42 @@ export mtransport
 # each have to re-import the internal paths.
 export builder, identifiers
 
+proc extractOutcome*[T](
+    r: Result[MethodOutcome[T], JmapError], ctx: string
+): Result[T, string] =
+  ## Collapses the two-stage dispatch result into the live helpers'
+  ## narrative ``Result[T, string]``. ``handle.get`` now returns
+  ## ``Result[MethodOutcome[T], JmapError]``: a dispatch-rail fault
+  ## (jeMisuse / jeProtocol / …) and a server method error
+  ## (``mokMethodError``) both collapse to an ``err`` here, while the typed
+  ## value rides ``ok``. ``ctx`` brands the failing method (e.g.
+  ## ``"Mailbox/get"``).
+  let outcome = r.valueOr:
+    return err(ctx & " extract failed: " & error.message)
+  case outcome.kind
+  of mokValue:
+    ok(outcome.value)
+  of mokMethodError:
+    err(ctx & " method error: " & outcome.error.rawType)
+
+proc expectValue*[T](r: Result[MethodOutcome[T], JmapError], msg: string): T =
+  ## Test-body unwrap mirroring the pre-refactor ``.get(handle).expect``
+  ## semantics: under the old ``GetError`` rail a server method error was an
+  ## ``err`` that ``.expect`` panicked on, so success paths that asserted a
+  ## typed value treated a method error as fatal. Now method errors are DATA
+  ## (``MethodOutcome.mokMethodError``); this helper restores the
+  ## panic-on-unexpected-error behaviour — it raises on a dispatch-rail
+  ## ``JmapError`` AND on a ``mokMethodError`` — and returns the typed value.
+  ## Tests that legitimately expect a method error use
+  ## ``assertSuccessOrTypedError`` (or inspect the ``MethodOutcome`` directly).
+  let outcome = r.valueOr:
+    raiseAssert(msg & ": dispatch rail error: " & error.message)
+  case outcome.kind
+  of mokValue:
+    outcome.value
+  of mokMethodError:
+    raiseAssert(msg & ": unexpected server method error: " & outcome.error.rawType)
+
 proc makeBuilderId*(): BuilderId =
   ## A6-brand helper for live tests — fixed ``(0, 0)`` brand is
   ## sufficient because every handle/dispatched-response pair in a
@@ -148,8 +184,7 @@ proc resolveInboxId*(client: JmapClient, mailAccountId: AccountId): Result[Id, s
   let (b, mbHandle) = addMailboxGet(initRequestBuilder(makeBuilderId()), mailAccountId)
   let resp = client.send(b.freeze()).valueOr:
     return err("Mailbox/get send failed: " & error.message)
-  let mbResp = resp.get(mbHandle).valueOr:
-    return err("Mailbox/get extract failed: " & error.message)
+  let mbResp = ?extractOutcome(resp.get(mbHandle), "Mailbox/get")
   for mb in mbResp.list:
     for role in mb.role:
       if role == roleInbox:
@@ -175,8 +210,7 @@ proc emailSetCreate(
   )
   let resp = client.send(b.freeze()).valueOr:
     return err("Email/set send failed: " & error.message)
-  let setResp = resp.get(setHandle).valueOr:
-    return err("Email/set extract failed: " & error.message)
+  let setResp = ?extractOutcome(resp.get(setHandle), "Email/set")
   var seededId: Id
   var found = false
   setResp.createResults.withValue(cid, outcome):
@@ -494,8 +528,7 @@ proc resolveOrCreateMailbox*(
   let (b1, mbHandle) = addMailboxGet(initRequestBuilder(makeBuilderId()), mailAccountId)
   let resp1 = client.send(b1.freeze()).valueOr:
     return err("Mailbox/get send failed: " & error.message)
-  let mbResp = resp1.get(mbHandle).valueOr:
-    return err("Mailbox/get extract failed: " & error.message)
+  let mbResp = ?extractOutcome(resp1.get(mbHandle), "Mailbox/get")
   for mb in mbResp.list:
     if mb.name == name:
       return ok(mb.id)
@@ -511,8 +544,7 @@ proc resolveOrCreateMailbox*(
   )
   let resp2 = client.send(b2.freeze()).valueOr:
     return err("Mailbox/set send failed: " & error.message)
-  let setResp = resp2.get(setHandle).valueOr:
-    return err("Mailbox/set extract failed: " & error.message)
+  let setResp = ?extractOutcome(resp2.get(setHandle), "Mailbox/set")
   var createdId: Id
   var found = false
   setResp.createResults.withValue(cid, outcome):
@@ -580,8 +612,7 @@ proc getFirstAttachmentBlobId*(
   )
   let resp = client.send(b.freeze()).valueOr:
     return err("Email/get send failed: " & error.message)
-  let getResp = resp.get(getHandle).valueOr:
-    return err("Email/get extract failed: " & error.message)
+  let getResp = ?extractOutcome(resp.get(getHandle), "Email/get")
   if getResp.list.len == 0:
     return err("Email/get returned empty list for " & $emailId)
   let email = getResp.list[0]
@@ -658,8 +689,7 @@ proc resolveOrCreateRoleMailbox(
   let (b1, mbHandle) = addMailboxGet(initRequestBuilder(makeBuilderId()), mailAccountId)
   let resp1 = client.send(b1.freeze()).valueOr:
     return err("Mailbox/get send failed: " & error.message)
-  let mbResp = resp1.get(mbHandle).valueOr:
-    return err("Mailbox/get extract failed: " & error.message)
+  let mbResp = ?extractOutcome(resp1.get(mbHandle), "Mailbox/get")
   for mb in mbResp.list:
     for r in mb.role:
       if r == role:
@@ -678,8 +708,7 @@ proc resolveOrCreateRoleMailbox(
   )
   let resp2 = client.send(b2.freeze()).valueOr:
     return err("Mailbox/set send failed: " & error.message)
-  let setResp = resp2.get(setHandle).valueOr:
-    return err("Mailbox/set extract failed: " & error.message)
+  let setResp = ?extractOutcome(resp2.get(setHandle), "Mailbox/set")
   var createdId: Id
   var found = false
   setResp.createResults.withValue(cid, outcome):
@@ -824,8 +853,7 @@ proc trySubmissionGet(
   )
   let resp = client.send(b.freeze()).valueOr:
     return err("EmailSubmission/get send failed: " & error.message)
-  let getResp = resp.get(getHandle).valueOr:
-    return err("EmailSubmission/get extract failed: " & error.message)
+  let getResp = ?extractOutcome(resp.get(getHandle), "EmailSubmission/get")
   if getResp.list.len > 0:
     let any = getResp.list[0]
     let final = any.asFinal()
@@ -927,7 +955,7 @@ proc pollSubmissionDelivery*(
 # Phase G — multi-principal + cancel-pending helpers
 # ---------------------------------------------------------------------------
 
-proc initBobClient*(cfg: LiveTestTarget): Result[JmapClient, ValidationError] =
+proc initBobClient*(cfg: LiveTestTarget): Result[JmapClient, JmapError] =
   ## Sibling of the alice-flavoured ``initJmapClient`` idiom each Phase A–F
   ## test inlines. Constructs a ``JmapClient`` authenticating as bob via
   ## ``cfg.bobCredential``. The Result rail mirrors ``initJmapClient`` directly —
@@ -1010,8 +1038,7 @@ proc resolveOrCreateAliceIdentity*(
     addIdentityGet(initRequestBuilder(makeBuilderId()), submissionAccountId)
   let resp1 = client.send(b1.freeze()).valueOr:
     return err("Identity/get send failed: " & error.message)
-  let getResp = resp1.get(getHandle).valueOr:
-    return err("Identity/get extract failed: " & error.message)
+  let getResp = ?extractOutcome(resp1.get(getHandle), "Identity/get")
   var fallbackId: Opt[Id] = Opt.none(Id)
   for ident in getResp.list:
     if ident.email == "alice@example.com":
@@ -1033,8 +1060,7 @@ proc resolveOrCreateAliceIdentity*(
   )
   let resp2 = client.send(b2.freeze()).valueOr:
     return err("Identity/set send failed: " & error.message)
-  let setResp = resp2.get(setHandle).valueOr:
-    return err("Identity/set extract failed: " & error.message)
+  let setResp = ?extractOutcome(resp2.get(setHandle), "Identity/set")
   var createdId: Id
   var found = false
   setResp.createResults.withValue(cid, outcome):
@@ -1068,8 +1094,7 @@ proc pollSubmissionPending*(
     )
     let resp = client.send(b.freeze()).valueOr:
       return err("EmailSubmission/get send failed: " & error.message)
-    let getResp = resp.get(getHandle).valueOr:
-      return err("EmailSubmission/get extract failed: " & error.message)
+    let getResp = ?extractOutcome(resp.get(getHandle), "EmailSubmission/get")
     if getResp.list.len > 0:
       let any = getResp.list[0]
       let pending = any.asPending()
@@ -1140,8 +1165,7 @@ proc pollEmailQueryIndexed*(
     )
     let resp = client.send(b.freeze()).valueOr:
       return err("Email/query send failed: " & error.message)
-    let queryResp = resp.get(queryHandle).valueOr:
-      return err("Email/query extract failed: " & error.message)
+    let queryResp = ?extractOutcome(resp.get(queryHandle), "Email/query")
     let ids = queryResp.ids
     var allPresent = true
     for expected in expectedIds:
@@ -1183,8 +1207,7 @@ proc findEmailBySubjectInMailbox*(
     )
     let resp = client.send(b.freeze()).valueOr:
       return err("Email/query send failed: " & error.message)
-    let queryResp = resp.get(queryHandle).valueOr:
-      return err("Email/query extract failed: " & error.message)
+    let queryResp = ?extractOutcome(resp.get(queryHandle), "Email/query")
     if queryResp.ids.len > 0:
       return ok(queryResp.ids[0])
     sleep(intervalMs)
@@ -1232,8 +1255,7 @@ proc pollEmailDeliveryToInbox*(
     )
     let resp1 = client.send(b1.freeze()).valueOr:
       return err("Email/query send failed: " & error.message)
-    let qr = resp1.get(queryHandle).valueOr:
-      return err("Email/query extract failed: " & error.message)
+    let qr = ?extractOutcome(resp1.get(queryHandle), "Email/query")
     if qr.ids.len > 0:
       let (b2, getHandle) = addPartialEmailGet(
         initRequestBuilder(makeBuilderId()),
@@ -1243,8 +1265,7 @@ proc pollEmailDeliveryToInbox*(
       )
       let resp2 = client.send(b2.freeze()).valueOr:
         return err("Email/get send failed: " & error.message)
-      let gr = resp2.get(getHandle).valueOr:
-        return err("Email/get extract failed: " & error.message)
+      let gr = ?extractOutcome(resp2.get(getHandle), "Email/get")
       for emailRec in gr.list:
         case emailRec.subject.kind
         of fekValue:
@@ -1273,7 +1294,7 @@ template assertOn*(target: LiveTestTarget, cond: bool) =
 
 template assertSuccessOrTypedError*[T](
     target: LiveTestTarget,
-    extract: Result[T, GetError],
+    extract: Result[MethodOutcome[T], JmapError],
     allowedErrors: set[MethodErrorKind],
     onSuccess: untyped,
 ) =
@@ -1288,10 +1309,12 @@ template assertSuccessOrTypedError*[T](
   ##   must be in ``allowedErrors`` — exercising the client's typed-
   ##   error projection against a real-world server response.
   ##
-  ## Under A6 the inner railway is ``GetError``; the ``gekMethod`` arm
-  ## wraps the original ``MethodError`` verbatim, while
-  ## ``gekHandleMismatch`` indicates a programming bug (handle from a
-  ## different builder) and is fatal here.
+  ## A server method-level error is now DATA: it rides the ok branch as
+  ## ``MethodOutcome.mokMethodError`` (carrying the original
+  ## ``MethodError``), which is what ``allowedErrors`` is checked against. A
+  ## rail ``JmapError`` here is always a dispatch fault — a programming bug
+  ## (``jeMisuse``) or a malformed/missing server response (``jeProtocol``) —
+  ## and is fatal.
   ##
   ## Both arms are positive client-library contract assertions; the
   ## test never branches its assertion on which server replied. See
@@ -1301,18 +1324,21 @@ template assertSuccessOrTypedError*[T](
   ## against any RFC-conformant JMAP server …").
   case extract.isOk
   of true:
-    let success {.inject.} = extract.unsafeValue
-    onSuccess
+    let outcome = extract.unsafeValue
+    case outcome.kind
+    of mokValue:
+      let success {.inject.} = outcome.value
+      onSuccess
+    of mokMethodError:
+      assertOn target,
+        outcome.error.kind in allowedErrors,
+        "method error must be in allowed set " & $allowedErrors & " (got rawType=" &
+          outcome.error.rawType & ")"
   of false:
-    let getErr = extract.unsafeError
     assertOn target,
-      getErr.kind == gekMethod,
-      "inner-railway error must be gekMethod, not gekHandleMismatch"
-    let methodErr = getErr.methodErr
-    assertOn target,
-      methodErr.kind in allowedErrors,
-      "method error must be in allowed set " & $allowedErrors & " (got rawType=" &
-        methodErr.rawType & ")"
+      false,
+      "dispatch failed on the rail (not a server method error): " &
+        extract.unsafeError.message
 
 proc seedMultiRecipientDraft*(
     client: JmapClient,
@@ -1373,8 +1399,7 @@ proc captureBaselineState*[T](
     addGet[T](initRequestBuilder(makeBuilderId()), accountId, ids = directIds(@[]))
   let resp = client.send(b.freeze()).valueOr:
     return err("captureBaselineState[" & $T & "]: send failed: " & error.message)
-  let getResp = resp.get(getHandle).valueOr:
-    return err("captureBaselineState[" & $T & "]: extract failed: " & error.message)
+  let getResp = ?extractOutcome(resp.get(getHandle), "captureBaselineState[" & $T & "]")
   ok(getResp.state)
 
 # ---------------------------------------------------------------------------
@@ -1492,8 +1517,8 @@ proc seedSubmissionCorpus*(
     )
     let resp = client.send(b.freeze()).valueOr:
       return err("seedSubmissionCorpus[" & $i & "] send: " & error.message)
-    let setResp = resp.get(setHandle).valueOr:
-      return err("seedSubmissionCorpus[" & $i & "] extract: " & error.message)
+    let setResp =
+      ?extractOutcome(resp.get(setHandle), "seedSubmissionCorpus[" & $i & "]")
     var submissionId: Id
     var createdItem: EmailSubmissionCreatedItem
     var found = false
@@ -1557,7 +1582,7 @@ func injectBrokenBackReference*(
 
 proc postRawJmap*(
     target: LiveTestTarget, session: Session, body: string, credential: Credential
-): tuple[respBody: string, envelopeResult: Result[envelope.Response, ClientError]] {.
+): tuple[respBody: string, envelopeResult: Result[envelope.Response, JmapError]] {.
     used
 .} =
   ## Test helper: POSTs ``body`` verbatim to the session's apiUrl via a
@@ -1569,10 +1594,10 @@ proc postRawJmap*(
   ## public Transport API plus the H10-permitted internal classify
   ## helper. Used by Phase J Steps 61, 62, 67, 68, 70, 72, 74.
   let transport = newHttpTransport().valueOr:
-    let te = clientError(
+    let te = jmapTransport(
       transportError(tekNetwork, "newHttpTransport failed: " & error.message)
     )
-    let envR = Result[envelope.Response, ClientError].err(te)
+    let envR = Result[envelope.Response, JmapError].err(te)
     return (respBody: "", envelopeResult: envR)
   let req = HttpRequest(
     url: resolveAgainstSession(target.sessionUrl, session.apiUrl),
@@ -1581,7 +1606,7 @@ proc postRawJmap*(
     authorization: credential.authorizationHeaderValue,
   )
   let httpResp = transport.send(req).valueOr:
-    let envR = Result[envelope.Response, ClientError].err(clientError(error))
+    let envR = Result[envelope.Response, JmapError].err(jmapTransport(error))
     return (respBody: "", envelopeResult: envR)
   (respBody: httpResp.body, envelopeResult: parseJmapResponse(httpResp, rcApi))
 
@@ -1593,7 +1618,7 @@ proc postRawSingleInvocation*(
     methodName: string,
     arguments: JsonNode,
     callId: string = "c0",
-): tuple[respBody: string, envelopeResult: Result[envelope.Response, ClientError]] {.
+): tuple[respBody: string, envelopeResult: Result[envelope.Response, JmapError]] {.
     used
 .} =
   ## Test helper: builds a one-invocation Request JSON and dispatches

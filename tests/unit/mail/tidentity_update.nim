@@ -60,9 +60,9 @@ testCase initIdentityUpdateSetEmpty:
   let res = initIdentityUpdateSet(@[])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "IdentityUpdateSet"
-  assertEq res.error[0].reason, "must contain at least one update"
-  assertEq res.error[0].value, ""
+  assertEq res.error.head.typeName, "IdentityUpdateSet"
+  assertEq res.error.head.reason, "must contain at least one update"
+  assertEq res.error.head.value, ""
 
 testCase initIdentityUpdateSetSingleValid:
   assertOk initIdentityUpdateSet(@[setName("Alice")])
@@ -71,9 +71,9 @@ testCase initIdentityUpdateSetTwoSameKind:
   let res = initIdentityUpdateSet(@[setName("Alice"), setName("Bob")])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "IdentityUpdateSet"
-  assertEq res.error[0].reason, "duplicate target property"
-  assertEq res.error[0].value, "iuSetName"
+  assertEq res.error.head.typeName, "IdentityUpdateSet"
+  assertEq res.error.head.reason, "duplicate target property"
+  assertEq res.error.head.value, "iuSetName"
 
 testCase initIdentityUpdateSetThreeSameKind:
   ## Three occurrences of the same kind still yield ONE error —
@@ -81,7 +81,7 @@ testCase initIdentityUpdateSetThreeSameKind:
   let res = initIdentityUpdateSet(@[setName("A"), setName("B"), setName("C")])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].value, "iuSetName"
+  assertEq res.error.head.value, "iuSetName"
 
 testCase initIdentityUpdateSetTwoDistinctRepeated:
   ## Two distinct repeated kinds → TWO errors, one per distinct
@@ -108,8 +108,8 @@ testCase parseNonEmptyIdentityUpdatesEmpty:
   let res = parseNonEmptyIdentityUpdates(newSeq[(Id, IdentityUpdateSet)]())
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "NonEmptyIdentityUpdates"
-  assertEq res.error[0].reason, "must contain at least one entry"
+  assertEq res.error.head.typeName, "NonEmptyIdentityUpdates"
+  assertEq res.error.head.reason, "must contain at least one entry"
 
 testCase parseNonEmptyIdentityUpdatesDuplicateId:
   let id1 = parseIdFromServer("idt1").get()
@@ -118,7 +118,7 @@ testCase parseNonEmptyIdentityUpdatesDuplicateId:
   let res = parseNonEmptyIdentityUpdates(@[(id1, us1), (id1, us2)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].reason, "duplicate identity id"
+  assertEq res.error.head.reason, "duplicate identity id"
 
 testCase parseNonEmptyIdentityUpdatesTwoDistinctIds:
   let id1 = parseIdFromServer("idt1").get()

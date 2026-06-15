@@ -166,7 +166,7 @@ testCase submissionParamAdversarialGroup:
     let two = bodyParam(beEightBitMime)
     let res = parseSubmissionParams(@[one, two])
     assertErr res
-    doAssert res.error[0].reason.contains("duplicate parameter key")
+    doAssert res.error.head.reason.contains("duplicate parameter key")
 
 # =============================================================================
 # Block 3 — Envelope serde coherence (§8.2.3 Block 3, 7 named cases)
@@ -239,7 +239,7 @@ testCase envelopeCoherenceGroup:
     let alice = makeSubmissionAddress()
     let res = parseNonEmptyRcptList(@[alice, alice])
     assertErr res
-    doAssert res.error[0].reason.contains("duplicate recipient mailbox")
+    doAssert res.error.head.reason.contains("duplicate recipient mailbox")
 
   block envelopeOptNoneVsEmptyParams:
     # G34: Opt.none(SubmissionParams) toJson -> "parameters": null;
@@ -456,9 +456,10 @@ testCase getBothSubmissionAdversarialGroup:
   block getBothInnerMethodError:
     # Inner Email/set position carries a server ``error`` envelope. The
     # NameBoundHandle filter compares on method-name — an ``error``
-    # invocation does NOT match ``"Email/set"``, so the dispatch returns
-    # serverFail (design-documented limitation; see F precedent at
-    # ``getBothImplicitDestroyMethodError``).
+    # invocation does NOT match ``"Email/set"``, so the inner slot is a
+    # missing call and rides ``jeProtocol`` / ``pfMissingCall`` on the rail
+    # (design-documented limitation; see F precedent at
+    # ``getBothImplicitDestroyErrorTag``).
     let handles = makeEmailSubmissionHandles()
     let errArgs = %*{"type": "accountNotFound"}
     let resp = initResponse(
@@ -473,8 +474,8 @@ testCase getBothSubmissionAdversarialGroup:
     assertErr res
 
   block getBothInnerAbsent:
-    # §8.6 row 3: outer ok but no inner Email/set invocation at all.
-    # NameBoundHandle dispatch surfaces serverFail MethodError.
+    # §8.6 row 3: outer ok but no inner Email/set invocation at all — the
+    # implicit slot is a missing call: ``jeProtocol`` / ``pfMissingCall``.
     let handles = makeEmailSubmissionHandles()
     let resp = initResponse(
       @[
@@ -507,7 +508,7 @@ testCase getBothSubmissionAdversarialGroup:
     # §8.6 row 5: outer ok (notCreated sole entry, no inner invocation).
     # getBoth does NOT synthesise — the emailSet NameBoundHandle cannot
     # resolve without an inner invocation at the shared call-id, so the
-    # dispatch surfaces a serverFail MethodError.
+    # implicit slot rails ``jeProtocol`` / ``pfMissingCall``.
     let handles = makeEmailSubmissionHandles()
     var outerArgs = emailSubmissionSetOkArgs()
     outerArgs["notCreated"] = %*{"c1": {"type": "invalidProperties"}}
@@ -520,7 +521,9 @@ testCase getBothSubmissionAdversarialGroup:
     assertErr res
 
   block getBothOuterIfInStateMismatch:
-    # §8.6 row 6: outer returns error invocation; inner never reached.
+    # §8.6 row 6: the outer is an ``error`` tag (a method error — data now,
+    # riding the primary MethodOutcome); the absent inner rails
+    # ``jeProtocol`` / ``pfMissingCall``, so getBoth still errs.
     let handles = makeEmailSubmissionHandles()
     let errArgs = %*{"type": "stateMismatch"}
     let resp = initResponse(
@@ -570,7 +573,7 @@ testCase scaleInvariantsGroup:
     let res = parseNonEmptyEmailSubmissionUpdates(items)
     assertErr res
     assertLen res.error, 1
-    doAssert res.error[0].reason.contains("duplicate submission id")
+    doAssert res.error.head.reason.contains("duplicate submission id")
 
   block submissionParams1kExtensionEntries:
     # Linear-scaling pin: 1000 spkExtension entries with distinct names.
@@ -600,7 +603,7 @@ testCase scaleInvariantsGroup:
     let res = parseNonEmptyRcptList(items)
     assertErr res
     assertLen res.error, 1
-    doAssert res.error[0].reason.contains("duplicate recipient mailbox")
+    doAssert res.error.head.reason.contains("duplicate recipient mailbox")
 
 # See tests/stress/tadversarial_mail_f.nim for JSON-structural attacks
 # (BOM, NaN/Infinity, deep nesting, duplicate keys, 1 MB strings, cast

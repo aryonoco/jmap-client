@@ -44,9 +44,13 @@ static:
   doAssert declared(EmailBlueprint)
   doAssert declared(EmailBlueprintBody)
   doAssert declared(EmailBodyKind)
-  doAssert declared(EmailBlueprintConstraint)
-  doAssert declared(EmailBlueprintError)
-  doAssert declared(EmailBlueprintErrors)
+  # A12/P13 — the constraint classification and its error aggregate were
+  # internalised: each violation now flattens onto
+  # ``NonEmptySeq[ValidationError]`` (the type ``parseEmailBlueprint`` returns),
+  # so these are no longer reachable through the hub.
+  doAssert not declared(EmailBlueprintConstraint)
+  doAssert not declared(EmailBlueprintError)
+  doAssert not declared(EmailBlueprintErrors)
   doAssert declared(BodyPartPath)
   doAssert declared(BodyPartLocation)
   doAssert declared(BodyPartLocationKind)

@@ -25,7 +25,23 @@ two non-consumer leaf rails go internal.
 ## STATE / HANDOFF  (update this block as each phase lands)
 
 - **Branch:** `api/s1-one-error-rail` (off `main`, after S0 merge).
-- **Current phase:** Phase 6 **complete**; Phase 7 next.
+- **Current phase:** Phase 7 **complete**; Phase 8 next.
+- **Phase 7 done (commit pending this turn):** Regenerated the wire-contract
+  snapshots via the S0 oracle (`errorCounter=0`, 1661 rows) — diff is exactly as
+  designed (ClientError/GetError/EmailBlueprintError(s)/TokenViolation/
+  SmtpReplyViolation gone; JmapError + sub-types + MethodOutcome + jmap*/lift/
+  toJmapError/requirePrimaryAccount + reshaped get/getBoth/getAll/initJmapClient
+  added). Migrated ~110 test files to the new shapes (get→MethodOutcome, method
+  errors as data, jeMisuse/jeProtocol, NonEmptySeq validation, JmapError arms);
+  the surface-audit compile tests now actively assert the new surface present +
+  retired rails ABSENT. Regenerated the h15 error-message snapshot (updated
+  `scripts/freeze_error_messages.nim` — a necessary generator exception — to a
+  JmapError sample set). Added an S1 resolution ledger to
+  `examples/jmap-cli/AUDIT.md` mapping each error-rail finding to its fix (rail
+  aspects resolved; ceremony/read-model aspects flagged for S2–S4).
+  **`just test` → "All tests passed" (exit 0), independently re-run**; all 73
+  live integration files compile; `just fmt-check` green. (Live suite itself runs
+  in Phase 8.)
 - **Phase 6 done (commit pending this turn):** `convenience.nim` needed no
   rewrite — Phases 3/4 already migrated its `getBoth` to `MethodOutcome`/
   `JmapError`; a rail-smell scan found no string rails or conversion shims.
@@ -127,7 +143,7 @@ two non-consumer leaf rails go internal.
 - [x] Phase 4 — `get`/`getBoth`/`getAll` → `MethodOutcome`; retire `GetError`
 - [x] Phase 5 — `jeSession` producer + privatise `TokenViolation`/`SmtpReplyViolation`
 - [x] Phase 6 — fix consumers (`convenience.nim` clean; `examples/jmap-cli` rewritten)
-- [ ] Phase 7 — regenerate oracle contract + sweep tests + AUDIT triage
+- [x] Phase 7 — regenerate oracle contract + sweep tests + AUDIT triage
 - [ ] Phase 8 — both gates green + adversarial review + finalize
 
 ---

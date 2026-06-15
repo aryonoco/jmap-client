@@ -7,7 +7,7 @@
 ## ``parseRequestErrorKind`` is total: unknown URIs project to
 ## ``retUnknown`` with the URI captured in ``rawType``.
 ## The internal classify pipeline routes request-level JMAP errors
-## into the ``cekRequest`` arm of ``ClientError``, distinct from
+## into the ``jeRequest`` arm of ``JmapError``, distinct from
 ## transport-layer errors.
 ##
 ## Phase J Step 61.  Four sequential adversarial POSTs drive Stalwart
@@ -17,7 +17,7 @@
 ##
 ## **Library-contract vs server-compliance separation.**  This live
 ## test asserts the library's projection contract — closed-enum
-## membership, rawType preservation, cekRequest arm — without
+## membership, rawType preservation, jeRequest arm — without
 ## hard-coding which specific URI Stalwart returns per scenario.
 ## Stalwart's empirical URI choices are pinned byte-for-byte by the
 ## four captured fixtures; the parser-only replay tests under
@@ -47,7 +47,7 @@ testCase trequestLevelErrorsLive:
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
 
     # Sub-test 1: non-JSON input.  Strict library-contract assertions:
-    # the response must arrive on the cekRequest arm; rawType must be
+    # the response must arrive on the jeRequest arm; rawType must be
     # losslessly preserved and shaped as a JMAP error URI; errorType
     # must project into the closed RequestErrorKind enum.
     block notJsonCase:
@@ -59,8 +59,7 @@ testCase trequestLevelErrorsLive:
       assertOn target, res.isErr, "expected RequestError on non-JSON body"
       let ce = res.error
       assertOn target,
-        ce.kind == cekRequest,
-        "expected cekRequest, got " & $ce.kind & ": " & ce.message
+        ce.kind == jeRequest, "expected jeRequest, got " & $ce.kind & ": " & ce.message
       assertOn target,
         ce.request.rawType.len > 0, "rawType must be losslessly preserved (non-empty)"
       assertOn target,
@@ -83,8 +82,7 @@ testCase trequestLevelErrorsLive:
       assertOn target, res.isErr, "expected RequestError on top-level-array body"
       let ce = res.error
       assertOn target,
-        ce.kind == cekRequest,
-        "expected cekRequest, got " & $ce.kind & ": " & ce.message
+        ce.kind == jeRequest, "expected jeRequest, got " & $ce.kind & ": " & ce.message
       assertOn target,
         ce.request.rawType.len > 0, "rawType must be losslessly preserved (non-empty)"
       assertOn target,
@@ -106,8 +104,7 @@ testCase trequestLevelErrorsLive:
       assertOn target, res.isErr, "expected RequestError on unknown capability URI"
       let ce = res.error
       assertOn target,
-        ce.kind == cekRequest,
-        "expected cekRequest, got " & $ce.kind & ": " & ce.message
+        ce.kind == jeRequest, "expected jeRequest, got " & $ce.kind & ": " & ce.message
       assertOn target,
         ce.request.rawType.len > 0, "rawType must be losslessly preserved (non-empty)"
       assertOn target,
@@ -136,8 +133,8 @@ testCase trequestLevelErrorsLive:
       assertOn target, res.isErr, "expected RequestError on over-limit body"
       let ce = res.error
       assertOn target,
-        ce.kind == cekRequest,
-        "expected cekRequest on over-limit, got " & $ce.kind & ": " & ce.message
+        ce.kind == jeRequest,
+        "expected jeRequest on over-limit, got " & $ce.kind & ": " & ce.message
       assertOn target,
         ce.request.rawType.len > 0, "rawType must be losslessly preserved (non-empty)"
       assertOn target,

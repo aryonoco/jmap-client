@@ -75,8 +75,9 @@ testCase tEmailBobReceivesAliceDeliveryLive:
     let resp3 = aliceClient.send(b3.freeze()).expect(
         "send EmailSubmission/set[" & $target.kind & "]"
       )
-    let subSetResp =
-      resp3.get(subHandle).expect("EmailSubmission/set extract[" & $target.kind & "]")
+    let subSetResp = resp3.get(subHandle).expectValue(
+        "EmailSubmission/set extract[" & $target.kind & "]"
+      )
     var submissionId: Id
     subSetResp.createResults.withValue(subCid, outcome):
       assertOn target,
@@ -144,7 +145,8 @@ testCase tEmailBobReceivesAliceDeliveryLive:
       bobRecorder.lastResponseBody, "bob-inbox-after-alice-delivery-" & $target.kind
     )
       .expect("captureIfRequested")
-    let getResp = resp4.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
+    let getResp =
+      resp4.get(getHandle).expectValue("Email/get extract[" & $target.kind & "]")
     assertOn target,
       getResp.list.len == 1,
       "bob's Email/get must return exactly one entry for the delivered id (got " &

@@ -13,6 +13,7 @@ import jmap_client/internal/types/capabilities
 import jmap_client/internal/types/errors
 import jmap_client/internal/serialisation/serde_errors
 import jmap_client/internal/types/validation
+import jmap_client/internal/protocol/jmap_error
 import ../mproperty
 import ../mtestblock
 
@@ -97,9 +98,9 @@ testCase propSetErrorRawTypePreserved:
     doAssert setError(s).rawType == s
 
 testCase propClientErrorMessageNonEmpty:
-  let te = clientError(transportError(tekNetwork, "msg"))
+  let te = jmapTransport(transportError(tekNetwork, "msg"))
   doAssert te.message.len > 0
-  let re = clientError(requestError("urn:ietf:params:jmap:error:limit"))
+  let re = jmapRequest(requestError("urn:ietf:params:jmap:error:limit"))
   doAssert re.message.len > 0
 
 testCase propSetErrorDefensiveFallback:
@@ -178,20 +179,20 @@ testCase propSetErrorRawTypePreservation:
 # --- ClientError lift preservation ---
 
 testCase propClientErrorLiftTransport:
-  checkProperty "clientError(te).kind == cekTransport and transport preserved":
+  checkProperty "jmapTransport(te).kind == jeTransport and transport preserved":
     let te = genTransportError(rng)
-    let ce = clientError(te)
-    doAssert ce.kind == cekTransport
+    let ce = jmapTransport(te)
+    doAssert ce.kind == jeTransport
     doAssert ce.transport.kind == te.kind
     doAssert ce.transport.message == te.message
     if te.kind == tekHttpStatus:
       doAssert ce.transport.httpStatus == te.httpStatus
 
 testCase propClientErrorLiftRequest:
-  checkProperty "clientError(re).kind == cekRequest and request preserved":
+  checkProperty "jmapRequest(re).kind == jeRequest and request preserved":
     let re = genRequestError(rng)
-    let ce = clientError(re)
-    doAssert ce.kind == cekRequest
+    let ce = jmapRequest(re)
+    doAssert ce.kind == jeRequest
     doAssert ce.request.kind == re.kind
     doAssert ce.request.rawType == re.rawType
     doAssert ce.request.status == re.status
@@ -251,10 +252,10 @@ testCase propGenSetErrorFieldPreservation:
 
 testCase propGenClientErrorFieldPreservation:
   checkProperty "genClientError message always non-empty and kind disjoint":
-    let ce = genClientError(rng)
+    let ce = genJmapTransportOrRequest(rng)
     lastInput = ce.message
     doAssert ce.message.len > 0
-    doAssert (ce.kind == cekTransport) != (ce.kind == cekRequest)
+    doAssert (ce.kind == jeTransport) != (ce.kind == jeRequest)
 
 # =============================================================================
 # Phase 4B: Extras preservation through round-trip
@@ -324,7 +325,7 @@ testCase propMessageDeterminism:
     doAssert me.message == me.message
     let se = genSetError(rng)
     doAssert se.message == se.message
-    let ce = genClientError(rng)
+    let ce = genJmapTransportOrRequest(rng)
     doAssert ce.message == ce.message
 
 testCase propMessageNoControlBytes:
@@ -345,7 +346,7 @@ testCase propMessageNoControlBytes:
     doAssert noCtl(me.message)
     let se = genSetError(rng)
     doAssert noCtl(se.message)
-    let ce = genClientError(rng)
+    let ce = genJmapTransportOrRequest(rng)
     doAssert noCtl(ce.message)
 
 testCase propMessageBoundedLength:
@@ -362,7 +363,7 @@ testCase propMessageBoundedLength:
     doAssert me.message.len <= 4096
     let se = genSetError(rng)
     doAssert se.message.len <= 4096
-    let ce = genClientError(rng)
+    let ce = genJmapTransportOrRequest(rng)
     doAssert ce.message.len <= 4096
 
 testCase propMessageLosslessClassification:

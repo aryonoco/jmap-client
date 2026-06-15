@@ -65,12 +65,15 @@ testCase tmailboxQueryChangesLive:
     let resp1 = client.send(b1.freeze()).expect(
         "send Mailbox/query baseline[" & $target.kind & "]"
       )
-    let queryExtract = resp1.get(queryHandle)
-    if queryExtract.isErr:
+    let queryOutcome = resp1.get(queryHandle).expect(
+        "Mailbox/query baseline dispatch[" & $target.kind & "]"
+      )
+    if queryOutcome.kind == mokMethodError:
       # Cat-B error arm — server rejected the no-filter Mailbox/query
-      # shape (e.g. James). The typed-error projection has fired.
+      # shape (e.g. James). The method error now rides the ok rail as
+      # data (``mokMethodError``).
       continue
-    let queryResp = queryExtract.unsafeValue
+    let queryResp = queryOutcome.value
     let queryState1 = queryResp.queryState
     let baselineCount = queryResp.ids.len
 
@@ -92,7 +95,7 @@ testCase tmailboxQueryChangesLive:
       recorder.lastResponseBody, "mailbox-query-changes-with-total-" & $target.kind
     )
       .expect("captureIfRequested with-total")
-    let qcr = resp2.get(qcHandle).expect(
+    let qcr = resp2.get(qcHandle).expectValue(
         "Mailbox/queryChanges with-total extract[" & $target.kind & "]"
       )
     assertOn target,
@@ -138,16 +141,17 @@ testCase tmailboxQueryChangesLive:
       recorder.lastResponseBody, "mailbox-query-changes-no-total-" & $target.kind
     )
       .expect("captureIfRequested no-total")
-    let qcrNoTotalExtract = resp3.get(qcNoTotalHandle)
-    if qcrNoTotalExtract.isOk:
+    let qcrNoTotalOutcome = resp3.get(qcNoTotalHandle).expect(
+        "Mailbox/queryChanges no-total dispatch[" & $target.kind & "]"
+      )
+    case qcrNoTotalOutcome.kind
+    of mokValue:
       # RFC 8620 §5.6: some servers (Cyrus 3.12.2) populate ``total``
       # unconditionally; others honour calculateTotal=false. Both are
       # acceptable wire shapes.
-      discard qcrNoTotalExtract.unsafeValue
-    else:
-      let getErr = qcrNoTotalExtract.unsafeError
-      doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
-      let methodErr = getErr.methodErr
+      discard qcrNoTotalOutcome.value
+    of mokMethodError:
+      let methodErr = qcrNoTotalOutcome.error
       assertOn target,
         methodErr.kind in {
           metInvalidArguments, metUnsupportedFilter, metCannotCalculateChanges,

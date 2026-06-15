@@ -39,9 +39,9 @@ testCase initVacationResponseUpdateSetEmpty:
   let res = initVacationResponseUpdateSet(@[])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "VacationResponseUpdateSet"
-  assertEq res.error[0].reason, "must contain at least one update"
-  assertEq res.error[0].value, ""
+  assertEq res.error.head.typeName, "VacationResponseUpdateSet"
+  assertEq res.error.head.reason, "must contain at least one update"
+  assertEq res.error.head.value, ""
 
 testCase initVacationResponseUpdateSetSingleValid:
   assertOk initVacationResponseUpdateSet(@[setIsEnabled(true)])
@@ -50,9 +50,9 @@ testCase initVacationResponseUpdateSetTwoSameKind:
   let res = initVacationResponseUpdateSet(@[setIsEnabled(true), setIsEnabled(false)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "VacationResponseUpdateSet"
-  assertEq res.error[0].reason, "duplicate target property"
-  assertEq res.error[0].value, "vruSetIsEnabled"
+  assertEq res.error.head.typeName, "VacationResponseUpdateSet"
+  assertEq res.error.head.reason, "duplicate target property"
+  assertEq res.error.head.value, "vruSetIsEnabled"
 
 testCase initVacationResponseUpdateSetThreeSameKind:
   ## Three occurrences of the same kind still yield ONE error —
@@ -62,7 +62,7 @@ testCase initVacationResponseUpdateSetThreeSameKind:
   )
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].value, "vruSetIsEnabled"
+  assertEq res.error.head.value, "vruSetIsEnabled"
 
 testCase initVacationResponseUpdateSetTwoDistinctRepeated:
   ## Two distinct repeated kinds → TWO errors, one per distinct
@@ -118,8 +118,8 @@ testCase windowBackwardsRejected:
   )
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "VacationResponseUpdateSet"
-  assertEq res.error[0].reason, "window start is after window end"
+  assertEq res.error.head.typeName, "VacationResponseUpdateSet"
+  assertEq res.error.head.reason, "window start is after window end"
 
 testCase windowForwardAccepted:
   let early = parseUtcDate("2026-06-01T00:00:00Z").get()
@@ -164,7 +164,7 @@ testCase windowFractionalSecondsSound:
     @[setFromDate(Opt.some(frac)), setToDate(Opt.some(whole))]
   )
   assertErr backwards
-  assertEq backwards.error[0].reason, "window start is after window end"
+  assertEq backwards.error.head.reason, "window start is after window end"
   # from = whole (earlier), to = .5 (later) → forwards → accepted.
   assertOk initVacationResponseUpdateSet(
     @[setFromDate(Opt.some(whole)), setToDate(Opt.some(frac))]

@@ -76,8 +76,9 @@ testCase tsearchSnippetGetStandaloneLive:
     )
     let resp =
       client.send(b.freeze()).expect("send SearchSnippet/get[" & $target.kind & "]")
-    let snippetResp =
-      resp.get(snippetHandle).expect("SearchSnippet/get extract[" & $target.kind & "]")
+    let snippetResp = resp.get(snippetHandle).expectValue(
+        "SearchSnippet/get extract[" & $target.kind & "]"
+      )
     assertOn target,
       snippetResp.list.len == 2,
       "SearchSnippet/get must return one snippet per requested id (got " &

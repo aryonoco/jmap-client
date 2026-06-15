@@ -44,8 +44,8 @@ testCase parseUpdatesRejectsEmpty:
   let res = parseNonEmptyEmailSubmissionUpdates(newSeq[(Id, EmailSubmissionUpdate)]())
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "NonEmptyEmailSubmissionUpdates"
-  assertEq res.error[0].reason, "must contain at least one entry"
+  assertEq res.error.head.typeName, "NonEmptyEmailSubmissionUpdates"
+  assertEq res.error.head.reason, "must contain at least one entry"
 
 testCase parseUpdatesRejectsDuplicateId:
   # Grep-locked literal from ``email_submission.nim:232``:
@@ -58,8 +58,8 @@ testCase parseUpdatesRejectsDuplicateId:
   let res = parseNonEmptyEmailSubmissionUpdates(@[(id, u), (id, u)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "NonEmptyEmailSubmissionUpdates"
-  assertEq res.error[0].reason, "duplicate submission id"
+  assertEq res.error.head.typeName, "NonEmptyEmailSubmissionUpdates"
+  assertEq res.error.head.reason, "duplicate submission id"
 
 testCase parseUpdatesHappyPathSingleEntry:
   # Happy path: one valid ``(Id, EmailSubmissionUpdate)`` pair parses

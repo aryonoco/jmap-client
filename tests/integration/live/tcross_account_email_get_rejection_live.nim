@@ -50,20 +50,21 @@ testCase tCrossAccountEmailGetRejectionLive:
       .expect("captureIfRequested")
 
     let getResult = resp.get(getHandle)
+    # A cross-account probe surfaces a server method error, which is now
+    # DATA on the dispatch ok rail (``MethodOutcome.mokMethodError``): the
+    # dispatch itself succeeded, the server merely answered the call with an
+    # error object. Only a dispatch fault (``jeMisuse`` / ``jeProtocol``)
+    # rides the rail, and that would be a programming or protocol bug here.
     assertOn target,
-      getResult.isErr,
+      getResult.isOk,
+      "dispatch must succeed on the rail; a cross-account rejection is a " &
+        "server method error carried as data, not a dispatch fault"
+    let outcome = getResult.unsafeValue
+    assertOn target,
+      outcome.kind == mokMethodError,
       "RFC 8620 §3.6.2 — alice probing bob's accountId without sharing must " &
         "surface a method-level error"
-    # ``unsafeError`` bypasses ``withAssertOk`` — the ``$`` chain on the typed
-    # ``GetResponse[Email]`` Ok value carries enough downstream side effects to
-    # poison ``raiseResultDefect``'s inference. ``isErr`` is already asserted.
-    # Under A6 the inner railway is ``GetError``; the ``gekMethod`` arm
-    # wraps the original ``MethodError`` verbatim.
-    let getErr = getResult.unsafeError
-    assertOn target,
-      getErr.kind == gekMethod,
-      "cross-account rejection must surface as gekMethod, not gekHandleMismatch"
-    let methodErr = getErr.methodErr
+    let methodErr = outcome.error
     assertOn target,
       methodErr.kind in {metForbidden, metAccountNotFound},
       "RFC 8620 §3.6.2 admits both metForbidden and metAccountNotFound for cross-account " &

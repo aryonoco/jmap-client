@@ -80,8 +80,9 @@ testCase temailGetUnicodeNameLive:
     )
     let seedResp =
       client.send(bSeed.freeze()).expect("send Email/set seed[" & $target.kind & "]")
-    let seedSet =
-      seedResp.get(seedHandle).expect("Email/set seed extract[" & $target.kind & "]")
+    let seedSet = seedResp.get(seedHandle).expectValue(
+        "Email/set seed extract[" & $target.kind & "]"
+      )
     var seededId: Id
     var found = false
     seedSet.createResults.withValue(cid, outcome):
@@ -104,8 +105,9 @@ testCase temailGetUnicodeNameLive:
     let resp = client.send(b.freeze()).expect(
         "send Email/get unicode name[" & $target.kind & "]"
       )
-    let getResp =
-      resp.get(getHandle).expect("Email/get unicode name extract[" & $target.kind & "]")
+    let getResp = resp.get(getHandle).expectValue(
+        "Email/get unicode name extract[" & $target.kind & "]"
+      )
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
     let email = getResp.list[0]

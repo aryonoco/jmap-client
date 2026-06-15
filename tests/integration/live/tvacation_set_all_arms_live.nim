@@ -94,7 +94,7 @@ testCase tvacationSetAllArmsLive:
     # from the session's ``capabilities`` map and Cyrus rejects the
     # request at the request level with
     # ``urn:ietf:params:jmap:error:unknownCapability``. The library's
-    # typed-error rail (``Err(ClientError(cekRequest, ...))``) IS the
+    # typed-error rail (``Err(JmapError(jeRequest, ...))``) IS the
     # universal client-library contract here. The capture call below
     # writes the wire response on every target — set-response on
     # Stalwart/James, unknownCapability on Cyrus — and the captured-
@@ -110,7 +110,7 @@ testCase tvacationSetAllArmsLive:
       of ltkCyrus:
         let err = resp1Result.error
         assertOn target,
-          err.kind == cekRequest,
+          err.kind == jeRequest,
           "Cyrus must surface unknownCapability as a request-level error (got " &
             $err.kind & ")"
       of ltkStalwart, ltkJames:

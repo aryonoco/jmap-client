@@ -88,8 +88,9 @@ testCase temailChangesMaxChangesLive:
       recorder.lastResponseBody, "email-changes-max-changes-" & $target.kind
     )
       .expect("captureIfRequested")
-    let cr1 =
-      resp1.get(h1).expect("Email/changes first page extract[" & $target.kind & "]")
+    let cr1 = resp1.get(h1).expectValue(
+        "Email/changes first page extract[" & $target.kind & "]"
+      )
     assertOn target,
       cr1.hasMoreChanges,
       "maxChanges=2 against ten seeded emails must force hasMoreChanges=true"
@@ -117,8 +118,9 @@ testCase temailChangesMaxChangesLive:
       let respN = client.send(bN.freeze()).expect(
           "send Email/changes window-roll[" & $target.kind & "]"
         )
-      let crN =
-        respN.get(hN).expect("Email/changes window-roll extract[" & $target.kind & "]")
+      let crN = respN.get(hN).expectValue(
+          "Email/changes window-roll extract[" & $target.kind & "]"
+        )
       for id in crN.created:
         seenIds.incl(id)
       for id in crN.updated:

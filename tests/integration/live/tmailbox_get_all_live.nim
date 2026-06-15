@@ -28,7 +28,7 @@ testCase tmailboxGetAllLive:
     let resp = client.send(b1.freeze()).expect("send[" & $target.kind & "]")
     captureIfRequested(recorder.lastResponseBody, "mailbox-get-all-" & $target.kind)
       .expect("captureIfRequested[" & $target.kind & "]")
-    let gr = resp.get(mbHandle).expect("Mailbox/get extract[" & $target.kind & "]")
+    let gr = resp.get(mbHandle).expectValue("Mailbox/get extract[" & $target.kind & "]")
     assertOn target, gr.list.len >= 1, "alice's account must have at least one mailbox"
     var sawInbox = false
     for mb in gr.list:

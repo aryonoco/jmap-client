@@ -75,7 +75,7 @@ testCase tmailboxChangesLive:
     let respDestroy = client.send(bDestroy.freeze()).expect(
         "send Mailbox/set destroy[" & $target.kind & "]"
       )
-    let destroyResp = respDestroy.get(destroyHandle).expect(
+    let destroyResp = respDestroy.get(destroyHandle).expectValue(
         "Mailbox/set destroy extract[" & $target.kind & "]"
       )
     var sawDestroyOk = false
@@ -95,7 +95,7 @@ testCase tmailboxChangesLive:
     let respHappy = client.send(bHappy.freeze()).expect(
         "send Mailbox/changes happy[" & $target.kind & "]"
       )
-    let cr = respHappy.get(happyHandle).expect(
+    let cr = respHappy.get(happyHandle).expectValue(
         "Mailbox/changes happy extract[" & $target.kind & "]"
       )
     assertOn target,
@@ -122,12 +122,13 @@ testCase tmailboxChangesLive:
       recorder.lastResponseBody, "mailbox-changes-bogus-state-" & $target.kind
     )
       .expect("captureIfRequested")
-    let sadExtract = respSad.get(sadHandle)
+    let sadOutcome = respSad.get(sadHandle).expect(
+        "Mailbox/changes bogus dispatch[" & $target.kind & "]"
+      )
     assertOn target,
-      sadExtract.isErr, "bogus sinceState must surface as a method-level error"
-    let getErr = sadExtract.error
-    doAssert getErr.kind == gekMethod, "expected gekMethod"
-    let methodErr = getErr.methodErr
+      sadOutcome.kind == mokMethodError,
+      "bogus sinceState must surface as a method-level error"
+    let methodErr = sadOutcome.error
     assertOn target,
       methodErr.kind in {metCannotCalculateChanges, metInvalidArguments},
       "method error must project as cannotCalculateChanges or invalidArguments " &

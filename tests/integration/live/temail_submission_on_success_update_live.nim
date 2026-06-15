@@ -110,39 +110,45 @@ testCase tEmailSubmissionOnSuccessUpdateLive:
       recorder.lastResponseBody, "email-submission-on-success-update-" & $target.kind
     )
       .expect("captureIfRequested")
-    let pairExtract = resp3.getBoth(handles)
+    let pair = resp3.getBoth(handles).expect(
+        "EmailSubmission/set+Email/set update dispatch[" & $target.kind & "]"
+      )
     # Cat-B: Cyrus 3.12.2 rejects ``onSuccessUpdateEmail`` with
     # ``invalidArguments``. Stalwart and James implement the compound
-    # submit-and-update.
+    # submit-and-update. A server method error rides ``pair.primary`` as
+    # data (``mokMethodError``); a rail ``JmapError`` from ``getBoth``
+    # would be a cross-builder ``jeMisuse`` programming bug, unwrapped
+    # fatally by the ``.expect`` above.
     var submissionId: Id
     var compoundOk = false
-    if pairExtract.isOk:
-      let pair = pairExtract.unsafeValue
-      pair.primary.createResults.withValue(subCid, outcome):
-        if outcome.isOk:
-          submissionId = outcome.unsafeValue.id
-          compoundOk = true
-      do:
-        assertOn target, false, "EmailSubmission/set must report a create outcome"
-      pair.implicit.updateResults.withValue(draftId, outcome):
-        assertOn target,
-          outcome.isOk,
-          "implicit Email/set update must succeed: " & outcome.error.rawType
-      do:
-        assertOn target,
-          false, "implicit Email/set must report an update outcome for draftId"
-    else:
-      let getErr = pairExtract.unsafeError
-      assertOn target,
-        getErr.kind == gekMethod,
-        "compound update must surface as gekMethod, not gekHandleMismatch"
-      let methodErr = getErr.methodErr
+    case pair.primary.kind
+    of mokMethodError:
+      let methodErr = pair.primary.error
       assertOn target,
         methodErr.kind in {metInvalidArguments, metUnknownMethod},
         "compound EmailSubmission/set + onSuccessUpdateEmail must surface " &
           "metInvalidArguments or metUnknownMethod when unimplemented (got " &
           methodErr.rawType & ")"
       continue
+    of mokValue:
+      let primaryResp = pair.primary.value
+      primaryResp.createResults.withValue(subCid, outcome):
+        if outcome.isOk:
+          submissionId = outcome.unsafeValue.id
+          compoundOk = true
+      do:
+        assertOn target, false, "EmailSubmission/set must report a create outcome"
+      assertOn target,
+        pair.implicit.kind == mokValue,
+        "implicit Email/set update must return a value, not a method error"
+      let implicitResp = pair.implicit.value
+      implicitResp.updateResults.withValue(draftId, outcome):
+        assertOn target,
+          outcome.isOk,
+          "implicit Email/set update must succeed: " & outcome.error.rawType
+      do:
+        assertOn target,
+          false, "implicit Email/set must report an update outcome for draftId"
     if not compoundOk:
       continue
 
@@ -193,7 +199,7 @@ testCase tEmailSubmissionOnSuccessUpdateLive:
     let resp4 = client.send(b4.freeze()).expect(
         "send Email/get post-submit[" & $target.kind & "]"
       )
-    let getResp = resp4.get(emailGetHandle).expect(
+    let getResp = resp4.get(emailGetHandle).expectValue(
         "Email/get post-submit extract[" & $target.kind & "]"
       )
     assertOn target,

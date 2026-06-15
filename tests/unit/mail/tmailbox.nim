@@ -134,9 +134,9 @@ testCase initMailboxUpdateSetEmpty:
   let res = initMailboxUpdateSet(@[])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "MailboxUpdateSet"
-  assertEq res.error[0].reason, "must contain at least one update"
-  assertEq res.error[0].value, ""
+  assertEq res.error.head.typeName, "MailboxUpdateSet"
+  assertEq res.error.head.reason, "must contain at least one update"
+  assertEq res.error.head.value, ""
 
 testCase initMailboxUpdateSetSingleValid:
   assertOk initMailboxUpdateSet(@[setName("Inbox")])
@@ -145,9 +145,9 @@ testCase initMailboxUpdateSetTwoSameKind:
   let res = initMailboxUpdateSet(@[setName("A"), setName("B")])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "MailboxUpdateSet"
-  assertEq res.error[0].reason, "duplicate target property"
-  assertEq res.error[0].value, "muSetName"
+  assertEq res.error.head.typeName, "MailboxUpdateSet"
+  assertEq res.error.head.reason, "duplicate target property"
+  assertEq res.error.head.value, "muSetName"
 
 testCase initMailboxUpdateSetThreeSameKind:
   ## Three occurrences of the same kind still yield ONE error —
@@ -155,7 +155,7 @@ testCase initMailboxUpdateSetThreeSameKind:
   let res = initMailboxUpdateSet(@[setName("A"), setName("B"), setName("C")])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].value, "muSetName"
+  assertEq res.error.head.value, "muSetName"
 
 testCase initMailboxUpdateSetTwoDistinctRepeated:
   ## Two distinct repeated kinds → TWO errors, one per distinct
@@ -220,8 +220,8 @@ testCase parseNonEmptyMailboxUpdatesRejectsEmpty:
   let res = parseNonEmptyMailboxUpdates(newSeq[(Id, MailboxUpdateSet)]())
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "NonEmptyMailboxUpdates"
-  assertEq res.error[0].reason, "must contain at least one entry"
+  assertEq res.error.head.typeName, "NonEmptyMailboxUpdates"
+  assertEq res.error.head.reason, "must contain at least one entry"
 
 testCase parseNonEmptyMailboxUpdatesRejectsDuplicateId:
   ## Duplicate ``Id`` keys are rejected — silent last-wins shadowing at
@@ -233,4 +233,4 @@ testCase parseNonEmptyMailboxUpdatesRejectsDuplicateId:
   let res = parseNonEmptyMailboxUpdates(@[(id1, us1), (id1, us2)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].reason, "duplicate mailbox id"
+  assertEq res.error.head.reason, "duplicate mailbox id"

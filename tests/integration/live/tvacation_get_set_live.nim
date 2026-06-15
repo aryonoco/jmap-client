@@ -75,7 +75,7 @@ testCase tvacationGetSetLive:
     # injects the URN into the request's ``using`` set, so Cyrus
     # rejects the request at the request level with
     # ``urn:ietf:params:jmap:error:unknownCapability``. The library
-    # projects this as ``Err(ClientError(cekRequest, ...))`` — the
+    # projects this as ``Err(JmapError(jeRequest, ...))`` — the
     # typed-error rail IS the universal client-library contract here,
     # so the test asserts the projection AND captures the wire shape
     # before skipping the dependent round-trip assertions. Capture is
@@ -97,7 +97,7 @@ testCase tvacationGetSetLive:
       of ltkCyrus:
         let err = resp1Result.error
         assertOn target,
-          err.kind == cekRequest,
+          err.kind == jeRequest,
           "Cyrus must surface unknownCapability as a request-level error (got " &
             $err.kind & ")"
       of ltkStalwart, ltkJames:

@@ -9,11 +9,19 @@
 
 import jmap_client/internal/types/validation
 import jmap_client/internal/types/errors
+import jmap_client/internal/protocol/jmap_error
 
 static:
   doAssert compiles(validationError("T", "r", "v"))
   doAssert compiles(requestError("urn:x"))
   doAssert compiles(methodError("rt"))
   doAssert compiles(setError("rt"))
-  doAssert compiles(clientError(transportError(tekNetwork, "")))
-  doAssert compiles(getErrorMethod(methodError("rt")))
+  # The internal-only ``JmapError`` arm constructors and the ``MethodOutcome``
+  # producers (filtered off the hub) remain reachable via the defining module.
+  doAssert declared(jmapMisuse)
+  doAssert declared(jmapProtocol)
+  doAssert declared(protocolMissingCall)
+  doAssert declared(protocolMalformedError)
+  doAssert declared(protocolDecode)
+  doAssert declared(methodValue)
+  doAssert declared(methodFailure)

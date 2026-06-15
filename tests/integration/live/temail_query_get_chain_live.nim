@@ -89,10 +89,11 @@ testCase temailQueryGetChainLive:
     let resp3 =
       client.send(b3b.freeze()).expect("send Email/query+get[" & $target.kind & "]")
     let queryResp =
-      resp3.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
+      resp3.get(queryHandle).expectValue("Email/query extract[" & $target.kind & "]")
     assertOn target,
       queryResp.ids.len >= 1, "Email/query must return the seeded message"
-    let getResp = resp3.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
+    let getResp =
+      resp3.get(getHandle).expectValue("Email/get extract[" & $target.kind & "]")
     assertOn target,
       getResp.list.len == queryResp.ids.len,
       "Email/get list count must match Email/query ids count"
@@ -115,7 +116,7 @@ testCase temailQueryGetChainLive:
     )
     let respClean =
       client.send(b4.freeze()).expect("send Email/set cleanup[" & $target.kind & "]")
-    let cleanResp = respClean.get(cleanHandle).expect(
+    let cleanResp = respClean.get(cleanHandle).expectValue(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
     var cleaned = false

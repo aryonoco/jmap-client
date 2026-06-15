@@ -95,7 +95,7 @@ testCase tcreatedIdsEnvelopeLive:
       let respClean = client.send(bClean.freeze()).expect(
           "send Email/set cleanup[" & $target.kind & "]"
         )
-      let cleanResp = respClean.get(cleanHandle).expect(
+      let cleanResp = respClean.get(cleanHandle).expectValue(
           "Email/set cleanup extract[" & $target.kind & "]"
         )
       cleanResp.destroyResults.withValue(realEmailId, outcome):
@@ -148,7 +148,7 @@ testCase tcreatedIdsEnvelopeLive:
           "send Email/set+Email/get with creation ref[" & $target.kind & "]"
         )
       let setResp =
-        resp.get(setHandle).expect("Email/set extract[" & $target.kind & "]")
+        resp.get(setHandle).expectValue("Email/set extract[" & $target.kind & "]")
       var seededId: Id
       var seeded = false
       setResp.createResults.withValue(draft1Cid, outcome):
@@ -160,7 +160,7 @@ testCase tcreatedIdsEnvelopeLive:
       assertOn target, seeded
 
       let getResp =
-        resp.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
+        resp.get(getHandle).expectValue("Email/get extract[" & $target.kind & "]")
       assertOn target,
         getResp.list.len == 1,
         "Email/get with #draft1 must return the freshly created Email; got " &
@@ -179,7 +179,7 @@ testCase tcreatedIdsEnvelopeLive:
       let respClean = client.send(bClean.freeze()).expect(
           "send Email/set cleanup[" & $target.kind & "]"
         )
-      let cleanResp = respClean.get(cleanHandle).expect(
+      let cleanResp = respClean.get(cleanHandle).expectValue(
           "Email/set cleanup extract[" & $target.kind & "]"
         )
       cleanResp.destroyResults.withValue(seededId, outcome):

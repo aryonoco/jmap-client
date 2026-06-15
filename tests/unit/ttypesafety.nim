@@ -35,10 +35,13 @@ testCase jmapIntNoArithmetic:
 testCase transportErrorWrongVariantConstruction:
   doAssert not compiles(TransportError(kind: tekNetwork, httpStatus: 404, msg: "fail"))
 
-testCase clientErrorWrongVariantConstruction:
+testCase jmapErrorWrongVariantConstruction:
+  ## ``JmapError`` is the single consumer rail. Pairing the ``jeTransport``
+  ## discriminant with the ``request`` field (which lives on the ``jeRequest``
+  ## arm) is a case-object branch mismatch the compiler refuses.
   doAssert not compiles(
-    ClientError(
-      kind: cekTransport,
+    JmapError(
+      kind: jeTransport,
       request: RequestError(
         kind: retUnknown,
         rawType: "x",

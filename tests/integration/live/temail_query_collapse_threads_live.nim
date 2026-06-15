@@ -105,7 +105,7 @@ testCase temailQueryCollapseThreadsLive:
         "send Email/query no-collapse[" & $target.kind & "]"
       )
     let qr1 =
-      resp1.get(h1).expect("Email/query no-collapse extract[" & $target.kind & "]")
+      resp1.get(h1).expectValue("Email/query no-collapse extract[" & $target.kind & "]")
     let noCollapseCount = qr1.ids.len
     assertOn target,
       noCollapseCount >= 3,
@@ -139,7 +139,7 @@ testCase temailQueryCollapseThreadsLive:
           "send Email/query collapse[" & $target.kind & "]"
         )
       let qr2 =
-        resp2.get(h2).expect("Email/query collapse extract[" & $target.kind & "]")
+        resp2.get(h2).expectValue("Email/query collapse extract[" & $target.kind & "]")
       lastCollapseCount = qr2.ids.len
       assertOn target,
         lastCollapseCount <= noCollapseCount,

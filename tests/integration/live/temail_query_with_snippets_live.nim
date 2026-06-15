@@ -88,15 +88,23 @@ testCase temailQueryWithSnippetsLive:
     )
       .expect("captureIfRequested")
     let pair = resp.getBoth(chainHandles).expect("getBoth[" & $target.kind & "]")
+    # Each leg of the chain is now a ``MethodOutcome``; the success-path test
+    # requires both to carry values rather than server method errors.
+    assertOn target,
+      pair.query.kind == mokValue,
+      "Email/query leg must return a value, not a method error"
+    assertOn target,
+      pair.snippets.kind == mokValue,
+      "SearchSnippet/get leg must return a value, not a method error"
 
-    let queryHits = pair.query.ids.toHashSet
+    let queryHits = pair.query.value.ids.toHashSet
     assertOn target, id1 in queryHits, "Email/query result must include first seeded id"
     assertOn target,
       id2 in queryHits, "Email/query result must include second seeded id"
 
     let queryHitSet = queryHits
     var snippetIds = initHashSet[Id]()
-    for snippet in pair.snippets.list:
+    for snippet in pair.snippets.value.list:
       assertOn target,
         snippet.emailId in queryHitSet,
         "every snippet's emailId must appear in the chained Email/query result; got " &

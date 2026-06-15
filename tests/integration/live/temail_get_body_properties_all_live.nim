@@ -87,7 +87,7 @@ testCase temailGetBodyPropertiesAllLive:
       recorder.lastResponseBody, "email-get-body-properties-all-" & $target.kind
     )
       .expect("captureIfRequested")
-    let getResp = resp.get(getHandle).expect(
+    let getResp = resp.get(getHandle).expectValue(
         "Email/get bodyProperties+bvsAll extract[" & $target.kind & "]"
       )
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"

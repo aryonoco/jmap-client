@@ -148,7 +148,7 @@ testCase tidentityChangesWithUpdatesLive:
       let respG = client.send(bG.freeze()).expect(
           "send Identity/get round-trip[" & $target.kind & "]"
         )
-      let getResp = respG.get(getHandle).expect(
+      let getResp = respG.get(getHandle).expectValue(
           "Identity/get round-trip extract[" & $target.kind & "]"
         )
       assertOn target,

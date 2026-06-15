@@ -97,7 +97,8 @@ testCase tthreadChangesLive:
       let resp = client.send(b.freeze()).expect(
           "send Thread/changes happy[" & $target.kind & "]"
         )
-      let cr = resp.get(h).expect("Thread/changes happy extract[" & $target.kind & "]")
+      let cr =
+        resp.get(h).expectValue("Thread/changes happy extract[" & $target.kind & "]")
       if cr.created.len + cr.updated.len >= 1:
         lastCr = cr
         converged = true
@@ -127,12 +128,13 @@ testCase tthreadChangesLive:
       recorder.lastResponseBody, "thread-changes-bogus-state-" & $target.kind
     )
       .expect("captureIfRequested")
-    let sadExtract = respSad.get(sadHandle)
+    let sadOutcome = respSad.get(sadHandle).expect(
+        "Thread/changes bogus dispatch[" & $target.kind & "]"
+      )
     assertOn target,
-      sadExtract.isErr, "bogus sinceState must surface as a method-level error"
-    let getErr = sadExtract.error
-    doAssert getErr.kind == gekMethod, "expected gekMethod"
-    let methodErr = getErr.methodErr
+      sadOutcome.kind == mokMethodError,
+      "bogus sinceState must surface as a method-level error"
+    let methodErr = sadOutcome.error
     assertOn target,
       methodErr.kind in
         {metCannotCalculateChanges, metInvalidArguments, metUnknownMethod},

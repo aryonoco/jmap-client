@@ -114,10 +114,10 @@ testCase caseObjectFieldDefectPair: # §6.1.6 scenario 46
 
 testCase internalNonEmptyInvariantDocumented: # §6.1.6 scenario 48
   # The internal ``doAssert errs.len > 0`` inside ``parseEmailBlueprint``
-  # cannot be triggered from outside the module. The external
-  # counterpart (sc 48l) pins that ``EmailBlueprintErrors`` cannot be
-  # positionally constructed externally, so the ``errors: @[]`` state
-  # is unreachable. Re-attest that the known-success path compiles.
+  # cannot be triggered from outside the module. The external counterpart
+  # (sc 48l) pins that the ``NonEmptySeq[ValidationError]`` error aggregate
+  # cannot be constructed empty externally, so the zero-error err state is
+  # unreachable. Re-attest that the known-success path compiles.
   static:
     doAssert compiles(parseEmailBlueprint(mailboxIds = makeNonEmptyMailboxIdSet()))
 
@@ -216,9 +216,10 @@ testCase publicExportSurfaceStable: # §6.1.6 scenario 48j
   doAssert compiles(structuredBody)
   doAssert compiles(EmailBlueprint)
   doAssert compiles(EmailBlueprintBody)
-  doAssert compiles(EmailBlueprintError)
-  doAssert compiles(EmailBlueprintErrors)
-  doAssert compiles(EmailBlueprintConstraint)
+  # ``EmailBlueprintConstraint`` / ``EmailBlueprintError`` / ``EmailBlueprintErrors``
+  # were internalised (A12/P13): each violation now flattens onto the shared
+  # ``NonEmptySeq[ValidationError]`` rail, so they are no longer part of the
+  # public blueprint surface.
   doAssert compiles(EmailBodyKind)
   let bp = makeEmailBlueprint()
   doAssert compiles(bp.mailboxIds)
@@ -229,15 +230,20 @@ testCase publicExportSurfaceStable: # §6.1.6 scenario 48j
   doAssert compiles(bp.subject)
 
 testCase dropVariantEbcNoBodyContent: # §6.1.6 scenario 48k
-  # ``ebcNoBodyContent`` was considered during design but dropped —
-  # every accepted ``EmailBlueprintBody`` is well-formed by
-  # construction, so "no body content" is not a runtime state the
-  # aggregate needs to describe (R3-2b / E11).
-  assertNotCompiles EmailBlueprintError(constraint: ebcNoBodyContent)
+  # ``ebcNoBodyContent`` was considered during design but dropped — every
+  # accepted ``EmailBlueprintBody`` is well-formed by construction, so an empty
+  # flat body is a VALID state, not an error (R3-2b / E11). The constraint
+  # classification is now module-private, so "no body content" simply has no
+  # representable error arm; attest the positive: the empty flat body parses.
+  let res =
+    parseEmailBlueprint(mailboxIds = makeNonEmptyMailboxIdSet(), body = flatBody())
+  assertOk res
 
 testCase errorsConstructorSealedExternally: # §6.1.6 scenario 48l
-  # ``EmailBlueprintErrors.errors`` is module-private: external brace
-  # construction by named field is refused. The only path to a
-  # non-empty ``EmailBlueprintErrors`` value is ``parseEmailBlueprint``,
-  # which protects the "errors.len >= 1 on err rail" invariant.
-  assertNotCompiles EmailBlueprintErrors(errors: @[])
+  # The error aggregate is ``NonEmptySeq[ValidationError]`` now. Its backing
+  # seq is module-private (Pattern A sealed), so external brace construction
+  # with an empty seq is refused, and the smart constructor rejects empty
+  # input — the "len >= 1 on the err rail" invariant cannot be violated
+  # externally.
+  assertNotCompiles NonEmptySeq[ValidationError](rawValue: @[])
+  assertErr parseNonEmptySeq[ValidationError](@[])

@@ -44,6 +44,7 @@ import jmap_client/internal/mail/submission_envelope
 import jmap_client/internal/mail/submission_status
 import jmap_client/internal/mail/email_submission
 import jmap_client/internal/protocol/builder
+import jmap_client/internal/protocol/jmap_error
 
 {.push ruleOff: "hasDoc".}
 {.push ruleOff: "params".}
@@ -766,14 +767,17 @@ proc genSetError*(rng: var Rand): SetError =
     const rawTypes = ["forbidden", "overQuota", "tooLarge", "notFound", "vendorError"]
     setError(rng.oneOf(rawTypes), desc, extras)
 
-proc genClientError*(rng: var Rand): ClientError =
-  ## Generates a random ClientError wrapping either a transport error or a
-  ## request error (50/50 split). Delegates to genTransportError/genRequestError.
-  ## Does NOT generate: one variant type preferentially over the other.
+proc genJmapTransportOrRequest*(rng: var Rand): JmapError =
+  ## Generates a random ``JmapError`` on the jeTransport / jeRequest arms
+  ## (50/50 split) — the two arms that folded the retired ``ClientError``.
+  ## Delegates to genTransportError / genRequestError.
+  ## Does NOT generate: the jeValidation / jeSession / jeMisuse / jeProtocol
+  ## arms (those carry payloads outside this generator's transport/request
+  ## scope).
   if rng.rand(0 .. 1) == 0:
-    clientError(rng.genTransportError())
+    jmapTransport(rng.genTransportError())
   else:
-    clientError(rng.genRequestError())
+    jmapRequest(rng.genRequestError())
 
 # ---------------------------------------------------------------------------
 # Structured type generators (additional)
@@ -2684,15 +2688,50 @@ proc genEmailBlueprint*(rng: var Rand, trial: int = -1): EmailBlueprint =
   parseEmailBlueprint(mailboxIds = ids).get()
 
 # J-11 -----------------------------------------------------------------------
+# The library internalised ``EmailBlueprintConstraint`` / ``EmailBlueprintError``;
+# each violation now flattens onto ``NonEmptySeq[ValidationError]``. This
+# module-private enum is a test vocabulary for selecting which constraint a
+# trigger fires; ``triggerMarker`` maps each to the stable reason substring
+# the source emits, which is the observable evidence the constraint tripped.
+type EmailBlueprintConstraint = enum
+  ebcEmailTopLevelHeaderDuplicate
+  ebcBodyStructureHeaderDuplicate
+  ebcBodyPartHeaderDuplicate
+  ebcTextBodyNotTextPlain
+  ebcHtmlBodyNotTextHtml
+  ebcAllowedFormRejected
+  ebcBodyPartDepthExceeded
+
+func triggerMarker(c: EmailBlueprintConstraint): string =
+  ## Canonical ``ValidationError.reason`` substring per constraint, pinned to
+  ## ``email_blueprint.nim``'s ``toValidationError`` wording.
+  case c
+  of ebcEmailTopLevelHeaderDuplicate:
+    "duplicate header representation at Email top level"
+  of ebcBodyStructureHeaderDuplicate:
+    "duplicates a header already defined on the Email top level"
+  of ebcBodyPartHeaderDuplicate:
+    "carries duplicate representations of header"
+  of ebcTextBodyNotTextPlain:
+    "textBody must be text/plain"
+  of ebcHtmlBodyNotTextHtml:
+    "htmlBody must be text/html"
+  of ebcAllowedFormRejected:
+    "not allowed for header name"
+  of ebcBodyPartDepthExceeded:
+    "exceeds maximum"
+
 type BlueprintTriggerArgs* {.ruleOff: "objects".} = object
-  ## Captured arguments + expected constraint-set for J-11. Property 88
-  ## and 94 surface ``$args`` on failure via ``lastInput``.
+  ## Captured arguments + expected reason-markers for J-11. Property 88
+  ## and 94 surface ``$args`` on failure via ``lastInput``. ``expected``
+  ## holds the ``ValidationError.reason`` substrings that MUST appear on the
+  ## error rail (the typed constraint arms are no longer observable).
   mailboxIds*: NonEmptyMailboxIdSet
   body*: EmailBlueprintBody
   fromAddr*: Opt[seq[EmailAddress]]
   subject*: Opt[string]
   extraHeaders*: Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]
-  expected*: set[EmailBlueprintConstraint]
+  expected*: seq[string]
 
 proc buildTrigger(
     rng: var Rand, variant: EmailBlueprintConstraint
@@ -2712,7 +2751,7 @@ proc buildTrigger(
       fromAddr: Opt.some(@[addr0]),
       subject: Opt.none(string),
       extraHeaders: extra,
-      expected: {ebcEmailTopLevelHeaderDuplicate},
+      expected: @[triggerMarker(ebcEmailTopLevelHeaderDuplicate)],
     )
   of ebcBodyStructureHeaderDuplicate:
     var rootExtra = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
@@ -2736,7 +2775,7 @@ proc buildTrigger(
       fromAddr: Opt.none(seq[EmailAddress]),
       subject: Opt.none(string),
       extraHeaders: topExtra,
-      expected: {ebcBodyStructureHeaderDuplicate},
+      expected: @[triggerMarker(ebcBodyStructureHeaderDuplicate)],
     )
   of ebcBodyPartHeaderDuplicate:
     var partExtra = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
@@ -2762,7 +2801,7 @@ proc buildTrigger(
       fromAddr: Opt.none(seq[EmailAddress]),
       subject: Opt.none(string),
       extraHeaders: initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue](),
-      expected: {ebcBodyPartHeaderDuplicate},
+      expected: @[triggerMarker(ebcBodyPartHeaderDuplicate)],
     )
   of ebcTextBodyNotTextPlain:
     let leaf = BlueprintBodyPart(
@@ -2786,7 +2825,7 @@ proc buildTrigger(
       fromAddr: Opt.none(seq[EmailAddress]),
       subject: Opt.none(string),
       extraHeaders: initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue](),
-      expected: {ebcTextBodyNotTextPlain},
+      expected: @[triggerMarker(ebcTextBodyNotTextPlain)],
     )
   of ebcHtmlBodyNotTextHtml:
     let leaf = BlueprintBodyPart(
@@ -2810,7 +2849,7 @@ proc buildTrigger(
       fromAddr: Opt.none(seq[EmailAddress]),
       subject: Opt.none(string),
       extraHeaders: initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue](),
-      expected: {ebcHtmlBodyNotTextHtml},
+      expected: @[triggerMarker(ebcHtmlBodyNotTextHtml)],
     )
   of ebcAllowedFormRejected:
     var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
@@ -2822,7 +2861,7 @@ proc buildTrigger(
       fromAddr: Opt.none(seq[EmailAddress]),
       subject: Opt.none(string),
       extraHeaders: extra,
-      expected: {ebcAllowedFormRejected},
+      expected: @[triggerMarker(ebcAllowedFormRejected)],
     )
   of ebcBodyPartDepthExceeded:
     # Build a depth-129 spine of multipart containers around one leaf.
@@ -2859,7 +2898,7 @@ proc buildTrigger(
       fromAddr: Opt.none(seq[EmailAddress]),
       subject: Opt.none(string),
       extraHeaders: initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue](),
-      expected: {ebcBodyPartDepthExceeded},
+      expected: @[triggerMarker(ebcBodyPartDepthExceeded)],
     )
 
 proc genBlueprintErrorTrigger*(rng: var Rand, trial: int = -1): BlueprintTriggerArgs =
@@ -2930,70 +2969,47 @@ proc genBodyPartLocation*(rng: var Rand, trial: int = -1): BodyPartLocation =
     BodyPartLocation(kind: bplMultipart, path: rng.genBodyPartPath())
 
 # J-13 -----------------------------------------------------------------------
-proc genEmailBlueprintError*(rng: var Rand, trial: int = -1): EmailBlueprintError =
-  ## Generates a single ``EmailBlueprintError`` uniformly over the seven
-  ## ``EmailBlueprintConstraint`` variants. Payload strings are drawn from
-  ## ``genMaliciousString`` / ``genLongArbitraryString`` — the same
-  ## adversarial sources the suite already uses, so payload coverage is
-  ## centralised. DO NOT reimplement a local NUL/CRLF helper here.
-  ## Covers: every variant at least once via the first seven trials; every
-  ## payload slot eventually sees adversarial bytes.
-  ## Does NOT generate: sealed ``EmailBlueprintErrors`` directly (use
-  ## ``genEmailBlueprintErrors`` which constructs via ``parseEmailBlueprint``
-  ## triggers).
-  const variants = [
-    ebcEmailTopLevelHeaderDuplicate, ebcBodyStructureHeaderDuplicate,
-    ebcBodyPartHeaderDuplicate, ebcTextBodyNotTextPlain, ebcHtmlBodyNotTextHtml,
-    ebcAllowedFormRejected, ebcBodyPartDepthExceeded,
-  ]
-  let idx =
-    if trial >= 0 and trial < variants.len:
-      trial
+proc genEmailBlueprintError*(rng: var Rand, trial: int = -1): ValidationError =
+  ## Harvests a single flattened ``ValidationError`` from a body content-type
+  ## mismatch whose offending content-type is an adversarial (long, possibly
+  ## NUL-bearing) string. Post-flatten, the content-type slot is the only
+  ## payload that still carries arbitrary bytes through ``clipForMessage`` —
+  ## header-name and body-part-location slots are bounded by their own
+  ## parsers — so this is the faithful successor to the old per-variant
+  ## adversarial generator for the message-purity (96) and bounded-length
+  ## (97b) properties. Trial parity alternates the text/plain vs text/html
+  ## arm so both bounded-render paths are exercised. Returns the head
+  ## accumulated error (exactly one constraint fires).
+  let badType = rng.genLongArbitraryString(trial, maxLen = 1024)
+  let leaf = BlueprintBodyPart(
+    contentType: badType,
+    name: Opt.none(string),
+    disposition: Opt.none(ContentDisposition),
+    cid: Opt.none(string),
+    language: Opt.none(seq[string]),
+    location: Opt.none(string),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+    isMultipart: false,
+    leaf: BlueprintLeafPart(
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: "v"),
+    ),
+  )
+  let body =
+    if trial mod 2 == 0:
+      flatBody(textBody = Opt.some(leaf))
     else:
-      rng.rand(0 .. variants.len - 1)
-  case variants[idx]
-  of ebcEmailTopLevelHeaderDuplicate:
-    EmailBlueprintError(
-      constraint: ebcEmailTopLevelHeaderDuplicate,
-      dupName: rng.genMaliciousString(trial),
-    )
-  of ebcBodyStructureHeaderDuplicate:
-    EmailBlueprintError(
-      constraint: ebcBodyStructureHeaderDuplicate,
-      bodyStructureDupName: rng.genMaliciousString(trial),
-    )
-  of ebcBodyPartHeaderDuplicate:
-    EmailBlueprintError(
-      constraint: ebcBodyPartHeaderDuplicate,
-      where: rng.genBodyPartLocation(),
-      bodyPartDupName: rng.genMaliciousString(trial),
-    )
-  of ebcTextBodyNotTextPlain:
-    EmailBlueprintError(
-      constraint: ebcTextBodyNotTextPlain,
-      actualTextType: rng.genLongArbitraryString(trial, maxLen = 1024),
-    )
-  of ebcHtmlBodyNotTextHtml:
-    EmailBlueprintError(
-      constraint: ebcHtmlBodyNotTextHtml,
-      actualHtmlType: rng.genLongArbitraryString(trial, maxLen = 1024),
-    )
-  of ebcAllowedFormRejected:
-    EmailBlueprintError(
-      constraint: ebcAllowedFormRejected,
-      rejectedName: rng.genMaliciousString(trial),
-      rejectedForm: rng.oneOf(
-        [hfRaw, hfText, hfAddresses, hfGroupedAddresses, hfMessageIds, hfDate, hfUrls]
-      ),
-    )
-  of ebcBodyPartDepthExceeded:
-    EmailBlueprintError(
-      constraint: ebcBodyPartDepthExceeded,
-      observedDepth: rng.rand(129 .. 10_000),
-      depthLocation: rng.genBodyPartLocation(),
-    )
+      flatBody(htmlBody = Opt.some(leaf))
+  let res = parseEmailBlueprint(
+    mailboxIds = rng.genNonEmptyMailboxIdSet(trial = 0), body = body
+  )
+  doAssert res.isErr, "genEmailBlueprintError: adversarial content-type did not reject"
+  res.unsafeError.head
 
-proc genEmailBlueprintErrors*(rng: var Rand, trial: int = -1): EmailBlueprintErrors =
+proc genEmailBlueprintErrors*(
+    rng: var Rand, trial: int = -1
+): NonEmptySeq[ValidationError] =
   ## Generates a non-empty ``EmailBlueprintErrors`` aggregate by composing
   ## triggers and running them through the public smart constructor
   ## ``parseEmailBlueprint``. Pattern A seal means that IS the only

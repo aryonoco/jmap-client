@@ -101,12 +101,18 @@ testCase temailCopyIntraAccountLive:
     # method and returns ``metUnknownMethod``. Either projection is a
     # valid client-library typed-error contract.
     let copyResult = respCopy.get(copyHandle)
+    # The same-account rejection is a server method error, now carried as
+    # data on the dispatch ok rail (``MethodOutcome.mokMethodError``); only a
+    # dispatch fault would ride the rail.
     assertOn target,
-      copyResult.isErr,
-      "Email/copy with accountId == fromAccountId must surface a typed error"
-    let getErr = copyResult.error
-    doAssert getErr.kind == gekMethod, "expected gekMethod"
-    let methodErr = getErr.methodErr
+      copyResult.isOk,
+      "dispatch must succeed on the rail; the intra-account copy rejection is " &
+        "a server method error carried as data"
+    let copyOutcome = copyResult.unsafeValue
+    assertOn target,
+      copyOutcome.kind == mokMethodError,
+      "Email/copy with accountId == fromAccountId must surface a typed method error"
+    let methodErr = copyOutcome.error
     assertOn target,
       methodErr.kind in {metInvalidArguments, metUnknownMethod},
       "method error must project as metInvalidArguments or metUnknownMethod (got rawType=" &
@@ -121,7 +127,7 @@ testCase temailCopyIntraAccountLive:
     let respClean = client.send(bClean.freeze()).expect(
         "send Email/set cleanup[" & $target.kind & "]"
       )
-    let cleanResp = respClean.get(cleanHandle).expect(
+    let cleanResp = respClean.get(cleanHandle).expectValue(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
     var sourceDestroyed = false

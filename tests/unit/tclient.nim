@@ -188,64 +188,60 @@ testCase expandUriTemplateMultipleOccurrences:
 testCase classifyExceptionTimeout:
   ## Scenario 37: TimeoutError maps to tekTimeout.
   let e = newException(TimeoutError, "Call to 'recv' timed out.")
-  let ce = classifyException(e)
-  doAssert ce.kind == cekTransport
-  doAssert ce.transport.kind == tekTimeout
-  doAssert ce.transport.message == "Call to 'recv' timed out."
+  let ce = classifyTransportException(e)
+  doAssert ce.kind == tekTimeout
+  doAssert ce.message == "Call to 'recv' timed out."
 
 testCase classifyExceptionOsErrorSsl:
   ## Scenario 38: OSError with "ssl" in message maps to tekTls.
   let e = newException(OSError, "ssl handshake failed")
-  let ce = classifyException(e)
-  doAssert ce.kind == cekTransport
-  doAssert ce.transport.kind == tekTls
+  let ce = classifyTransportException(e)
+  doAssert ce.kind == tekTls
 
 testCase classifyExceptionOsErrorTls:
   ## Scenario 39: OSError with "TLS" (case-insensitive) maps to tekTls.
   let e = newException(OSError, "TLS protocol error")
-  let ce = classifyException(e)
-  doAssert ce.transport.kind == tekTls
+  let ce = classifyTransportException(e)
+  doAssert ce.kind == tekTls
 
 testCase classifyExceptionOsErrorCertificate:
   ## Scenario 40: OSError with "certificate" maps to tekTls.
   let e = newException(OSError, "certificate verification failed")
-  let ce = classifyException(e)
-  doAssert ce.transport.kind == tekTls
+  let ce = classifyTransportException(e)
+  doAssert ce.kind == tekTls
 
 testCase classifyExceptionOsErrorNetwork:
   ## Scenario 41: OSError without TLS keywords maps to tekNetwork.
   let e = newException(OSError, "connection refused")
-  let ce = classifyException(e)
-  doAssert ce.transport.kind == tekNetwork
+  let ce = classifyTransportException(e)
+  doAssert ce.kind == tekNetwork
 
 testCase classifyExceptionIoError:
   ## Scenario 42: IOError maps to tekNetwork.
   let e = newException(IOError, "connection reset by peer")
-  let ce = classifyException(e)
-  doAssert ce.kind == cekTransport
-  doAssert ce.transport.kind == tekNetwork
+  let ce = classifyTransportException(e)
+  doAssert ce.kind == tekNetwork
 
 testCase classifyExceptionValueError:
   ## Scenario 43: ValueError maps to tekNetwork with "protocol error:" prefix.
   let e = newException(ValueError, "unparseable URL")
-  let ce = classifyException(e)
-  doAssert ce.transport.kind == tekNetwork
-  doAssert "protocol error:" in ce.transport.message
+  let ce = classifyTransportException(e)
+  doAssert ce.kind == tekNetwork
+  doAssert "protocol error:" in ce.message
 
 testCase classifyExceptionCatchAll:
   ## Scenario 44: other CatchableError maps to tekNetwork with "unexpected error:" prefix.
-  let ce = classifyException((ref CatchableError)(msg: "something unknown"))
-  doAssert ce.transport.kind == tekNetwork
-  doAssert "unexpected error:" in ce.transport.message
+  let ce = classifyTransportException((ref CatchableError)(msg: "something unknown"))
+  doAssert ce.kind == tekNetwork
+  doAssert "unexpected error:" in ce.message
 
 when defined(ssl):
   block classifyExceptionSslError:
     ## SslError (from std/net, inherits CatchableError directly) maps to tekTls.
     let e = newException(SslError, "error:1416F086:SSL routines")
-    let ce = classifyException(e)
-    doAssert ce.kind == cekTransport
-    doAssert ce.transport.kind == tekTls
-    doAssert ce.transport.message == "error:1416F086:SSL routines"
+    let ce = classifyTransportException(e)
+    doAssert ce.kind == tekTls
+    doAssert ce.message == "error:1416F086:SSL routines"
 
 # --- enforceBodySizeLimit (scenarios 45–47) ---
 # Post-refactor: enforceBodySizeLimit returns Result[void, TransportError]
@@ -274,7 +270,7 @@ testCase enforceBodySizeLimitDisabled:
 # Pre-flight limit validation — drives client.send() through a canned-session
 # Transport so the entire pipeline (validateLimits + classify + decode) is
 # exercised end-to-end. The diagnostic strings live on ClientError, populated
-# by validationToClientError when validateLimits rejects.
+# by the jeValidation arm of JmapError when validateLimits rejects.
 # ---------------------------------------------------------------------------
 
 testCase validateLimitsZeroCalls:

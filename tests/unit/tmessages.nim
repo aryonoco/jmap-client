@@ -11,8 +11,10 @@ import std/strutils
 import jmap_client
 import jmap_client/internal/types/validation
 import jmap_client/internal/types/errors
+import jmap_client/internal/types/capabilities
 import jmap_client/internal/types/identifiers
 import jmap_client/internal/types/primitives
+import jmap_client/internal/protocol/jmap_error
 
 import ../mtestblock
 
@@ -107,25 +109,63 @@ testCase tSetErrorPayloadlessWithoutDescription:
   let se = setError("forbidden")
   doAssert se.message == "forbidden"
 
-# --- GetError delegates to MethodError ------------------------------------
+# --- MethodOutcome (method errors are DATA, not a rail value) -------------
 
-testCase tGetErrorMethodDelegatesToMethodError:
+testCase tMethodOutcomeErrorDelegatesToMethodError:
+  ## A method-level error rides ``MethodOutcome.mokMethodError``; its
+  ## diagnostic is the underlying ``MethodError``'s message (the former
+  ## ``GetError`` method arm, now data).
   let me = methodError("serverFail", Opt.some("internal"))
-  let ge = getErrorMethod(me)
-  doAssert ge.message == me.message
-  doAssert ge.message == "serverFail: internal"
+  let outcome = methodFailure[int](me)
+  doAssert outcome.kind == mokMethodError
+  doAssert outcome.error.message == "serverFail: internal"
 
-# --- ClientError -----------------------------------------------------------
+# --- JmapError arms (the single consumer rail) ----------------------------
 
-testCase tClientErrorMessageTransport:
-  let ce = clientError(transportError(tekTimeout, "timed out"))
-  doAssert ce.message == "timed out"
+testCase tJmapErrorTransportArm:
+  let je = jmapTransport(transportError(tekTimeout, "timed out"))
+  doAssert je.message == "timed out"
+  doAssert $je == je.message
 
-testCase tClientErrorMessageRequest:
+testCase tJmapErrorRequestArm:
   let re =
     requestError("urn:ietf:params:jmap:error:limit", title = Opt.some("Limit Exceeded"))
-  let ce = clientError(re)
-  doAssert ce.message == "Limit Exceeded"
+  let je = jmapRequest(re)
+  doAssert je.message == "Limit Exceeded"
+
+testCase tJmapErrorValidationArm:
+  let je =
+    jmapValidation(validationError("AccountId", "contains control characters", ""))
+  doAssert je.message == "AccountId: contains control characters"
+
+testCase tSessionFaultMessage:
+  let sf = sessionFault(sfCapabilityAbsent, ckMail)
+  doAssert sf.message ==
+    "session does not advertise the urn:ietf:params:jmap:mail capability"
+  doAssert jmapSession(sf).message == sf.message
+
+testCase tMisuseMessage:
+  let m = misuse(
+    initBuilderId(1'u64, 1'u64),
+    initBuilderId(1'u64, 2'u64),
+    parseMethodCallId("c0").get(),
+  )
+  doAssert "handle from a different builder" in m.message
+  doAssert "callId=c0" in m.message
+  doAssert jmapMisuse(
+    initBuilderId(1'u64, 1'u64),
+    initBuilderId(1'u64, 2'u64),
+    parseMethodCallId("c0").get(),
+  ).message == m.message
+
+testCase tProtocolFaultMissingCall:
+  let pf = protocolMissingCall(parseMethodCallId("c0").get())
+  doAssert pf.message == "no response for call ID c0"
+  doAssert jmapProtocol(pf).message == pf.message
+
+testCase tProtocolFaultMalformedError:
+  let pf = protocolMalformedError(parseMethodCallId("c0").get())
+  doAssert pf.message == "malformed error response for call ID c0"
 
 # --- $ delegates to message across every error type ----------------------
 
@@ -136,8 +176,8 @@ testCase tDollarParityAllTypes:
   doAssert $te == te.message
   let re = requestError("urn:x")
   doAssert $re == re.message
-  let ce = clientError(te)
-  doAssert $ce == ce.message
+  let je = jmapTransport(te)
+  doAssert $je == je.message
   let me = methodError("rt")
   doAssert $me == me.message
   let se = setError("rt")
