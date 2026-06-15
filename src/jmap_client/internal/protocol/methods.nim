@@ -277,6 +277,65 @@ type SetResponse*[T, U] = object
     ## ``Result.ok()``; wire ``notDestroyed`` entries become
     ## ``Result.err(setError)``.
 
+iterator created*[T, U](r: SetResponse[T, U]): tuple[id: CreationId, value: T] =
+  ## Successful creates (CreationId -> created entity). The typed
+  ## ``createResults`` table remains for callers needing the SetError rail.
+  for cid, res in r.createResults:
+    case res.isOk
+    of true:
+      yield (cid, res.unsafeValue)
+    of false:
+      discard
+
+iterator createFailures*[T, U](
+    r: SetResponse[T, U]
+): tuple[id: CreationId, error: SetError] =
+  ## Per-creation SetErrors (RFC 8620 §5.3 notCreated).
+  for cid, res in r.createResults:
+    case res.isOk
+    of false:
+      yield (cid, res.unsafeError)
+    of true:
+      discard
+
+iterator updated*[T, U](r: SetResponse[T, U]): tuple[id: Id, serverEcho: Opt[U]] =
+  ## Successful updates (Id -> the RFC 8620 §5.3 server-changed-property echo,
+  ## ``Opt.none`` when the server echoed nothing). The common "isOk, ignore the
+  ## echo" path is one ``for``; the typed table remains for echo-consuming callers.
+  for id, res in r.updateResults:
+    case res.isOk
+    of true:
+      yield (id, res.unsafeValue)
+    of false:
+      discard
+
+iterator updateFailures*[T, U](r: SetResponse[T, U]): tuple[id: Id, error: SetError] =
+  ## Per-update SetErrors (RFC 8620 §5.3 notUpdated).
+  for id, res in r.updateResults:
+    case res.isOk
+    of false:
+      yield (id, res.unsafeError)
+    of true:
+      discard
+
+iterator destroyed*[T, U](r: SetResponse[T, U]): Id =
+  ## Successfully destroyed ids (RFC 8620 §5.3 destroyed).
+  for id, res in r.destroyResults:
+    case res.isOk
+    of true:
+      yield id
+    of false:
+      discard
+
+iterator destroyFailures*[T, U](r: SetResponse[T, U]): tuple[id: Id, error: SetError] =
+  ## Per-destroy SetErrors (RFC 8620 §5.3 notDestroyed).
+  for id, res in r.destroyResults:
+    case res.isOk
+    of false:
+      yield (id, res.unsafeError)
+    of true:
+      discard
+
 type CopyResponse*[T] = object
   ## Response arguments for Foo/copy (RFC 8620 section 5.4).
   ## Structurally similar to SetResponse but only has create results
