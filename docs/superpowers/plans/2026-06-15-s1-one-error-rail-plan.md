@@ -25,7 +25,20 @@ two non-consumer leaf rails go internal.
 ## STATE / HANDOFF  (update this block as each phase lands)
 
 - **Branch:** `api/s1-one-error-rail` (off `main`, after S0 merge).
-- **Current phase:** Phase 7 **complete**; Phase 8 next.
+- **Current phase:** **S1 COMPLETE ✅** — both gates green on `4114cdd`
+  (`just ci` "All CI checks passed!"; `just clean && just jmap-reset &&
+  just test-full` "All shards passed" — Cyrus + Stalwart + James). Adversarial
+  review of the keystone done (verdict: sound, no must-fix bugs; D2 fixed, D1
+  documented, low nits accepted). 12 commits; 154 files, +3773/−2465. **Not
+  pushed — awaiting user go-ahead for push/PR.** Next sub-project: **S2**
+  (read-model uniformity).
+- **Gate-2 / review fixes (all committed):** (a) compound `getBoth` §5.4
+  conditional implicit — `CompoundResults.implicit` is `Opt[MethodOutcome[B]]`,
+  extracted only on primary success (`155cd46`); (b) `ProtocolFault` call id
+  moved into the variants — mandatory on `pfMissingCall`/`pfMalformedError`,
+  `Opt` `decodeCallId` on `pfDecode` (D2, `4114cdd`); (c) REUSE-Ignore on the
+  handoff prose + `MethodOutcomeKind` docstring (`70145c0`); (d) dead imports in
+  `tadversarial_blueprint` (`f7eab8e`).
 - **Phase 7 done (commit pending this turn):** Regenerated the wire-contract
   snapshots via the S0 oracle (`errorCounter=0`, 1661 rows) — diff is exactly as
   designed (ClientError/GetError/EmailBlueprintError(s)/TokenViolation/
@@ -144,7 +157,7 @@ two non-consumer leaf rails go internal.
 - [x] Phase 5 — `jeSession` producer + privatise `TokenViolation`/`SmtpReplyViolation`
 - [x] Phase 6 — fix consumers (`convenience.nim` clean; `examples/jmap-cli` rewritten)
 - [x] Phase 7 — regenerate oracle contract + sweep tests + AUDIT triage
-- [ ] Phase 8 — both gates green + adversarial review + finalize
+- [x] Phase 8 — both gates green + adversarial review + finalize
 
 ---
 
