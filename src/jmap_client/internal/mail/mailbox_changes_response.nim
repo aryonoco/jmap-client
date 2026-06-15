@@ -3,7 +3,9 @@
 
 ## Extended Mailbox/changes response (RFC 8621 §2.2). Composes the
 ## standard ``ChangesResponse[Mailbox]`` with the Mailbox-specific
-## ``updatedProperties`` extension field.
+## ``updatedProperties`` extension field. The standard change fields are
+## read directly through the public ``base`` (``r.base.created`` etc.) —
+## one source of truth, no per-field forwarders to drift from it.
 ##
 ## Extracted into its own leaf module so ``mail_entities.nim`` can declare
 ## ``changesResponseType(Mailbox) = MailboxChangesResponse`` without
@@ -32,49 +34,6 @@ type MailboxChangesResponse* = object
   updatedProperties*: Opt[seq[string]]
 
 {.pop.}
-
-# =============================================================================
-# UFCS forwarding accessors
-# =============================================================================
-
-template forwardChangesFields(T: typedesc) =
-  ## Generates UFCS forwarding funcs for the 7 ChangesResponse base fields,
-  ## so callers write ``resp.accountId`` instead of ``resp.base.accountId``.
-  func accountId*(r: T): AccountId =
-    ## Forwarded from ``base.accountId``.
-    r.base.accountId
-
-  func oldState*(r: T): JmapState =
-    ## Forwarded from ``base.oldState``.
-    r.base.oldState
-
-  func newState*(r: T): JmapState =
-    ## Forwarded from ``base.newState``.
-    r.base.newState
-
-  func hasMoreChanges*(r: T): bool =
-    ## Forwarded from ``base.hasMoreChanges``.
-    r.base.hasMoreChanges
-
-  func created*(r: T): lent seq[Id] =
-    ## Forwarded from ``base.created``.
-    ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
-    ## sealed container.
-    r.base.created
-
-  func updated*(r: T): lent seq[Id] =
-    ## Forwarded from ``base.updated``.
-    ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
-    ## sealed container.
-    r.base.updated
-
-  func destroyed*(r: T): lent seq[Id] =
-    ## Forwarded from ``base.destroyed``.
-    ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
-    ## sealed container.
-    r.base.destroyed
-
-forwardChangesFields(MailboxChangesResponse)
 
 # =============================================================================
 # MailboxChangesResponse fromJson
