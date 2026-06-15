@@ -208,82 +208,43 @@ const CoreCapabilityUri* = "urn:ietf:params:jmap:core"
   ## on every accessor call — the core arm is stored once as a typed
   ## ``CoreCapabilities`` field, not as a case-object entry in the list.
 
-# nimalyzer: Session intentionally has no public fields. Fields are
-# module-private to enforce construction via parseSession (which guarantees
-# ckCore is present and apiUrl is non-empty). Public accessor funcs below
-# provide read access; UFCS makes s.field syntax work unchanged for callers.
 type Session* {.ruleOff: "objects".} = object
   ## The JMAP Session resource (RFC 8620 section 2). Contains server
   ## capabilities, user accounts, API endpoint URLs, and session state.
-  ## Fields are module-private; external access via UFCS accessor funcs.
   ##
-  ## ``rawCore`` stores the RFC-required core capability as typed data
+  ## ``core`` stores the RFC-required core capability as typed data
   ## (not a case-object arm) — parseSession extracts it from the input
-  ## capability list, so the MUST invariant lifts from a runtime panic
-  ## (previous ``raiseAssert`` in ``coreCapabilities``) into the type.
-  ## ``rawAdditional`` holds the remaining capabilities; the ``capabilities``
-  ## accessor synthesises the core entry on demand for API symmetry and
-  ## byte-identical wire serialisation.
-  rawCore: CoreCapabilities
-  rawAdditional: seq[ServerCapability]
-  rawAccounts: Table[AccountId, Account]
-  rawPrimaryAccounts: Table[string, AccountId]
-  rawUsername: string
-  rawApiUrl: string
-  rawDownloadUrl: UriTemplate
-  rawUploadUrl: UriTemplate
-  rawEventSourceUrl: UriTemplate
-  rawState: JmapState
+  ## capability list, so the §2 MUST invariant lifts from a runtime
+  ## panic into the type. ``additional`` holds the remaining
+  ## capabilities; the ``capabilities`` accessor synthesises the core
+  ## entry on demand for API symmetry and byte-identical wire
+  ## serialisation.
+  ##
+  ## Tier-C: per-template required-variable rules relating the three
+  ## UriTemplate fields are parseSession-enforced; raw construction is
+  ## out-of-contract.
+  core*: CoreCapabilities
+  additional*: seq[ServerCapability]
+  accounts*: Table[AccountId, Account]
+  primaryAccounts*: Table[string, AccountId]
+  username*: string
+  apiUrl*: ApiUrl
+  downloadUrl*: UriTemplate
+  uploadUrl*: UriTemplate
+  eventSourceUrl*: UriTemplate
+  state*: JmapState
 
 func capabilities*(s: Session): seq[ServerCapability] =
-  ## Server-level capabilities, core entry synthesised from ``rawCore``
+  ## Server-level capabilities, core entry synthesised from ``core``
   ## and prepended so the list is RFC-conformant and byte-identical to
   ## the wire format. ``parseServerCapability`` is total when given a
   ## well-formed core URI plus ``Opt.some(core)``; ``.get()`` cannot Err
   ## under this invariant.
-  let coreCap = parseServerCapability(
-      CoreCapabilityUri, Opt.some(s.rawCore), Opt.none(JsonNode)
-    )
-    .get()
+  let coreCap =
+    parseServerCapability(CoreCapabilityUri, Opt.some(s.core), Opt.none(JsonNode)).get()
   result = @[coreCap]
-  for cap in s.rawAdditional:
+  for cap in s.additional:
     result.add(cap)
-
-func accounts*(s: Session): lent Table[AccountId, Account] =
-  ## Accounts keyed by AccountId.
-  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
-  ## sealed container.
-  return s.rawAccounts
-
-func primaryAccounts*(s: Session): lent Table[string, AccountId] =
-  ## Primary accounts keyed by raw capability URI (not CapabilityKind).
-  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
-  ## sealed container.
-  return s.rawPrimaryAccounts
-
-func username*(s: Session): string =
-  ## Authenticated username, or empty string if none.
-  return s.rawUsername
-
-func apiUrl*(s: Session): string =
-  ## URL for JMAP API requests.
-  return s.rawApiUrl
-
-func downloadUrl*(s: Session): UriTemplate =
-  ## RFC 6570 Level 1 template for blob downloads.
-  return s.rawDownloadUrl
-
-func uploadUrl*(s: Session): UriTemplate =
-  ## RFC 6570 Level 1 template for uploads.
-  return s.rawUploadUrl
-
-func eventSourceUrl*(s: Session): UriTemplate =
-  ## RFC 6570 Level 1 template for event source.
-  return s.rawEventSourceUrl
-
-func state*(s: Session): JmapState =
-  ## Session state token.
-  return s.rawState
 
 func findCapability*(
     account: Account, kind: CapabilityKind
@@ -560,8 +521,8 @@ func detectSession(
 ): Result[CorePartition, SessionViolation] =
   ## Composes the five structural sub-detectors with ``?`` short-circuit,
   ## returning the extracted core partition so ``parseSession`` can feed
-  ## ``rawCore`` / ``rawAdditional`` without a second traversal. First-
-  ## error ordering matches the pre-refactor behaviour.
+  ## ``core`` / ``additional`` without a second traversal. First-error
+  ## ordering matches the pre-refactor behaviour.
   let partition = ?partitionCore(capabilities)
   ?detectApiUrl(apiUrl)
   ?detectUriVariables(urDownload, downloadUrl)
@@ -593,38 +554,34 @@ func parseSession*(
     return err(toValidationError(error))
   ok(
     Session(
-      rawCore: partition.core,
-      rawAdditional: partition.additional,
-      rawAccounts: accounts,
-      rawPrimaryAccounts: primaryAccounts,
-      rawUsername: username,
-      rawApiUrl: apiUrl,
-      rawDownloadUrl: downloadUrl,
-      rawUploadUrl: uploadUrl,
-      rawEventSourceUrl: eventSourceUrl,
-      rawState: state,
+      core: partition.core,
+      additional: partition.additional,
+      accounts: accounts,
+      primaryAccounts: primaryAccounts,
+      username: username,
+      # detectApiUrl above proved the ApiUrl invariant (non-empty,
+      # newline-free), so module-internal raw construction is in-contract.
+      apiUrl: ApiUrl(rawValue: apiUrl),
+      downloadUrl: downloadUrl,
+      uploadUrl: uploadUrl,
+      eventSourceUrl: eventSourceUrl,
+      state: state,
     )
   )
 
-func coreCapabilities*(session: Session): CoreCapabilities =
-  ## Total function: ``rawCore`` is stored as a typed field at Session
-  ## construction time, so the RFC 8620 §2 MUST invariant is enforced by
-  ## the type — no panic path, no runtime assertion.
-  return session.rawCore
-
 func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapability] =
   ## Finds the first server capability matching the given kind. ``ckCore``
-  ## short-circuits to the synthesised core arm — ``rawCore`` is stored
-  ## directly, not in ``rawAdditional``. ``parseServerCapability`` is
+  ## short-circuits to the synthesised core arm — ``core`` is stored
+  ## directly, not in ``additional``. ``parseServerCapability`` is
   ## total when given the canonical core URI plus ``Opt.some(core)``;
   ## ``.get()`` cannot Err under this invariant.
   if kind == ckCore:
     let coreCap = parseServerCapability(
-        CoreCapabilityUri, Opt.some(session.rawCore), Opt.none(JsonNode)
+        CoreCapabilityUri, Opt.some(session.core), Opt.none(JsonNode)
       )
       .get()
     return Opt.some(coreCap)
-  for cap in session.rawAdditional:
+  for cap in session.additional:
     if cap.kind == kind:
       return Opt.some(cap)
   return Opt.none(ServerCapability)
@@ -636,11 +593,11 @@ func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] 
   ## proves ``parseServerCapability(...).get()`` is total.
   if uri == CoreCapabilityUri:
     let coreCap = parseServerCapability(
-        CoreCapabilityUri, Opt.some(session.rawCore), Opt.none(JsonNode)
+        CoreCapabilityUri, Opt.some(session.core), Opt.none(JsonNode)
       )
       .get()
     return Opt.some(coreCap)
-  for cap in session.rawAdditional:
+  for cap in session.additional:
     if cap.uri == uri:
       return Opt.some(cap)
   return Opt.none(ServerCapability)
@@ -649,14 +606,14 @@ func primaryAccount*(session: Session, kind: CapabilityKind): Opt[AccountId] =
   ## Returns the primary account for a known capability kind.
   ## Returns none if kind == ckUnknown (no canonical URI) or no primary designated.
   let uri = ?capabilityUri(kind)
-  for key, val in session.rawPrimaryAccounts:
+  for key, val in session.primaryAccounts:
     if key == uri:
       return Opt.some(val)
   return Opt.none(AccountId)
 
 func findAccount*(session: Session, id: AccountId): Opt[Account] =
   ## Looks up an account by its AccountId.
-  for key, val in session.rawAccounts:
+  for key, val in session.accounts:
     if key == id:
       return Opt.some(val)
   return Opt.none(Account)

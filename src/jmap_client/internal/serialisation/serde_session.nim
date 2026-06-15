@@ -408,7 +408,7 @@ func toJson*(s: Session): JsonNode =
   ## Serialise Session to JSON (RFC 8620 §2).
   var node = %*{
     "username": s.username,
-    "apiUrl": s.apiUrl,
+    "apiUrl": $s.apiUrl,
     "downloadUrl": $s.downloadUrl,
     "uploadUrl": $s.uploadUrl,
     "eventSourceUrl": $s.eventSourceUrl,
