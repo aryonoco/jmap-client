@@ -28,11 +28,20 @@
   - **S0 (truthful contract) — ✅ DONE & merged to `main`** (PR #5).
   - **S1 (one error rail, `JmapError`) — ✅ DONE & merged to `main`** (PR #6,
     merge commit `011830b`, 2026-06-15). Both gates were green at merge.
-  - **S2 (read-model uniformity) — ⬜ NEXT.** S3, S4, and the triage ledger
-    follow.
-- **You are on `main`** (up to date with origin, S1 merged). The immediate work
-  is **S2** — start it via the `brainstorming` skill and get the user's design
-  approval before coding (§13).
+  - **S2 (read-model uniformity) — 🟡 DESIGNED, REVIEWED, PLANNED; NOT YET
+    IMPLEMENTED.** The spec is written, adversarially reviewed (5 dimensions),
+    revised, and user-approved; the full 14-phase implementation plan is written.
+    **The immediate next action is to EXECUTE that plan** (§8b, §13). Nothing has
+    been built yet — no code changed, still on `main`.
+  - **S3, S4, and the triage ledger** follow S2.
+- **You are on `main`** (up to date with origin, S0+S1 merged; working tree has
+  the new S2 spec + plan + survey docs, uncommitted). The immediate work is to
+  **execute the S2 plan starting at Phase 0** — branch first, then implement (§13).
+- **The two canonical S2 artefacts to read before doing anything:**
+  `docs/superpowers/specs/2026-06-15-s2-read-model-uniformity-design.md` (the
+  approved design) and
+  `docs/superpowers/plans/2026-06-15-s2-read-model-uniformity-plan.md` (the
+  step-by-step plan, with a STATE/HANDOFF block at its top).
 
 ---
 
@@ -221,7 +230,7 @@ writing-plans → executing-plans). Dependency order:
 |---|---|---|---|---|
 | **S0** | **Truthful contract** (compiler-as-library oracle) | R5 | — | ✅ DONE & merged |
 | **S1** | **One error rail** (`JmapError`) | R3 | S0 | ✅ DONE & merged (PR #6) |
-| **S2** | **Read-model uniformity** | R6 | S0 | ⬜ NEXT |
+| **S2** | **Read-model uniformity** | R6 | S0 | 🟡 spec + plan done; **execute next** (§8b) |
 | **S3** | **Complete the core** (readers/ctors/predicates/`requireMail`) | R2 | S1, S2 | ⬜ |
 | **S4** | **One-shots + easy-path + dissolve quarantine** (`connect`, `sendPlainText`, `queryThenGet`, bare-get one-shots, the uncopyable-builder front door) | R1, R4 | S3 | ⬜ |
 | — | **Triage ledger** (AUDIT Phase 2: every `[open]` finding → resolve / accept / file, mapped to its sub-project) | all 92 | across all | ⬜ (S1 error-rail findings done) |
@@ -342,17 +351,137 @@ Plan (tracked, with a STATE header marked DONE):
 
 ---
 
+## 8b. S2 — read-model uniformity: DESIGNED, REVIEWED, PLANNED (this session's work)
+
+**This is the live sub-project. Read its two artefacts in full before touching
+any code:**
+- **Design spec (approved):**
+  `docs/superpowers/specs/2026-06-15-s2-read-model-uniformity-design.md`
+- **Implementation plan (ready to execute):**
+  `docs/superpowers/plans/2026-06-15-s2-read-model-uniformity-plan.md`
+- Supporting survey (the current-code inventory, file:line for every type):
+  `docs/superpowers/specs/2026-06-15-s2-read-model-survey.md`
+(The two `specs/` files are gitignored; the `plans/` file is tracked.)
+
+### What S2 solves (root cause R6)
+
+The P29 consumer bench found that a developer meets **three different read
+shapes** for the same job, unsignposted: (1) direct public fields (`Mailbox`,
+`Identity`), (2) accessor functions (`Thread`, `Account`, `Session`, capability
+schemas, some returning `lent`), and (3) **two optionality models for the same
+logical field** — `Opt[T]` on a full model vs `FieldEcho[T]` on its `Partial`,
+where switching `addEmailGet` ↔ `addPartialEmailGet` silently flips the idiom,
+and `FieldEcho` ships **no reader at all** (every consumer hand-writes
+`fieldEchoOr`). S2 makes every read uniform.
+
+### The headline finding — decision 3 was REFRAMED (a finding, not a constraint)
+
+The campaign's original locked decision 3 said "collapse the `Opt`-vs-`FieldEcho`
+split." **The survey proved collapsing the TYPES destroys real protocol
+information:** `FieldEcho` is 3-state (`fekAbsent` = property not echoed /
+unchanged; `fekNull` = echoed as JSON null / cleared; `fekValue`), and RFC 8620
+§5.3 update-echo + incremental `/changes` sync genuinely distinguish absent
+("keep cache") from null ("clear cache"). `Opt` is 2-state and conflates them.
+Collapsing would *make a representable distinction unrepresentable* — the inverse
+of the project's #1 DDD principle. So **uniformity is achieved at the READER
+layer, not by erasing a type**: keep both `Opt` and `FieldEcho`; give `FieldEcho`
+the reader API `Opt` already has. (SQLite agrees: `sqlite3_column_type` is a
+queryable NULL-state *beside* the coercing `sqlite3_column_text`.)
+
+### The locked decisions (4 forks + 3 user-confirmed)
+
+Settled with the user via `AskUserQuestion` at the most read-uniform pole:
+1. **Optionality:** keep both `Opt` + `FieldEcho`; unify the reader.
+2. **Access idiom:** two-bucket — every immutable data record reads by direct
+   public field; accessors only on stateful handles.
+3. **Case objects:** public tag + public arms (the `SetError` idiom).
+4. **Set-item echo:** first-class projection reader in S2; keep the typed
+   `Opt[PartialU]` echo.
+Plus the user confirmed: cross-field residue → **Tier-C** (see below); migrate the
+capability case-object arms **now**; `Account.name`/`Session.apiUrl` → **newtypes**.
+
+### The design — one rule, seven applications
+
+> *Keep the protocol's distinctions in the **type**; make every read uniform and
+> **direct** — a field, a tag+arm, a lookup, or a typed getter — so the
+> consumer's read never pays for the library's construction-invariants or
+> internal representation.*
+
+Rules: (1) two buckets HANDLE/DATA; (2) invariants in the field **type** or
+parse-enforced; (3) stored facts = fields, computed = funcs; (4) drop `lent` on
+data records; (5) two optionality types, one reader experience (`FieldEcho` gains
+`valueOr`/`isValue`/`isNull`/`isAbsent`/`items`/`toOpt`); (6) public tag + public
+arms for case objects; (7) `SetResponse` projections + flatten
+`MailboxChangesResponse`.
+
+### Forge-prevention — the empirically-corrected mechanism (IMPORTANT LESSON)
+
+A public read field must not enable forging an invariant-bearing value. Three
+outcomes:
+- **Tier-A — sealed newtype (preferred):** encode each single-field invariant in
+  the field's type (`Thread.emailIds*: NonEmptyIdSeq`; `Account.name*:
+  DisplayName`; `Session.apiUrl*: ApiUrl`; `Comparator.property*: PropertyName`).
+  Unforgeable, zero container cost.
+- **Tier-C — public fields, parse-enforced, raw construction documented
+  out-of-contract (the libcurl/SQLite stance):** for genuinely *cross-field*
+  invariants no single type can encode (`Account` policy×caps filtering, `Session`
+  url-template-vars, `MailAccountCapabilities` `≥1`/`≥100` bounds). `parseX` is the
+  blessed constructor; a forged inconsistent value only harms the forger, exactly
+  as the project already tolerates `AccountId("\x01")` raw distinct conversion.
+- **Tier-B — brand + `{.requiresInit.}` — REJECTED.** Rev-1 of the spec proposed
+  it; an adversarial reviewer falsified it. **LESSON: always test empirical claims
+  under the project's REAL flags.** Under `--warningAsError:UnsafeDefault/
+  UnsafeSetLen` (config.nims), a `{.requiresInit.}` value is a hard *error* in
+  `seq.add`/`newSeq`/`Table.getOrDefault` — a viral footgun for any consumer who
+  does `collect`/`toSeq`/`getOrDefault`. (My first test used bare `nim c`, where
+  those are mere warnings — wrong.) Tier-B is gone; Tier-A + Tier-C replace it.
+
+The **UFCS invariant** is the engineering lever that keeps the refactor green:
+flipping a private `rawX: T` + `func x*(o): T` to a public field `x*: T` and
+deleting the accessor keeps every paren-less call site `o.x` working unchanged
+(field access). Only explicit-paren calls `o.x()` and genuine type changes
+(`seq[Id]`→`NonEmptyIdSeq`, `string`→`ApiUrl`, bare→`Opt`) break.
+
+### What this session produced (the process — reuse it)
+
+1. **`brainstorming` skill** — surveyed the entire read-model surface with a
+   **Workflow** (8 parallel reader agents → synthesis → the survey doc), then
+   designed with the user via `AskUserQuestion`, reframing decision 3.
+2. **`writing-plans`/spec** — wrote the design spec; ran a **5-dimension
+   adversarial-review Workflow** (source-feasibility, design-lens, RFC-fidelity,
+   completeness, consistency). Verdict `needs-revision` — it caught the falsified
+   `requiresInit` claim, an RFC inversion (`Email.headers` is *not* a default
+   §4.2 property → must be `Opt`), a stored-vs-derived error (`uri` is stored, not
+   derived), a layering inversion (`NonEmptyIdSeq` home module), and more (7
+   must-fix + 11 should-fix). All addressed in spec rev 2.
+3. **The plan** — 14 green-per-phase phases (P0 `FieldEcho` reader → … → P13 both
+   gates), each with exact files, exact old→new edits, full code for additive
+   pieces, exact `just` commands, and a Linux-kernel commit. STATE block at top.
+
+### Immediate next action for S2
+
+**Execute the plan from Phase 0**, subagent-driven (a fresh subagent per phase,
+review its diff + re-run `just build` yourself between phases). FIRST create the
+branch `api/s2-read-model-uniformity` off `main` (never implement on `main`) and
+commit the plan + spec as the first checkpoint. Per-phase verification is
+`just build` (the H16/H17 surface lints fail on the stale contract until Phase 10
+regenerates it, so `just ci` runs only at Phase 13). Both gates (`just ci`, then
+`just clean && just jmap-reset && just test-full`) at Phase 13. Update the plan's
+STATE block (phase ✅ + SHA) as each phase lands.
+
+---
+
 ## 9. What is LEFT (the work ahead)
 
 **S1 push/PR/merge — ✅ DONE** (PR #6 merged to `main`, 2026-06-15). No
 immediate outward-facing action pending.
 
-**S2 — Read-model uniformity (NEXT).** Settle the final entity *data-record*
-shapes: one access idiom (recommend direct public fields for data records;
-opaque handles keep accessors), one optionality model per field (collapse the
-`Email`/`PartialEmail` `Opt`-vs-`FieldEcho` split). Reconcile `Thread`'s
-`lent seq` accessor. **Do this BEFORE S3** so the readers target final shapes.
-Clears R6. Independent of S1 (could even predate it; do it now).
+**S2 — Read-model uniformity — 🟡 designed + planned; EXECUTE NEXT.** Full detail
+in **§8b**. NB the original "collapse the `Opt`-vs-`FieldEcho` split" framing was
+**reframed** (keep both types, unify the reader — collapsing loses RFC §5.3
+information). Settles the final data-record shapes (two-bucket, direct public
+fields; `Thread.emailIds*: NonEmptyIdSeq`; `FieldEcho` reader). **Do this BEFORE
+S3** so the S3 readers target final shapes. Clears R6.
 
 **S3 — Complete the core (R2).** Add the missing total readers / smart
 constructors / predicates on the now-final types: a `FieldEcho` reader,
@@ -483,6 +612,11 @@ trips it — wrap such prose in `<!-- REUSE-IgnoreStart -->` / `<!-- REUSE-Ignor
 - `docs/design/14-Nim-API-Principles.md` — **the 29 principles (the rubric).**
 - `docs/design/16-api-from-the-consumers-chair.md` — narrative consumer critique.
 - `examples/jmap-cli/AUDIT.md` — the 92-finding ledger (+ the S1 resolution section).
+- **S2 artefacts (this session):**
+  `docs/superpowers/specs/2026-06-15-s2-read-model-uniformity-design.md` (approved
+  design, gitignored), `…/2026-06-15-s2-read-model-survey.md` (survey, gitignored),
+  `docs/superpowers/plans/2026-06-15-s2-read-model-uniformity-plan.md` (the
+  14-phase plan, tracked, with a STATE block).
 - `examples/jmap-cli/` — the P29 consumer bench (CLI + `commands/*` +
   `cli_session.nim`). Imports only `jmap_client` [+ `convenience`];
   `check-public-only.sh` enforces that. **Now threads one `JmapError` rail.**
@@ -513,25 +647,38 @@ trips it — wrap such prose in `<!-- REUSE-IgnoreStart -->` / `<!-- REUSE-Ignor
 ## 12. Current working state (snapshot, 2026-06-15)
 
 - On **`main`**, up to date with `origin/main` (merge commit `011830b`). **S0 and
-  S1 are both merged.** Working tree clean. The `api/s1-one-error-rail` branch
-  still exists (local + remote) — harmless; may be deleted.
-- Memories present: `api-libcurl-sqlite-refactor` (campaign state, marks S1 DONE
-  & merged), `api-design-only-consumers` (the design lens), plus the older
-  `api-refactor-section-ab-campaign` (partly superseded).
+  S1 are both merged.** **S2 is designed + planned but NOT built** — the working
+  tree has the new S2 spec/plan/survey docs (+ this handoff's updates), all
+  uncommitted; **no `src/` code has been changed.** Create the
+  `api/s2-read-model-uniformity` branch and commit the plan + spec there as the
+  first execution step. The `api/s1-one-error-rail` branch still exists — harmless.
+- Memories present: `api-libcurl-sqlite-refactor` (campaign state — marks S2
+  designed + planned), `api-design-only-consumers` (the design lens), plus the
+  older `api-refactor-section-ab-campaign` (partly superseded).
 
 ---
 
 ## 13. Immediate next action
 
-**Start S2 — read-model uniformity.** You are on `main` with S0 + S1 merged.
-Branch first (e.g. `api/s2-read-model-uniformity`); never implement on `main`.
-Invoke the `brainstorming` skill and design the final entity *data-record* shapes
-**with the user** against the design lens (§2) and P8/P19/decision 3 (direct
-public fields for data records; collapse the `Email`/`PartialEmail`
-`Opt`-vs-`FieldEcho` split; reconcile `Thread`'s `lent seq`); get the user's
-approval, then `writing-plans` → `executing-plans` with per-phase commits and the
-two gates (§10). Treat any `convenience.nim`/CLI/test breakage as a **finding to
-fix, never a constraint**. Confirm push/PR/merge with the user (outward-facing).
+**Execute the S2 plan.** S2's design + spec + plan are DONE and user-approved
+(§8b); the brainstorming/writing-plans steps are complete. Your job is to
+**implement it**:
+1. Read in full: the S2 spec
+   (`docs/superpowers/specs/2026-06-15-s2-read-model-uniformity-design.md`) and
+   the plan (`docs/superpowers/plans/2026-06-15-s2-read-model-uniformity-plan.md`).
+2. Create branch `api/s2-read-model-uniformity` off `main` (never implement on
+   `main`); commit the plan + spec + this handoff as the first checkpoint.
+3. Use `superpowers:subagent-driven-development` (a fresh subagent per phase) —
+   or `executing-plans` inline — to work Phases 0 → 13 in order. Per-phase
+   verification is `just build` (keep `src/` green); review every subagent diff
+   and re-run the build yourself before committing each phase. Use Linux-kernel
+   commits with the three trailers (§10). Stage explicit paths; never `git add -A`.
+4. Update the plan's STATE block (phase ✅ + SHA) as each phase lands.
+5. Both gates at Phase 13: `just ci`, then `just clean && just jmap-reset &&
+   just test-full` (exact order; re-run the whole sequence until green).
+6. Treat any `convenience.nim`/CLI/test breakage as a **finding to fix, never a
+   constraint** (tests are not a design input). Confirm push/PR/merge with the
+   user (outward-facing).
 
 **When in doubt, re-read §2 (the design lens). Optimise for the future
 application developer, comprehensively, no corners cut — libcurl/SQLite, not
