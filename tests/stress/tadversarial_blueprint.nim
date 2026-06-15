@@ -22,16 +22,13 @@ discard """
 ## Where the delivered implementation differs from the first-audit design,
 ## the scenario docstring names the adaptation explicitly.
 
-import std/hashes
 import std/json
 import std/os
 import std/osproc
-import std/sets
 import std/streams
 import std/strtabs
 import std/strutils
 import std/tables
-import std/times
 import std/typedthreads
 
 import results
