@@ -28,20 +28,33 @@
   - **S0 (truthful contract) — ✅ DONE & merged to `main`** (PR #5).
   - **S1 (one error rail, `JmapError`) — ✅ DONE & merged to `main`** (PR #6,
     merge commit `011830b`, 2026-06-15). Both gates were green at merge.
-  - **S2 (read-model uniformity) — 🟡 DESIGNED, REVIEWED, PLANNED; NOT YET
-    IMPLEMENTED.** The spec is written, adversarially reviewed (5 dimensions),
-    revised, and user-approved; the full 14-phase implementation plan is written.
-    **The immediate next action is to EXECUTE that plan** (§8b, §13). Nothing has
-    been built yet — no code changed, still on `main`.
-  - **S3, S4, and the triage ledger** follow S2.
-- **You are on `main`** (up to date with origin, S0+S1 merged; working tree has
-  the new S2 spec + plan + survey docs, uncommitted). The immediate work is to
-  **execute the S2 plan starting at Phase 0** — branch first, then implement (§13).
-- **The two canonical S2 artefacts to read before doing anything:**
-  `docs/superpowers/specs/2026-06-15-s2-read-model-uniformity-design.md` (the
-  approved design) and
-  `docs/superpowers/plans/2026-06-15-s2-read-model-uniformity-plan.md` (the
-  step-by-step plan, with a STATE/HANDOFF block at its top).
+  - **S2 (read-model uniformity) — ✅ COMPLETE, BOTH GATES GREEN (2026-06-15).**
+    All 14 phases implemented on branch `api/s2-read-model-uniformity`; `just ci`
+    and the full live `test-full` ("All shards passed" vs Stalwart/James/Cyrus)
+    both pass. The plan's STATE block has every phase ✅ + SHA. During execution,
+    the user's **"RFC is authoritative, the design docs are fallible"** correction
+    surfaced three spec-vs-rule conflicts — **D5** (toJson null-for-none is NOT
+    RFC-faithful — deferred), **B12** (parseAccount dropped a read-only account's
+    caps — RFC 8620 §2 violation, removed), **H1b** (P5 exposed raw JsonNode
+    capability arms — P15/P16 violation, resealed). See the plan's RFC-AUDIT /
+    DEFERRED FINDINGS blocks.
+  - **RFC-conformance sweep (NEW post-S2 sub-project, user-approved) — audit DONE,
+    fixes NEXT.** A whole-codebase RFC audit (read-only) produced a findings
+    ledger: **high overall conformance**; ONE high-stakes bug (`parseHeaderValue`
+    rejects JSON null for the 4 single-instance header forms — can't parse a
+    conformant `Email/get` with an absent requested header, RFC 8621 §4.1.3); 3
+    low-stakes cleanups (D5 toJson→fixture-only; `mrSubscriptions` is not an IANA
+    mailbox role — remove + fix the doc; VacationResponse `vrgkId` selector);
+    6 validated Postel's-law receive divergences (KEEP + record in a deviation
+    register, per user). **Fix order: the header-null bug (TDD) → mrSubscriptions →
+    D5 rename → vrgkId → deviation register.** Do these on a fresh branch off
+    `main` AFTER S2 merges.
+  - **S3, S4, and the triage ledger** follow.
+- **S2 is ready to merge** (gate-green, self-contained); the RFC-conformance fixes
+  branch off `main` after it lands. The two canonical S2 artefacts:
+  `docs/superpowers/specs/2026-06-15-s2-read-model-uniformity-design.md` (approved
+  design) and `…/plans/2026-06-15-s2-read-model-uniformity-plan.md` (the 14-phase
+  plan, STATE block all ✅, plus the RFC-AUDIT/DEFERRED-FINDINGS ledgers).
 
 ---
 
