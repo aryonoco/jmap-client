@@ -394,3 +394,118 @@ constructor ceremony and the missing `connect()` / bare-get / `sendPlainText`
 one-shots (S4); the `FieldEcho` reader and `SetError` `Result`-of-`Opt`
 read-model and the same-field `FieldEcho`-vs-`Opt` split (S2/S3). The headline
 error-rail friction the bench reported across *every* command is gone.
+
+## S2 resolution — read-model uniformity (direct public fields)
+
+Sub-project **S2** made every read off a returned value uniform (root cause
+R6). Immutable DATA records now expose direct public fields; the
+pass-through accessor and `lent` ceremony is gone, retained only where a
+returned value is a stateful HANDLE (the client, the request builder). The
+three-state `FieldEcho` echo gained a hub reader that mirrors `Opt`, so an
+`Opt` field and a `FieldEcho` field read through one call shape. S2 settled
+SHAPES only; findings that need a NEW reader or predicate (not just a uniform
+shape) are deferred to S3 and marked as such below. The inline finding lines
+keep their `[open]` tag, matching the S1 pass's observe-only convention; the
+mapping lives here. Mapping (finding → fix):
+
+- **"`FieldEcho[T]` has NO read accessor on the hub … every consumer
+  reinvents `fieldEchoOr`"** (email query:FieldEcho; cross-cutting "FieldEcho
+  has no read accessor") → RESOLVED. The hub ships the reader: `valueOr` (a
+  template mirroring `nim-results` `Opt.valueOr`), `isValue`/`isNull`/`isAbsent`,
+  an `items` iterator, and `toOpt`. The CLI DELETED its hand-written
+  `fieldEchoOr` (`commands/email_query.nim`): `pe.subject.valueOr("(no subject)")`
+  now reads identically to the plain-`Opt` `pe.preview.valueOr("")`. Both types
+  are kept — the 3-state `FieldEcho` still carries the RFC 8620 §5.3
+  absent-vs-null bit that a 2-state `Opt` would lose — but the idiom flip no
+  longer costs the consumer a hand-rolled matcher.
+- **"PartialEmail dual optionality … the consumer must remember which read
+  style applies per field"** + **"the SAME logical field is read two
+  different ways … `subject` is `FieldEcho` on `PartialEmail` but `Opt` on the
+  full `Email`"** (email query:PartialEmail dual optionality; cross-cutting
+  same-field optionality split) → RESOLVED (read shape). Both now read through
+  `valueOr`, so switching between `addPartialEmailGet` and `addEmailGet` no
+  longer changes the call shape. The two field TYPES still differ, but by
+  design — that difference is the absent-vs-null fidelity, not an
+  inconsistency to erase.
+- **"the `/set` echo `PartialVacationResponse` has `FieldEcho` fields with no
+  read accessor … forces the extra round-trip"** (vacation:set-echo-FieldEcho)
+  → RESOLVED. The same hub reader serves the set echo: `toOpt` lets the echoed
+  `PartialVacationResponse` and the fetched `VacationResponse` flow through one
+  rendering path, so showing the echoed state no longer needs a re-fetch
+  through the plain-`Opt` get.
+- **"`Thread` exposes NO public fields … reads go through accessor funcs
+  `id()`/`emailIds()` (the latter returning `lent seq[Id]`)"** (thread:th.id /
+  th.emailIds) → RESOLVED. `Thread.id`/`emailIds` are direct public fields;
+  `emailIds` is a `NonEmptyIdSeq`, so the "every Thread holds ≥1 Email"
+  invariant (RFC 8621 §3, implicit in the spec) lives in the field TYPE
+  (Tier-A) yet reads like a plain seq (`.len`, iteration) with no unwrap. The
+  CLI's Thread reads did not change at all — UFCS made the flip transparent
+  (the quiet success: a read-model improvement with zero consumer churn).
+- **"three different read shapes for three entities — direct fields
+  (`Mailbox`, `Identity`), accessor funcs (`Thread`), and the dual
+  Opt/FieldEcho split (`Email`)"** (the Reading narrative; doc 16) → RESOLVED.
+  Every immutable data record now reads by direct public field. Beyond
+  `Thread`, the infallible-constructor / parse-enforced seals on `Account`,
+  `Session`, the capability schemas (`CoreCapabilities`,
+  `MailAccountCapabilities`, `SubmissionAccountCapabilities`), `Comparator` and
+  `AddedItem` all flipped to public fields: `session.coreCapabilities()` is now
+  `session.core`, and the capability case-objects expose a public discriminator
+  plus public arms (the `SetError` idiom).
+- **"`lent` ceremony on the seq/set data fields"** → RESOLVED. `lent` is
+  dropped: a public field is already a zero-copy in-place read, and `lent` is
+  invisible across the C FFI boundary anyway.
+- **"`SetResponse.updateResults` is `Table[Id, Result[Opt[U], SetError]]`, a
+  three-layer unwrap whose inner `Opt[U]` is almost always `none`"** (email
+  flag:updateResults; cross-cutting Result-of-Opt update read) → RESOLVED
+  (easy-read path). `SetResponse` keeps its typed three-rail tables for callers
+  that need the per-item `SetError`, but S2 adds six projection iterators —
+  `created`/`createFailures`, `updated`/`updateFailures`,
+  `destroyed`/`destroyFailures` — so the common "successes, ignore the error
+  rail" read is one `for` loop. `updated` still surfaces the RFC 8620 §5.3
+  `Opt[U]` server-echo, but the caller no longer pattern-matches `Result` then
+  `Opt` by hand.
+- **"`session.username` / `session.apiUrl` are clean direct accessors"**
+  (positive, session:accessors) → STRENGTHENED (not friction). `apiUrl` is now
+  a sealed `ApiUrl` newtype (its non-empty / no-CRLF invariant lifted into the
+  type) and `Account.name` a sealed `DisplayName`; both still read as direct
+  fields, so the ergonomics are unchanged while the types now carry their own
+  invariants. (`username` stays a plain `string`.)
+
+Deferred to **S3** (these need NEW readers/predicates — S2 settled SHAPES
+only, not new convenience, so they remain `[open]`):
+
+- the mailbox "is this the inbox?" three-idiom friction (mailbox:mb.role) —
+  wants an `isInbox` / role predicate.
+- `Email.bodyValues` forcing `import std/tables` on the consumer (email
+  read:bodyValues) — wants a reader that does not leak the container type.
+- `decodedTextBody` / `leafTextParts` (email read:isMultipart, email
+  read:decodeText) — want new body-walk readers.
+
+RFC-conformance bonus (beyond R6; surfaced by an S2 RFC audit and recorded
+honestly): `parseAccount` had been silently dropping write-implying
+capabilities from a read-only account (the agent-invented "B12" rule). This
+VIOLATED RFC 8620 §2 — a capability MUST be listed "if the user may use those
+methods with this account", and `isReadOnly` is a separate account-wide axis (a
+read-only mail account still supports `Email/get`, `Email/query`, `Mailbox/get`).
+The filter made `hasCapability(ckMail)` / `mailCapability()` falsely report
+that a read-only account had no mail support at all. The filter (and the
+`WriteImplyingAccountCapabilities` set) is REMOVED: `parseAccount` now
+preserves the server's `accountCapabilities` verbatim. The same audit corrected
+several over-claimed RFC citations in docstrings (`DisplayName` control-char
+rejection and `ApiUrl` non-empty/no-CRLF are defensive Layer-1 safeguards, NOT
+RFC 8620 §2 text; `Thread.emailIds` non-emptiness is implicit in RFC 8621 §3,
+not an explicit property constraint) — wording only, behaviour unchanged. The
+agent-authored design docs were not authoritative; the RFC is.
+
+Standing note (NOT an S2 item, not a regression): displaying a core limit
+still needs `.toInt64` — the limits are `UnsignedInt` distincts
+(session:limits). S2 made each limit a direct public field on
+`CoreCapabilities` (so `core.maxCallsInRequest` drops the accessor parens), but
+the `.toInt64` projection to print or do arithmetic is unchanged.
+
+Still open after S2 (tracked to their sub-projects): the read-model is now
+uniform, but the convenience readers that turn a settled shape into a one-liner
+— `isInbox`, `decodedTextBody`, `leafTextParts`, a `bodyValues` reader — are
+S3; the sealing-chain ceremony and the missing `connect()` / bare-get /
+`sendPlainText` one-shots are S4; and the snapshot-integrity freeze-blocker is
+its own track. The read-model unevenness the bench reported is gone.

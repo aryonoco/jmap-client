@@ -2,9 +2,10 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## `jmap-cli thread show <threadId>` — Thread/get; print the thread's
-## email ids. Thread is a SEALED type with NO public fields: `id` and
-## `emailIds` are accessor funcs (diverging from Mailbox/Identity, whose
-## fields are direct).
+## email ids. `id` and `emailIds` are direct public fields, uniform with
+## Mailbox/Identity. `emailIds` is a `NonEmptyIdSeq` whose non-empty
+## invariant lives in the type, yet it reads like a plain seq (`.len`,
+## iteration) with no unwrap.
 
 import jmap_client
 import ./cli_session
@@ -28,7 +29,8 @@ proc showThread(threadIdArg: string): JmapResult[int] =
       stderr.writeLine "thread not found"
       return ok(1)
     for th in outcome.value.list:
-      # Thread is sealed: id and emailIds are accessor FUNCS, not fields.
+      # id and emailIds are direct public fields; emailIds (a NonEmptyIdSeq)
+      # answers `.len` and iterates directly — no .toSeq needed to print it.
       echo "thread ", $th.id, " has ", $th.emailIds.len, " emails:"
       for eid in th.emailIds:
         echo "  ", $eid
