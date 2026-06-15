@@ -29,14 +29,19 @@ No new deps, no `converter`s, no `requiresInit`.
   both gates in Phase 13. The wire contract is regenerated once in Phase 10 (the
   H16/H17 lints fail on the stale snapshot until then — so per-phase verification
   is `just build`, NOT `just ci`; `just ci` runs only at Phase 13).
-- **Status:** 🟢 IN PROGRESS. (Mark each phase ✅ DONE with its commit SHA here.)
+- **Status:** ✅ COMPLETE — BOTH GATES GREEN (2026-06-15). `just ci` passed
+  (`8e18a56`); `just clean && just jmap-reset && just test-full` passed ("All
+  shards passed" against Stalwart/James/Cyrus) after the `tests/protocol/` P11-gap
+  fix (`4ebb0a4`). Branch `api/s2-read-model-uniformity`, ~30 commits off `main`,
+  NOT merged (push/PR/merge pending user confirmation). Next sub-project: the
+  user-approved whole-codebase RFC-conformance sweep.
   - P0 FieldEcho reader ✅ `0d93a4a` · P1 NonEmptyIdSeq relocate ✅ `a4f5a44` · P2 newtypes ✅ `6c9a306` ·
     P3 ceremony flips ✅ `5785fa2` · P4 Thread ✅ `55042d8` · P5 capability arms ✅ `b83f091` · P6 Account ✅ `b2242fc` ·
     P7 Session ✅ `065eb6f` · P8 Email headers + MailboxChangesResponse ✅ `27443be` ·
     P9 SetResponse projections ✅ `759ab11` · P10 contract regen ✅ `c9f35ff` · P11 test sweep ✅ `e9a459a` ·
-    P12 CLI re-bench ✅ `eb81c36` · P13 gates 🟢 `just ci` PASSED (`8e18a56`);
-    live `test-full` gate is the user's (CLAUDE.md: agents run `just test`/`ci`,
-    not `test-full`). Push/PR/merge pending user confirmation.
+    P12 CLI re-bench ✅ `eb81c36` · P13 gates ✅ BOTH GREEN — `just ci` (`8e18a56`)
+    + `clean && jmap-reset && test-full` "All shards passed" (after the
+    `tests/protocol/` P11-gap fix `4ebb0a4`). Push/PR/merge pending user confirm.
 
 ### RESUME PROTOCOL (for a zero-context successor after compaction)
 
