@@ -25,10 +25,17 @@ two non-consumer leaf rails go internal.
 ## STATE / HANDOFF  (update this block as each phase lands)
 
 - **Branch:** `api/s1-one-error-rail` (off `main`, after S0 merge).
-- **Current phase:** Phase 0 (spec + plan) — **in progress**.
+- **Current phase:** Phase 1 **complete**; Phase 2 next.
 - **Done:** Recon (workflow `wglqgph5k`, reconciled to the oracle); 4 design
-  forks approved (see §"Locked decisions"); spec written.
-- **Next:** commit this plan, then Phase 1 (define `JmapError`, additive).
+  forks approved; spec written; **Phase 0** (plan + memory, commit `6712385`);
+  **Phase 1** — `src/jmap_client/internal/protocol/jmap_error.nim` created with
+  the full `JmapError` six-arm sum + sub-types + `MethodOutcome[T]` + all
+  constructors + `toJmapError`/`lift` + `message`/`$` + the relocated
+  `JmapResult`. `nim check` clean; `nph`-formatted. Nothing imports it yet
+  (additive). Note: `==`/`hash` deliberately omitted (matches the errors.nim
+  convention; add reactively if the oracle/tests demand). The generic `lift` is
+  exercised/verified in Phase 3; `MethodOutcome` ctors in Phase 4.
+- **Next:** Phase 2 (validation rail → `NonEmptySeq[ValidationError]`).
 - **Green-checkpoint discipline:** **every phase leaves all of `src/` compiling**
   (root library *and* `convenience.nim`, kept minimally-compiling until its
   Phase-6 rewrite). `tests/` + `examples/` are swept in **Phases 6–7** — so
@@ -46,8 +53,8 @@ two non-consumer leaf rails go internal.
   `git add -A`.** Confirm push/PR with the user.
 
 ### Phase ledger
-- [ ] Phase 0 — spec + plan landed on branch; MEMORY.md repointed
-- [ ] Phase 1 — `JmapError` (L3) + sub-types + ctors + lifts + `.lift` (additive)
+- [x] Phase 0 — spec + plan landed on branch; MEMORY.md repointed
+- [x] Phase 1 — `JmapError` (L3) + sub-types + ctors + lifts + `.lift` (additive)
 - [ ] Phase 2 — validation rail → `NonEmptySeq[ValidationError]`; retire `EmailBlueprintErrors`
 - [ ] Phase 3 — `send`/transport/request → `JmapError`; relocate+re-point `JmapResult`; retire `ClientError`
 - [ ] Phase 4 — `get`/`getBoth`/`getAll` → `MethodOutcome`; retire `GetError`
