@@ -381,8 +381,8 @@ func fromJson*(
     T: typedesc[Account], node: JsonNode, path: JsonPath = emptyJsonPath()
 ): Result[Account, SerdeViolation] =
   ## Deserialise JSON to Account (RFC 8620 §2). Delegates to the L1
-  ## smart constructor via ``wrapInner``; B12 silent-drop of write-
-  ## implying capabilities is enforced inside ``parseAccount``.
+  ## smart constructor (``parseAccount``) via ``wrapInner``, which
+  ## preserves the server's ``accountCapabilities`` verbatim.
   discard $T # consumed for nimalyzer params rule
   ?expectKind(node, JObject, path)
   let nameNode = ?fieldJString(node, "name", path)

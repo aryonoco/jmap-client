@@ -9,7 +9,6 @@
 
 import std/hashes
 import std/parseutils
-import std/sequtils
 import std/sets
 import std/strutils
 import std/tables
@@ -33,45 +32,42 @@ type AccountPolicy* = enum
   apShared ## isPersonal=false, isReadOnly=false
   apSharedReadOnly ## isPersonal=false, isReadOnly=true
 
-const WriteImplyingAccountCapabilities* = {
-  ckMail, ckSubmission, ckVacationResponse, ckBlob, ckContacts, ckCalendars, ckSieve,
-  ckMdn, ckSmimeVerify,
-}
-  ## Per RFC 8620 §2: ckCore is server-only (not legal at account scope —
-  ## emitted by some servers, Postel-tolerated as raw data). RFC 8887 §2:
-  ## ckWebsocket is session-scope only. RFC 8909 §3.1: ``Quota/get`` is
-  ## the only operation, read-only. ckUnknown collapses vendor URNs whose
-  ## semantics we cannot inspect — read-only by default. Every other
-  ## standard arm implies write access.
-
 type DisplayName* {.ruleOff: "objects".} = object
   ## RFC 8620 §2 account display name — a "user-friendly string". Sealed
-  ## value: rejects control characters; empty is permitted. ``len`` carries
-  ## no domain meaning, so the opaque sealed ops apply; read the text via ``$``.
+  ## value: control characters are rejected as a defensive Layer-1
+  ## normalisation (§2 is silent on them, but a control character in a
+  ## display name almost certainly signals corruption); empty is permitted.
+  ## ``len`` carries no domain meaning, so the opaque sealed ops apply; read
+  ## the text via ``$``.
   rawValue: string
 
 defineSealedOpaqueStringOps(DisplayName)
 
 func parseDisplayName*(raw: string): Result[DisplayName, ValidationError] =
-  ## Rejects control characters (RFC 8620 §2 "user-friendly string"); empty is
-  ## permitted. Lifts the previous inline ``Account`` name check into a sealed
-  ## smart constructor.
+  ## Rejects control characters — a defensive Layer-1 normalisation, not an
+  ## RFC 8620 §2 requirement (§2 calls ``name`` only a "user-friendly string"
+  ## and is silent on control characters; one almost always signals
+  ## corruption). Empty is permitted. Lifts the previous inline ``Account``
+  ## name check into a sealed smart constructor.
   for ch in raw:
     if ch < ' ' or ch == '\x7F':
       return err(validationError("DisplayName", "contains control characters", raw))
   ok(DisplayName(rawValue: raw))
 
 type ApiUrl* {.ruleOff: "objects".} = object
-  ## RFC 8620 §2 JMAP API endpoint URL. Sealed value: non-empty and free of
-  ## embedded CR/LF (which would break HTTP request-line framing). ``len``
+  ## RFC 8620 §2 JMAP API endpoint URL (§2 specifies it only as a "URL").
+  ## Sealed value: required non-empty and free of embedded CR/LF — defensive
+  ## HTTP request-line framing safeguards, not §2 requirements. ``len``
   ## carries no domain meaning; read the text via ``$``.
   rawValue: string
 
 defineSealedOpaqueStringOps(ApiUrl)
 
 func parseApiUrl*(raw: string): Result[ApiUrl, ValidationError] =
-  ## Non-empty, newline-free — the existing ``detectApiUrl`` invariant lifted
-  ## into a sealed smart constructor.
+  ## Required non-empty and newline-free as HTTP request-line framing
+  ## safeguards (not RFC 8620 §2 requirements — §2 specifies only a "URL").
+  ## The existing ``detectApiUrl`` invariant lifted into a sealed smart
+  ## constructor.
   if raw.len == 0:
     return err(validationError("ApiUrl", "must not be empty", raw))
   if raw.contains({'\c', '\L'}):
@@ -82,9 +78,14 @@ type Account* {.ruleOff: "objects".} = object
   ## A JMAP account the user has access to (RFC 8620 §2).
   ## Threading: value type, immutable after construction, freely
   ## shareable across threads.
-  ## Tier-C: the read-only ⇒ write-capability filtering between policy and
-  ## accountCapabilities is parseAccount-enforced; raw construction is
-  ## out-of-contract.
+  ##
+  ## A clean record with no cross-field invariant: ``name`` carries its
+  ## own constraint in the ``DisplayName`` type (Tier-A), while ``policy``
+  ## and ``accountCapabilities`` are independent public fields. ``policy``
+  ## classifies ownership and write access; ``accountCapabilities`` lists
+  ## every capability whose methods the user may use with this account
+  ## (RFC 8620 §2) — the two are orthogonal axes that do not constrain
+  ## each other.
   name*: DisplayName
   policy*: AccountPolicy
   accountCapabilities*: seq[AccountCapabilityEntry]
@@ -131,23 +132,19 @@ func parseAccount*(
     isReadOnly: bool,
     accountCapabilities: seq[AccountCapabilityEntry],
 ): Result[Account, ValidationError] =
-  ## RFC 8620 §2: ``name`` is a "user-friendly string"; control characters
-  ## are rejected; empty string accepted (RFC silent on minimum length).
-  ## B12: when ``isReadOnly=true``, write-implying capabilities are
-  ## silently dropped — Postel-receive resolution for server
-  ## contradictions.
+  ## RFC 8620 §2: ``name`` is a "user-friendly string" (control characters
+  ## are rejected by ``DisplayName``; empty string accepted). ``isReadOnly``
+  ## is an account-wide axis independent of ``accountCapabilities``: a
+  ## read-only account still advertises every capability whose methods the
+  ## user may use (e.g. the read methods of ``urn:ietf:params:jmap:mail``),
+  ## so the server's list is preserved verbatim.
   let dn = ?parseDisplayName(name)
   let policy =
     if isPersonal:
       if isReadOnly: apOwnedReadOnly else: apOwned
     else:
       if isReadOnly: apSharedReadOnly else: apShared
-  let filtered =
-    if policy in {apOwnedReadOnly, apSharedReadOnly}:
-      accountCapabilities.filterIt(it.kind notin WriteImplyingAccountCapabilities)
-    else:
-      accountCapabilities
-  ok(Account(name: dn, policy: policy, accountCapabilities: filtered))
+  ok(Account(name: dn, policy: policy, accountCapabilities: accountCapabilities))
 
 type UriPartKind* = enum
   ## Discriminator for ``UriPart``: a literal segment or a variable reference.
@@ -491,8 +488,9 @@ func partitionCore(
   err(SessionViolation(kind: svMissingCoreCapability))
 
 func detectApiUrl(apiUrl: string): Result[void, SessionViolation] =
-  ## RFC 8620 section 2: apiUrl MUST be a non-empty URL free of embedded
-  ## newline characters (which would break HTTP request-line framing).
+  ## RFC 8620 §2 specifies ``apiUrl`` only as a "URL". The non-empty and
+  ## newline-free checks here are defensive HTTP request-line framing
+  ## safeguards, not §2 requirements.
   if apiUrl.len == 0:
     return err(SessionViolation(kind: svEmptyApiUrl))
   if apiUrl.contains({'\c', '\L'}):

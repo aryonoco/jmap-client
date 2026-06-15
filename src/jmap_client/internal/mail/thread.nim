@@ -14,14 +14,18 @@ import ../types/validation
 import ../types/primitives
 
 type Thread* {.ruleOff: "objects".} = object
-  ## A Thread groups related Emails (RFC 8621 §3). The non-empty ``emailIds``
-  ## invariant is carried by the field type ``NonEmptyIdSeq`` (Tier-A), so the
-  ## read is a direct public field.
+  ## A Thread groups related Emails (RFC 8621 §3). ``emailIds`` is non-empty
+  ## only implicitly: §3 requires every Email to belong to a Thread, so a
+  ## Thread holds at least one Email — the ``emailIds`` property text states
+  ## no such constraint itself. The invariant is carried by the field type
+  ## ``NonEmptyIdSeq`` (Tier-A), so the read is a direct public field.
   id*: Id
   emailIds*: NonEmptyIdSeq
 
 func parseThread*(id: Id, emailIds: seq[Id]): Result[Thread, ValidationError] =
-  ## ``emailIds`` non-empty (RFC 8621 §3) is carried by ``NonEmptyIdSeq``.
+  ## ``emailIds`` non-empty — implicit in RFC 8621 §3 (every Email belongs to
+  ## a Thread, so a Thread holds ≥1 Email; the property text is silent) —
+  ## carried by ``NonEmptyIdSeq``.
   let ids = parseNonEmptyIdSeq(emailIds).valueOr:
     return err(validationError("Thread", "emailIds must contain at least one Id", ""))
   ok(Thread(id: id, emailIds: ids))
