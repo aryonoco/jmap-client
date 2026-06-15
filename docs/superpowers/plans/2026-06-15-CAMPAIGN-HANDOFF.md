@@ -472,11 +472,13 @@ the user if unsure; they are strict about attribution.)
 - Confirm outward-facing actions (push, PR) with the user before doing them.
 
 ### REUSE / SPDX (a `just ci` gate)
+<!-- REUSE-IgnoreStart -->
 `REUSE.toml` covers `src/**`, `tests/**`, `docs/**`, `**/*.md`, `**/*.txt`,
 `**/*.cfg`, etc. **`scripts/**` is NOT glob-covered** — new `.nim` files under
 `scripts/` need an inline `# SPDX-License-Identifier: BSD-2-Clause` +
 `# Copyright (c) 2026 Aryan Ameri` header (the oracle/probe have them). Docs use
-`<!-- SPDX-License-Identifier: CC-BY-4.0 -->`.
+a `CC-BY-4.0` SPDX identifier inside an HTML comment.
+<!-- REUSE-IgnoreEnd -->
 
 ---
 

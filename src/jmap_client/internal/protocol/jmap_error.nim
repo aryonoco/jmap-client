@@ -302,6 +302,8 @@ func lift*[T, E](r: Result[T, E]): Result[T, JmapError] {.inline.} =
 # =============================================================================
 
 type MethodOutcomeKind* = enum
+  ## Whether a method's per-call extraction yielded its typed value or a
+  ## server-reported method-level error (both are response data, not rail errors).
   mokValue ## the method returned its typed result
   mokMethodError ## the server ran the method and reported a domain-level error
 
