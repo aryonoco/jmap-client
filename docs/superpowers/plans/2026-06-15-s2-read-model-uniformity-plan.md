@@ -34,7 +34,9 @@ No new deps, no `converter`s, no `requiresInit`.
     P3 ceremony flips ✅ `5785fa2` · P4 Thread ✅ `55042d8` · P5 capability arms ✅ `b83f091` · P6 Account ✅ `b2242fc` ·
     P7 Session ✅ `065eb6f` · P8 Email headers + MailboxChangesResponse ✅ `27443be` ·
     P9 SetResponse projections ✅ `759ab11` · P10 contract regen ✅ `c9f35ff` · P11 test sweep ✅ `e9a459a` ·
-    P12 CLI re-bench ⬜ · P13 gates ⬜.
+    P12 CLI re-bench ✅ `eb81c36` · P13 gates 🟢 `just ci` PASSED (`8e18a56`);
+    live `test-full` gate is the user's (CLAUDE.md: agents run `just test`/`ci`,
+    not `test-full`). Push/PR/merge pending user confirmation.
 
 ### RESUME PROTOCOL (for a zero-context successor after compaction)
 
@@ -100,7 +102,18 @@ default fields; URL-template required vars §2; mayDelete always-present Boolean
   (section E `b12…`), `tests/compile/tcompile_a17_account_capability_surface.nim:21`
   (`declared(WriteImplyingAccountCapabilities)`). **P10** drops `public-api.txt:1354`
   (the removed const) in the regen.
-- **Citation/wording fixes (no behaviour) — ✅ ALL DONE:** snippet.nim §4.8→§5 (P8
+- **🔴 H1b violation from P5 capability arms (surfaced by `just ci` at P13) — ✅
+  FIXED `0439434`.** The H1b lint forbids a public arm with a RAW payload
+  (`JsonNode`) on a fallible-constructor case object (it reopens raw construction
+  bypassing the kind↔uri invariant; P15/P16). P5 had exposed ALL arms of
+  `ServerCapability`/`AccountCapabilityEntry` public, including the `JsonNode`
+  vendor-escape arms. **Resolution: reseal ONLY the `JsonNode` arms (private
+  `raw*` + `asRawData`); keep the typed arms (`core`/`mail`/`submission`), `uri`,
+  `kind` public** (a PascalCase domain arm is H1b-safe). The S2 spec §9 (which
+  itself called arm-exposure "the most optional piece") did not account for H1b.
+  Third spec-vs-project-rule conflict after D5 and B12 — the project rules/RFC are
+  authoritative, the agent-authored spec is not. No external consumer read those
+  arms; only the contract regenerated.
   `27443be`); thread.nim "implicitly non-empty per §3", session.nim DisplayName /
   ApiUrl / detectApiUrl citations softened, serde_session.nim B12 docstring (all
   `d062e04`).
