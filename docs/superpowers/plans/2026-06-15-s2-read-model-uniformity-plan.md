@@ -31,7 +31,7 @@ No new deps, no `converter`s, no `requiresInit`.
   is `just build`, NOT `just ci`; `just ci` runs only at Phase 13).
 - **Status:** 🟢 IN PROGRESS. (Mark each phase ✅ DONE with its commit SHA here.)
   - P0 FieldEcho reader ✅ `0d93a4a` · P1 NonEmptyIdSeq relocate ✅ `a4f5a44` · P2 newtypes ✅ `6c9a306` ·
-    P3 ceremony flips ✅ `5785fa2` · P4 Thread ⬜ · P5 capability arms ⬜ · P6 Account ⬜ ·
+    P3 ceremony flips ✅ `5785fa2` · P4 Thread ✅ `55042d8` · P5 capability arms ✅ `b83f091` · P6 Account ⬜ ·
     P7 Session ⬜ · P8 Email headers + MailboxChangesResponse ⬜ ·
     P9 SetResponse projections ⬜ · P10 contract regen ⬜ · P11 test sweep ⬜ ·
     P12 CLI re-bench ⬜ · P13 gates ⬜.
