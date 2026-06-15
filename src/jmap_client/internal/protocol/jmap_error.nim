@@ -110,11 +110,15 @@ type ProtocolFaultKind* = enum
   pfDecode ## a normal invocation whose arguments failed typed decoding
 
 type ProtocolFault* = object
-  ## ``jeProtocol`` payload. ``callId`` is always populated. ``pfDecode``
-  ## preserves the structured ``SerdeViolation`` (RFC 6901 JsonPath + the
-  ## typed failure mode), so the diagnostic locates the violation inside the
-  ## wire tree rather than flattening to a string.
-  callId*: MethodCallId
+  ## ``jeProtocol`` payload. ``callId`` localises the fault to a specific
+  ## method invocation when one applies (the dispatch path), and is absent for
+  ## the envelope- and session-resource decode faults that have no method call.
+  ## ``pfDecode`` preserves the structured ``SerdeViolation`` (RFC 6901
+  ## JsonPath + the typed failure mode), so the diagnostic locates the
+  ## violation inside the wire tree rather than flattening to a string. The
+  ## ``pfMissingCall`` / ``pfMalformedError`` arms are dispatch-only and are
+  ## always constructed with a call ID.
+  callId*: Opt[MethodCallId]
   case kind*: ProtocolFaultKind
   of pfDecode:
     violation*: SerdeViolation
@@ -122,31 +126,40 @@ type ProtocolFault* = object
     discard
 
 func protocolMissingCall*(callId: MethodCallId): ProtocolFault =
-  ## No invocation matched the expected call ID.
-  ProtocolFault(kind: pfMissingCall, callId: callId)
+  ## No invocation matched the expected call ID (dispatch path).
+  ProtocolFault(kind: pfMissingCall, callId: Opt.some(callId))
 
 func protocolMalformedError*(callId: MethodCallId): ProtocolFault =
   ## An "error" invocation was present but its arguments did not parse as a
   ## ``MethodError`` — a server/protocol fault, distinct from a real
-  ## method-level error (which is data on the ok branch).
-  ProtocolFault(kind: pfMalformedError, callId: callId)
+  ## method-level error (which is data on the ok branch). Dispatch path.
+  ProtocolFault(kind: pfMalformedError, callId: Opt.some(callId))
 
 func protocolDecode*(callId: MethodCallId, violation: SerdeViolation): ProtocolFault =
-  ## A normal invocation's arguments failed typed decoding; the
+  ## A method invocation's arguments failed typed decoding (dispatch path); the
   ## ``SerdeViolation`` carries the structured location and reason.
-  ProtocolFault(kind: pfDecode, callId: callId, violation: violation)
+  ProtocolFault(kind: pfDecode, callId: Opt.some(callId), violation: violation)
+
+func protocolDecode*(violation: SerdeViolation): ProtocolFault =
+  ## An envelope- or session-resource response failed typed decoding; there is
+  ## no method call to localise to, so ``callId`` is absent.
+  ProtocolFault(kind: pfDecode, callId: Opt.none(MethodCallId), violation: violation)
 
 func message*(p: ProtocolFault): string =
   ## Human-readable diagnostic. The decode arm reuses the canonical
   ## ``SerdeViolation`` -> ``ValidationError`` translator (with a "response"
   ## root) so the JsonPath and reason surface without duplicating the renderer.
+  ## The call-id suffix is present only when the fault localises to one.
+  var loc = ""
+  for c in p.callId:
+    loc = " for call ID " & $c
   case p.kind
   of pfMissingCall:
-    "no response for call ID " & $p.callId
+    "no response" & loc
   of pfMalformedError:
-    "malformed error response for call ID " & $p.callId
+    "malformed error response" & loc
   of pfDecode:
-    "malformed response for call ID " & $p.callId & ": " &
+    "malformed response" & loc & ": " &
       toValidationError(p.violation, "response").message
 
 func `$`*(p: ProtocolFault): string =

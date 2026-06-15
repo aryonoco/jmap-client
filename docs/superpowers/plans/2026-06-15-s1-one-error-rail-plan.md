@@ -25,7 +25,25 @@ two non-consumer leaf rails go internal.
 ## STATE / HANDOFF  (update this block as each phase lands)
 
 - **Branch:** `api/s1-one-error-rail` (off `main`, after S0 merge).
-- **Current phase:** Phase 2 **complete**; Phase 3 next.
+- **Current phase:** Phase 3 **complete**; Phase 4 next.
+- **Phase 3 done (commit pending in this turn):** `ClientError` **fully retired**
+  — `classify.nim` is L4 (`transport/`, `{.push raises: [].}`) so it imports
+  `jmap_error` and returns `JmapError` directly (`jeTransport`/`jeRequest`;
+  envelope-decode → unlocalised `jeProtocol`). `JmapResult` relocated to
+  `jmap_error.nim`; dropped from `types.nim` + the `export errors except` list
+  (dropped `clientError`/`validationToClientError`/`validationToClientErrorCtx`).
+  Retired `ClientError`/`ClientErrorKind`/`clientError`/`validationToClientError`/
+  `validationToClientErrorCtx`/`classifyException` from `errors.nim` (kept
+  `classifyTransportException` — the leaf). `client.nim` send path + the 4 L4
+  ctors (`initJmapClient`×2, `newTransport`, `newHttpTransport`) now return
+  `JmapError` (construction lifts via `.lift`/`jmapValidation`; transport faults
+  via `jmapTransport`; session decode via `jmapProtocol(protocolDecode(sv))`).
+  `protocol.nim` re-exports `jmap_error` **except** the internal-construction
+  symbols (`jmapMisuse`/`jmapProtocol`/`misuse`/`protocolMissingCall`/
+  `protocolMalformedError`/`protocolDecode`/`methodValue`/`methodFailure`).
+  **Refinement:** `ProtocolFault.callId` is now `Opt[MethodCallId]` (envelope/
+  session decode faults have no call id) with an unlocalised `protocolDecode`
+  overload. `just build` green; `convenience.nim` compiles.
 - **Done:** Recon; 4 forks approved; spec; **Phase 0** (commit `6712385`);
   **Phase 1** — `jmap_error.nim` (`JmapError` 6-arm sum + sub-types +
   `MethodOutcome[T]` + ctors + `toJmapError`/`lift` + `message`/`$` + relocated
@@ -64,7 +82,7 @@ two non-consumer leaf rails go internal.
 - [x] Phase 0 — spec + plan landed on branch; MEMORY.md repointed
 - [x] Phase 1 — `JmapError` (L3) + sub-types + ctors + lifts + `.lift` (additive)
 - [x] Phase 2 — validation rail → `NonEmptySeq[ValidationError]`; retire `EmailBlueprintErrors`
-- [ ] Phase 3 — `send`/transport/request → `JmapError`; relocate+re-point `JmapResult`; retire `ClientError`
+- [x] Phase 3 — `send`/transport/request → `JmapError`; relocate+re-point `JmapResult`; retire `ClientError`
 - [ ] Phase 4 — `get`/`getBoth`/`getAll` → `MethodOutcome`; retire `GetError`
 - [ ] Phase 5 — `jeSession` producer + privatise `TokenViolation`/`SmtpReplyViolation`
 - [ ] Phase 6 — fix consumers (`convenience.nim` + `examples/jmap-cli`)

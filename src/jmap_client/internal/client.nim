@@ -34,13 +34,13 @@ import ./types/envelope
 import ./types/validation
 import ./types/errors
 import ./serialisation/serde
-import ./serialisation/serde_diagnostics
 import ./serialisation/serde_envelope
 import ./serialisation/serde_session
 import ./transport
 import ./types/identifiers
 import ./protocol/builder
 import ./protocol/dispatch
+import ./protocol/jmap_error
 import ./protocol/call_meta
 import ./transport/url_resolution
 import ./transport/classify
@@ -121,13 +121,13 @@ proc drawClientBrand(): Result[uint64, ValidationError] =
 
 proc initJmapClient*(
     endpoint: SessionEndpoint, credential: Credential, transport: Transport
-): Result[JmapClient, ValidationError] =
+): Result[JmapClient, JmapError] =
   ## Primary constructor — the application developer supplies a ``Transport``
   ## (libcurl wrapper, in-process mock, recording proxy). The session is NOT
   ## fetched here; call ``fetchSession()`` or let ``send()`` fetch it lazily.
   ## ``endpoint`` and ``credential`` are pre-validated sealed values, so the
-  ## only failure is OS entropy for the client brand.
-  let clientBrand = ?drawClientBrand()
+  ## only failure is OS entropy for the client brand — lifted onto the one rail.
+  let clientBrand = ?drawClientBrand().lift
   ok(
     JmapClient(
       transport: transport,
@@ -143,7 +143,7 @@ proc initJmapClient*(
 
 proc initJmapClient*(
     endpoint: SessionEndpoint, credential: Credential
-): Result[JmapClient, ValidationError] =
+): Result[JmapClient, JmapError] =
   ## Convenience constructor — uses the default ``newHttpTransport()`` backend.
   ## HTTP-level configuration (timeout, redirects, response-size cap,
   ## user-agent) lives on ``newHttpTransport``; callers who need non-default
@@ -376,12 +376,12 @@ proc fetchSession*(client: JmapClient): JmapResult[Session] =
   )
   client.fireDebug(wdSend, req.body.toOpenArrayByte(0, req.body.high))
   let httpResp = client.transport.send(req).valueOr:
-    return err(clientError(error))
+    return err(jmapTransport(error))
   client.fireDebug(wdReceive, httpResp.body.toOpenArrayByte(0, httpResp.body.high))
   let jsonNode = ?parseJmapJson(httpResp, rcSession)
   let session = ?Session.fromJson(jsonNode).mapErr(
-    proc(sv: SerdeViolation): ClientError =
-      validationToClientErrorCtx(toValidationError(sv, "Session"), "invalid session: ")
+    proc(sv: SerdeViolation): JmapError =
+      jmapProtocol(protocolDecode(sv))
   )
   client.session = Opt.some(session)
   ok(session)
@@ -404,12 +404,13 @@ proc performSend(
         kind: rlvMaxSizeRequest, actualSize: body.len, maxSize: maxSize
       )
     )
-    return err(validationToClientError(ve))
+    return err(jmapValidation(ve))
   let resolved = client.resolvedSessionUrl
   let baseUrl = resolved.valueOr:
     # ensureSession → fetchSession populated this before any performSend.
-    return
-      err(clientError(transportError(tekNetwork, "session URL unresolved before send")))
+    return err(
+      jmapTransport(transportError(tekNetwork, "session URL unresolved before send"))
+    )
   let req = HttpRequest(
     url: resolveAgainstSession(baseUrl, session.apiUrl),
     httpMethod: hmPost,
@@ -417,7 +418,7 @@ proc performSend(
     authorization: authorizationHeader(client),
   )
   let httpResp = client.transport.send(req).valueOr:
-    return err(clientError(error))
+    return err(jmapTransport(error))
   client.fireDebug(wdReceive, httpResp.body.toOpenArrayByte(0, httpResp.body.high))
   parseJmapResponse(httpResp, rcApi)
 
@@ -429,7 +430,7 @@ proc ensureSession(client: JmapClient): JmapResult[Session] =
   let sessionOpt = client.session
   let session = sessionOpt.valueOr:
     return err(
-      clientError(
+      jmapTransport(
         transportError(tekNetwork, "session unavailable after fetchSession succeeded")
       )
     )
@@ -462,6 +463,6 @@ proc send*(client: JmapClient, req: sink BuiltRequest): JmapResult[DispatchedRes
   ## a compile error.
   let session = ?ensureSession(client)
   let coreCaps = session.coreCapabilities()
-  ?validateLimits(req, coreCaps).mapErr(validationToClientError)
+  ?validateLimits(req, coreCaps).lift
   let wire = ?performSend(client, req.request, session)
   ok(initDispatchedResponse(wire, req.builderId))

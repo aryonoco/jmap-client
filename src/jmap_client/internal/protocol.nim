@@ -29,7 +29,11 @@ import ./protocol/entity
 import ./protocol/methods
 import ./protocol/dispatch
 import ./protocol/builder
+import ./protocol/jmap_error
 
+export jmap_error except
+  jmapMisuse, jmapProtocol, misuse, protocolMissingCall, protocolMalformedError,
+  protocolDecode, methodValue, methodFailure
 export entity
 export methods except
   SerializedSort, SerializedFilter, toJsonNode, serializeOptSort, serializeOptFilter,

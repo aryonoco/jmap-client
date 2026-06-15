@@ -33,6 +33,7 @@ import results
 
 import ./types/validation
 import ./types/errors
+import ./protocol/jmap_error
 
 type HttpMethodKind* = enum
   ## Subset of HTTP verbs used by JMAP: GET for session discovery, POST
@@ -121,17 +122,20 @@ proc `=destroy`*(t: TransportObj) {.raises: [].} =
 
 proc newTransport*(
     sendImpl: SendProc, closeImpl: CloseProc
-): Result[Transport, ValidationError] =
+): Result[Transport, JmapError] =
   ## Strict on receive: rejects nil closures at the boundary. Both
   ## callbacks must be non-nil. Application developers reach for
   ## ``newTransport`` when they want to plug a custom HTTP backend in
   ## place of the default ``std/httpclient`` transport. Raw construction
   ## (``Transport(sendImpl: ...)``) is impossible outside this module —
-  ## fields are private.
+  ## fields are private. Construction failure is lifted onto the one rail so
+  ## the whole build-and-send flow composes under a single ``?``.
   if sendImpl.isNil:
-    return err(validationError("Transport", "sendImpl must not be nil", ""))
+    return
+      err(jmapValidation(validationError("Transport", "sendImpl must not be nil", "")))
   if closeImpl.isNil:
-    return err(validationError("Transport", "closeImpl must not be nil", ""))
+    return
+      err(jmapValidation(validationError("Transport", "closeImpl must not be nil", "")))
   ok(Transport(sendImpl: sendImpl, closeImpl: closeImpl))
 
 proc send*(t: Transport, req: HttpRequest): Result[HttpResponse, TransportError] =
@@ -208,15 +212,16 @@ proc newHttpTransport*(
     maxRedirects: int = 5,
     maxResponseBytes: int = 50_000_000,
     userAgent: string = "jmap-client-nim/0.1.0",
-): Result[Transport, ValidationError] =
+): Result[Transport, JmapError] =
   ## Default HTTP transport built on ``std/httpclient``. Validates the
   ## three numeric knobs at the boundary, allocates a single
   ## ``HttpClient`` reused across calls, and packages the send/close
   ## closures via ``newTransport``. ``userAgent`` is not validated —
   ## RFC 9110 §10.1.5 makes User-Agent a SHOULD-send, not a MUST, and
   ## Stalwart / Apache James / Cyrus IMAP all accept any non-control-
-  ## character UA including empty.
-  ?detectHttpTransportConfig(timeout, maxRedirects, maxResponseBytes)
+  ## character UA including empty. Construction failure is lifted onto the
+  ## one rail.
+  ?detectHttpTransportConfig(timeout, maxRedirects, maxResponseBytes).lift
   let headers =
     try:
       {.cast(raises: [CatchableError]).}:
@@ -224,7 +229,11 @@ proc newHttpTransport*(
           {"Content-Type": "application/json", "Accept": "application/json"}
         )
     except CatchableError:
-      return err(validationError("HttpTransport", "failed to create HTTP headers", ""))
+      return err(
+        jmapValidation(
+          validationError("HttpTransport", "failed to create HTTP headers", "")
+        )
+      )
   let httpClient =
     try:
       {.cast(raises: [CatchableError]).}:
@@ -235,7 +244,11 @@ proc newHttpTransport*(
           headers = headers,
         )
     except CatchableError:
-      return err(validationError("HttpTransport", "failed to create HTTP client", ""))
+      return err(
+        jmapValidation(
+          validationError("HttpTransport", "failed to create HTTP client", "")
+        )
+      )
 
   let sendImpl: SendProc = proc(
       req: HttpRequest

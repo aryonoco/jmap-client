@@ -47,11 +47,7 @@ export framework
 export errors except
   requestError, methodError, setError, setErrorInvalidProperties, setErrorAlreadyExists,
   setErrorBlobNotFound, setErrorInvalidEmail, setErrorTooManyRecipients,
-  setErrorInvalidRecipients, setErrorTooLarge, clientError, validationToClientError,
-  validationToClientErrorCtx, getErrorMethod, getErrorHandleMismatch
+  setErrorInvalidRecipients, setErrorTooLarge, getErrorMethod, getErrorHandleMismatch
 export field_echo
 export credential except authorizationHeaderValue
 export session_endpoint except asDirectUrl, asDiscoveryDomain
-
-type JmapResult*[T] = Result[T, ClientError]
-  ## Outer railway: transport/request failure or typed success.
