@@ -312,7 +312,7 @@ func findCapabilityByUri*(account: Account, uri: string): Opt[AccountCapabilityE
   ## findCapability when looking up vendor extensions (which all map to ckUnknown
   ## and would be ambiguous via findCapability).
   for entry in account.accountCapabilities():
-    if entry.uri() == uri:
+    if entry.uri == uri:
       return Opt.some(entry)
   return Opt.none(AccountCapabilityEntry)
 
@@ -654,7 +654,7 @@ func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] 
       .get()
     return Opt.some(coreCap)
   for cap in session.rawAdditional:
-    if cap.uri() == uri:
+    if cap.uri == uri:
       return Opt.some(cap)
   return Opt.none(ServerCapability)
 

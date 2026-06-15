@@ -375,7 +375,7 @@ func toJson*(acct: Account): JsonNode =
   }
   var acctCaps = newJObject()
   for entry in acct.accountCapabilities():
-    acctCaps[entry.uri()] = entry.toJson()
+    acctCaps[entry.uri] = entry.toJson()
   node["accountCapabilities"] = acctCaps
   return node
 
@@ -419,7 +419,7 @@ func toJson*(s: Session): JsonNode =
   # capabilities: URI -> capability data
   var caps = newJObject()
   for cap in s.capabilities():
-    caps[cap.uri()] = cap.toJson()
+    caps[cap.uri] = cap.toJson()
   node["capabilities"] = caps
   # accounts: AccountId -> Account
   var accts = newJObject()

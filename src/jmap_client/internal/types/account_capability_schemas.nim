@@ -118,44 +118,40 @@ func parseSubmissionAccountCapabilities*(
 
 type AccountCapabilityEntry* {.ruleOff: "objects".} = object
   ## Per-account capability declaration (RFC 8620 §2, RFC 8621 §1.3).
+  ## kind↔uri consistency is parseAccountCapabilityEntry-guaranteed (Tier-C).
   ## Threading: value type, immutable after construction, freely
   ## shareable across threads.
-  rawUri: string
+  uri*: string
   case kind*: CapabilityKind
   of ckMail:
-    rawMail: MailAccountCapabilities ## RFC 8621 §1.3.1
+    mail*: MailAccountCapabilities ## RFC 8621 §1.3.1
   of ckSubmission:
-    rawSubmission: SubmissionAccountCapabilities ## RFC 8621 §1.3.2
+    submission*: SubmissionAccountCapabilities ## RFC 8621 §1.3.2
   of ckVacationResponse:
     # RFC 8621 §1.3.3: presence-only (empty object), no payload.
     discard
   of ckCore:
-    rawCoreData: JsonNode
+    coreData*: JsonNode
       ## P19 exception (A22b): ckCore is server-only at account scope; Postel-tolerated
   of ckWebsocket:
-    rawWebsocketData: JsonNode
+    websocketData*: JsonNode
       ## P19 exception (A22b): ckWebsocket is session-scope only; Postel-tolerated
   of ckMdn:
-    rawMdnData: JsonNode ## P19 exception (A22b): RFC 9007 forward-compat
+    mdnData*: JsonNode ## P19 exception (A22b): RFC 9007 forward-compat
   of ckSmimeVerify:
-    rawSmimeVerifyData: JsonNode
-      ## P19 exception (A22b): no published RFC, forward-compat
+    smimeVerifyData*: JsonNode ## P19 exception (A22b): no published RFC, forward-compat
   of ckBlob:
-    rawBlobData: JsonNode ## P19 exception (A22b): no published RFC, forward-compat
+    blobData*: JsonNode ## P19 exception (A22b): no published RFC, forward-compat
   of ckQuota:
-    rawQuotaData: JsonNode ## P19 exception (A22b): RFC 8909 forward-compat
+    quotaData*: JsonNode ## P19 exception (A22b): RFC 8909 forward-compat
   of ckContacts:
-    rawContactsData: JsonNode ## P19 exception (A22b): no published RFC, forward-compat
+    contactsData*: JsonNode ## P19 exception (A22b): no published RFC, forward-compat
   of ckCalendars:
-    rawCalendarsData: JsonNode ## P19 exception (A22b): no published RFC, forward-compat
+    calendarsData*: JsonNode ## P19 exception (A22b): no published RFC, forward-compat
   of ckSieve:
-    rawSieveData: JsonNode ## P19 exception (A22b): no published RFC, forward-compat
+    sieveData*: JsonNode ## P19 exception (A22b): no published RFC, forward-compat
   of ckUnknown:
-    rawUnknownData: JsonNode ## P19 exception (A22b): vendor URN forward-compat
-
-func uri*(e: AccountCapabilityEntry): string =
-  ## Round-trip-stable wire URI.
-  e.rawUri
+    unknownData*: JsonNode ## P19 exception (A22b): vendor URN forward-compat
 
 func asMailAccountCapabilities*(
     e: AccountCapabilityEntry
@@ -163,7 +159,7 @@ func asMailAccountCapabilities*(
   ## Some only when kind == ckMail.
   case e.kind
   of ckMail:
-    Opt.some(e.rawMail)
+    Opt.some(e.mail)
   of ckSubmission, ckVacationResponse, ckCore, ckWebsocket, ckMdn, ckSmimeVerify,
       ckBlob, ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
     Opt.none(MailAccountCapabilities)
@@ -174,37 +170,37 @@ func asSubmissionAccountCapabilities*(
   ## Some only when kind == ckSubmission.
   case e.kind
   of ckSubmission:
-    Opt.some(e.rawSubmission)
+    Opt.some(e.submission)
   of ckMail, ckVacationResponse, ckCore, ckWebsocket, ckMdn, ckSmimeVerify, ckBlob,
       ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
     Opt.none(SubmissionAccountCapabilities)
 
 func asRawData*(e: AccountCapabilityEntry): Opt[JsonNode] =
-  ## Some for every ``rawXxxData``-bearing arm; none for ckMail,
+  ## Some for every ``xxxData``-bearing arm; none for ckMail,
   ## ckSubmission, ckVacationResponse.
   case e.kind
   of ckMail, ckSubmission, ckVacationResponse:
     Opt.none(JsonNode)
   of ckCore:
-    Opt.some(e.rawCoreData)
+    Opt.some(e.coreData)
   of ckWebsocket:
-    Opt.some(e.rawWebsocketData)
+    Opt.some(e.websocketData)
   of ckMdn:
-    Opt.some(e.rawMdnData)
+    Opt.some(e.mdnData)
   of ckSmimeVerify:
-    Opt.some(e.rawSmimeVerifyData)
+    Opt.some(e.smimeVerifyData)
   of ckBlob:
-    Opt.some(e.rawBlobData)
+    Opt.some(e.blobData)
   of ckQuota:
-    Opt.some(e.rawQuotaData)
+    Opt.some(e.quotaData)
   of ckContacts:
-    Opt.some(e.rawContactsData)
+    Opt.some(e.contactsData)
   of ckCalendars:
-    Opt.some(e.rawCalendarsData)
+    Opt.some(e.calendarsData)
   of ckSieve:
-    Opt.some(e.rawSieveData)
+    Opt.some(e.sieveData)
   of ckUnknown:
-    Opt.some(e.rawUnknownData)
+    Opt.some(e.unknownData)
 
 func parseAccountCapabilityEntry*(
     uri: string,
@@ -225,7 +221,7 @@ func parseAccountCapabilityEntry*(
           "AccountCapabilityEntry", "ckMail requires MailAccountCapabilities", uri
         )
       )
-    ok(AccountCapabilityEntry(kind: ckMail, rawUri: uri, rawMail: m))
+    ok(AccountCapabilityEntry(kind: ckMail, uri: uri, mail: m))
   of ckSubmission:
     let s = submission.valueOr:
       return err(
@@ -234,69 +230,69 @@ func parseAccountCapabilityEntry*(
           "ckSubmission requires SubmissionAccountCapabilities", uri,
         )
       )
-    ok(AccountCapabilityEntry(kind: ckSubmission, rawUri: uri, rawSubmission: s))
+    ok(AccountCapabilityEntry(kind: ckSubmission, uri: uri, submission: s))
   of ckVacationResponse:
-    ok(AccountCapabilityEntry(kind: ckVacationResponse, rawUri: uri))
+    ok(AccountCapabilityEntry(kind: ckVacationResponse, uri: uri))
   of ckCore:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckCore, rawUri: uri, rawCoreData: d))
+    ok(AccountCapabilityEntry(kind: ckCore, uri: uri, coreData: d))
   of ckWebsocket:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckWebsocket, rawUri: uri, rawWebsocketData: d))
+    ok(AccountCapabilityEntry(kind: ckWebsocket, uri: uri, websocketData: d))
   of ckMdn:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckMdn, rawUri: uri, rawMdnData: d))
+    ok(AccountCapabilityEntry(kind: ckMdn, uri: uri, mdnData: d))
   of ckSmimeVerify:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckSmimeVerify, rawUri: uri, rawSmimeVerifyData: d))
+    ok(AccountCapabilityEntry(kind: ckSmimeVerify, uri: uri, smimeVerifyData: d))
   of ckBlob:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckBlob, rawUri: uri, rawBlobData: d))
+    ok(AccountCapabilityEntry(kind: ckBlob, uri: uri, blobData: d))
   of ckQuota:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckQuota, rawUri: uri, rawQuotaData: d))
+    ok(AccountCapabilityEntry(kind: ckQuota, uri: uri, quotaData: d))
   of ckContacts:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckContacts, rawUri: uri, rawContactsData: d))
+    ok(AccountCapabilityEntry(kind: ckContacts, uri: uri, contactsData: d))
   of ckCalendars:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckCalendars, rawUri: uri, rawCalendarsData: d))
+    ok(AccountCapabilityEntry(kind: ckCalendars, uri: uri, calendarsData: d))
   of ckSieve:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckSieve, rawUri: uri, rawSieveData: d))
+    ok(AccountCapabilityEntry(kind: ckSieve, uri: uri, sieveData: d))
   of ckUnknown:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckUnknown, rawUri: uri, rawUnknownData: d))
+    ok(AccountCapabilityEntry(kind: ckUnknown, uri: uri, unknownData: d))
 
 func `==`*(a, b: AccountCapabilityEntry): bool =
   ## Arm-dispatched structural equality — Nim's auto-derived ``==`` uses a
   ## parallel ``fields`` iterator that rejects case objects.
   if a.kind != b.kind:
     return false
-  if a.rawUri != b.rawUri:
+  if a.uri != b.uri:
     return false
   case a.kind
   of ckMail:
     case b.kind
     of ckMail:
-      a.rawMail == b.rawMail
+      a.mail == b.mail
     of ckSubmission, ckVacationResponse, ckCore, ckWebsocket, ckMdn, ckSmimeVerify,
         ckBlob, ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
       false
   of ckSubmission:
     case b.kind
     of ckSubmission:
-      a.rawSubmission == b.rawSubmission
+      a.submission == b.submission
     of ckMail, ckVacationResponse, ckCore, ckWebsocket, ckMdn, ckSmimeVerify, ckBlob,
         ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
       false
@@ -305,110 +301,110 @@ func `==`*(a, b: AccountCapabilityEntry): bool =
   of ckCore:
     case b.kind
     of ckCore:
-      $a.rawCoreData == $b.rawCoreData
+      $a.coreData == $b.coreData
     of ckMail, ckSubmission, ckVacationResponse, ckWebsocket, ckMdn, ckSmimeVerify,
         ckBlob, ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
       false
   of ckWebsocket:
     case b.kind
     of ckWebsocket:
-      $a.rawWebsocketData == $b.rawWebsocketData
+      $a.websocketData == $b.websocketData
     of ckMail, ckSubmission, ckVacationResponse, ckCore, ckMdn, ckSmimeVerify, ckBlob,
         ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
       false
   of ckMdn:
     case b.kind
     of ckMdn:
-      $a.rawMdnData == $b.rawMdnData
+      $a.mdnData == $b.mdnData
     of ckMail, ckSubmission, ckVacationResponse, ckCore, ckWebsocket, ckSmimeVerify,
         ckBlob, ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
       false
   of ckSmimeVerify:
     case b.kind
     of ckSmimeVerify:
-      $a.rawSmimeVerifyData == $b.rawSmimeVerifyData
+      $a.smimeVerifyData == $b.smimeVerifyData
     of ckMail, ckSubmission, ckVacationResponse, ckCore, ckWebsocket, ckMdn, ckBlob,
         ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
       false
   of ckBlob:
     case b.kind
     of ckBlob:
-      $a.rawBlobData == $b.rawBlobData
+      $a.blobData == $b.blobData
     of ckMail, ckSubmission, ckVacationResponse, ckCore, ckWebsocket, ckMdn,
         ckSmimeVerify, ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
       false
   of ckQuota:
     case b.kind
     of ckQuota:
-      $a.rawQuotaData == $b.rawQuotaData
+      $a.quotaData == $b.quotaData
     of ckMail, ckSubmission, ckVacationResponse, ckCore, ckWebsocket, ckMdn,
         ckSmimeVerify, ckBlob, ckContacts, ckCalendars, ckSieve, ckUnknown:
       false
   of ckContacts:
     case b.kind
     of ckContacts:
-      $a.rawContactsData == $b.rawContactsData
+      $a.contactsData == $b.contactsData
     of ckMail, ckSubmission, ckVacationResponse, ckCore, ckWebsocket, ckMdn,
         ckSmimeVerify, ckBlob, ckQuota, ckCalendars, ckSieve, ckUnknown:
       false
   of ckCalendars:
     case b.kind
     of ckCalendars:
-      $a.rawCalendarsData == $b.rawCalendarsData
+      $a.calendarsData == $b.calendarsData
     of ckMail, ckSubmission, ckVacationResponse, ckCore, ckWebsocket, ckMdn,
         ckSmimeVerify, ckBlob, ckQuota, ckContacts, ckSieve, ckUnknown:
       false
   of ckSieve:
     case b.kind
     of ckSieve:
-      $a.rawSieveData == $b.rawSieveData
+      $a.sieveData == $b.sieveData
     of ckMail, ckSubmission, ckVacationResponse, ckCore, ckWebsocket, ckMdn,
         ckSmimeVerify, ckBlob, ckQuota, ckContacts, ckCalendars, ckUnknown:
       false
   of ckUnknown:
     case b.kind
     of ckUnknown:
-      $a.rawUnknownData == $b.rawUnknownData
+      $a.unknownData == $b.unknownData
     of ckMail, ckSubmission, ckVacationResponse, ckCore, ckWebsocket, ckMdn,
         ckSmimeVerify, ckBlob, ckQuota, ckContacts, ckCalendars, ckSieve:
       false
 
 func `$`*(e: AccountCapabilityEntry): string =
   ## Diagnostic representation — kind tag plus the URI.
-  "AccountCapabilityEntry(uri=" & e.rawUri & " kind=" & $e.kind & ")"
+  "AccountCapabilityEntry(uri=" & e.uri & " kind=" & $e.kind & ")"
 
 func hash*(e: AccountCapabilityEntry): Hash =
   ## Arm-dispatched hash. ``JsonNode`` has no stdlib ``hash``; the
   ## render-then-hash path preserves structural equivalence at the cost
   ## of one serialisation per hash. Hash sites are diagnostic, not hot.
   var h: Hash = 0
-  h = h !& hash(e.rawUri)
+  h = h !& hash(e.uri)
   h = h !& hash(e.kind)
   case e.kind
   of ckMail:
-    h = h !& hash(e.rawMail.maxSizeAttachmentsPerEmail.toInt64)
+    h = h !& hash(e.mail.maxSizeAttachmentsPerEmail.toInt64)
   of ckSubmission:
-    h = h !& hash(e.rawSubmission.maxDelayedSend.toInt64)
+    h = h !& hash(e.submission.maxDelayedSend.toInt64)
   of ckVacationResponse:
     discard
   of ckCore:
-    h = h !& hash($e.rawCoreData)
+    h = h !& hash($e.coreData)
   of ckWebsocket:
-    h = h !& hash($e.rawWebsocketData)
+    h = h !& hash($e.websocketData)
   of ckMdn:
-    h = h !& hash($e.rawMdnData)
+    h = h !& hash($e.mdnData)
   of ckSmimeVerify:
-    h = h !& hash($e.rawSmimeVerifyData)
+    h = h !& hash($e.smimeVerifyData)
   of ckBlob:
-    h = h !& hash($e.rawBlobData)
+    h = h !& hash($e.blobData)
   of ckQuota:
-    h = h !& hash($e.rawQuotaData)
+    h = h !& hash($e.quotaData)
   of ckContacts:
-    h = h !& hash($e.rawContactsData)
+    h = h !& hash($e.contactsData)
   of ckCalendars:
-    h = h !& hash($e.rawCalendarsData)
+    h = h !& hash($e.calendarsData)
   of ckSieve:
-    h = h !& hash($e.rawSieveData)
+    h = h !& hash($e.sieveData)
   of ckUnknown:
-    h = h !& hash($e.rawUnknownData)
+    h = h !& hash($e.unknownData)
   !$h
