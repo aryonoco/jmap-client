@@ -26,19 +26,19 @@ import ../types/session as types_session
 # =============================================================================
 
 func toJson*(caps: CoreCapabilities): JsonNode =
-  ## Serialise CoreCapabilities to JSON (RFC 8620 §2). Uses public
-  ## accessors so the raw fields stay private.
+  ## Serialise CoreCapabilities to JSON (RFC 8620 §2). Reads the public
+  ## record fields directly.
   var node = %*{
-    "maxSizeUpload": caps.maxSizeUpload().toInt64,
-    "maxConcurrentUpload": caps.maxConcurrentUpload().toInt64,
-    "maxSizeRequest": caps.maxSizeRequest().toInt64,
-    "maxConcurrentRequests": caps.maxConcurrentRequests().toInt64,
-    "maxCallsInRequest": caps.maxCallsInRequest().toInt64,
-    "maxObjectsInGet": caps.maxObjectsInGet().toInt64,
-    "maxObjectsInSet": caps.maxObjectsInSet().toInt64,
+    "maxSizeUpload": caps.maxSizeUpload.toInt64,
+    "maxConcurrentUpload": caps.maxConcurrentUpload.toInt64,
+    "maxSizeRequest": caps.maxSizeRequest.toInt64,
+    "maxConcurrentRequests": caps.maxConcurrentRequests.toInt64,
+    "maxCallsInRequest": caps.maxCallsInRequest.toInt64,
+    "maxObjectsInGet": caps.maxObjectsInGet.toInt64,
+    "maxObjectsInSet": caps.maxObjectsInSet.toInt64,
   }
   var algArr = newJArray()
-  for alg in caps.collationAlgorithms():
+  for alg in caps.collationAlgorithms:
     algArr.add(%($alg))
   node["collationAlgorithms"] = algArr
   return node
@@ -161,18 +161,18 @@ func toJson*(m: MailAccountCapabilities): JsonNode =
   ## declaration order). Optional fields are omitted when ``Opt.none``;
   ## emit order matches the RFC's section ordering.
   var node = newJObject()
-  for v in m.maxMailboxesPerEmail():
+  for v in m.maxMailboxesPerEmail:
     node["maxMailboxesPerEmail"] = %v.toInt64
-  for v in m.maxMailboxDepth():
+  for v in m.maxMailboxDepth:
     node["maxMailboxDepth"] = %v.toInt64
-  for v in m.maxSizeMailboxName():
+  for v in m.maxSizeMailboxName:
     node["maxSizeMailboxName"] = %v.toInt64
-  node["maxSizeAttachmentsPerEmail"] = %m.maxSizeAttachmentsPerEmail().toInt64
+  node["maxSizeAttachmentsPerEmail"] = %m.maxSizeAttachmentsPerEmail.toInt64
   var sortArr = newJArray()
-  for opt in m.emailQuerySortOptions():
+  for opt in m.emailQuerySortOptions:
     sortArr.add(%opt)
   node["emailQuerySortOptions"] = sortArr
-  node["mayCreateTopLevelMailbox"] = %m.mayCreateTopLevelMailbox()
+  node["mayCreateTopLevelMailbox"] = %m.mayCreateTopLevelMailbox
   return node
 
 func fromJson*(
@@ -233,9 +233,9 @@ func toJson*(s: SubmissionAccountCapabilities): JsonNode =
   ## Serialise SubmissionAccountCapabilities to JSON (RFC 8621 §1.3.2
   ## declaration order).
   var node = newJObject()
-  node["maxDelayedSend"] = %s.maxDelayedSend().toInt64
+  node["maxDelayedSend"] = %s.maxDelayedSend.toInt64
   var ext = newJObject()
-  for k, v in s.submissionExtensions().toOrderedTable():
+  for k, v in s.submissionExtensions.toOrderedTable():
     var arr = newJArray()
     for s in v:
       arr.add(%s)
@@ -369,13 +369,11 @@ func toJson*(acct: Account): JsonNode =
   ## Serialise Account to JSON (RFC 8620 §2). ``isPersonal``/``isReadOnly``
   ## are derived from ``policy``; the wire shape is unchanged.
   var node = %*{
-    "name": acct.name(),
-    "isPersonal": acct.isPersonal(),
-    "isReadOnly": acct.isReadOnly(),
+    "name": $acct.name, "isPersonal": acct.isPersonal(), "isReadOnly": acct.isReadOnly()
   }
   var acctCaps = newJObject()
-  for entry in acct.accountCapabilities():
-    acctCaps[entry.uri()] = entry.toJson()
+  for entry in acct.accountCapabilities:
+    acctCaps[entry.uri] = entry.toJson()
   node["accountCapabilities"] = acctCaps
   return node
 
@@ -383,8 +381,8 @@ func fromJson*(
     T: typedesc[Account], node: JsonNode, path: JsonPath = emptyJsonPath()
 ): Result[Account, SerdeViolation] =
   ## Deserialise JSON to Account (RFC 8620 §2). Delegates to the L1
-  ## smart constructor via ``wrapInner``; B12 silent-drop of write-
-  ## implying capabilities is enforced inside ``parseAccount``.
+  ## smart constructor (``parseAccount``) via ``wrapInner``, which
+  ## preserves the server's ``accountCapabilities`` verbatim.
   discard $T # consumed for nimalyzer params rule
   ?expectKind(node, JObject, path)
   let nameNode = ?fieldJString(node, "name", path)
@@ -410,7 +408,7 @@ func toJson*(s: Session): JsonNode =
   ## Serialise Session to JSON (RFC 8620 §2).
   var node = %*{
     "username": s.username,
-    "apiUrl": s.apiUrl,
+    "apiUrl": $s.apiUrl,
     "downloadUrl": $s.downloadUrl,
     "uploadUrl": $s.uploadUrl,
     "eventSourceUrl": $s.eventSourceUrl,
@@ -419,7 +417,7 @@ func toJson*(s: Session): JsonNode =
   # capabilities: URI -> capability data
   var caps = newJObject()
   for cap in s.capabilities():
-    caps[cap.uri()] = cap.toJson()
+    caps[cap.uri] = cap.toJson()
   node["capabilities"] = caps
   # accounts: AccountId -> Account
   var accts = newJObject()

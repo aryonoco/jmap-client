@@ -38,10 +38,11 @@ proc connectAndProbe(sessionUrl, user, pass: string): JmapResult[int] =
   let mailAccount = ?session.requirePrimaryAccount(ckMail)
   echo "mail account: ", $mailAccount
 
-  # 6. Surface a few core limits (typed UnsignedInt accessors; toInt64 only).
-  let core = session.coreCapabilities()
-  echo "maxCallsInRequest: ", $core.maxCallsInRequest().toInt64
-  echo "maxObjectsInGet:   ", $core.maxObjectsInGet().toInt64
+  # 6. Surface a few core limits. ``core`` is a direct public field of the
+  #    Session, and each limit a direct ``UnsignedInt`` field (toInt64 to read).
+  let core = session.core
+  echo "maxCallsInRequest: ", $core.maxCallsInRequest.toInt64
+  echo "maxObjectsInGet:   ", $core.maxObjectsInGet.toInt64
 
   # 7. Prove the full request lifecycle once: newBuilder -> add*Get (returns a
   #    (RequestBuilder, ResponseHandle) tuple) -> freeze (sink) -> send -> get.

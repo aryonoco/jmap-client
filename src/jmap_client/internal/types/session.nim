@@ -9,7 +9,6 @@
 
 import std/hashes
 import std/parseutils
-import std/sequtils
 import std/sets
 import std/strutils
 import std/tables
@@ -33,63 +32,88 @@ type AccountPolicy* = enum
   apShared ## isPersonal=false, isReadOnly=false
   apSharedReadOnly ## isPersonal=false, isReadOnly=true
 
-const WriteImplyingAccountCapabilities* = {
-  ckMail, ckSubmission, ckVacationResponse, ckBlob, ckContacts, ckCalendars, ckSieve,
-  ckMdn, ckSmimeVerify,
-}
-  ## Per RFC 8620 §2: ckCore is server-only (not legal at account scope —
-  ## emitted by some servers, Postel-tolerated as raw data). RFC 8887 §2:
-  ## ckWebsocket is session-scope only. RFC 8909 §3.1: ``Quota/get`` is
-  ## the only operation, read-only. ckUnknown collapses vendor URNs whose
-  ## semantics we cannot inspect — read-only by default. Every other
-  ## standard arm implies write access.
+type DisplayName* {.ruleOff: "objects".} = object
+  ## RFC 8620 §2 account display name — a "user-friendly string". Sealed
+  ## value: control characters are rejected as a defensive Layer-1
+  ## normalisation (§2 is silent on them, but a control character in a
+  ## display name almost certainly signals corruption); empty is permitted.
+  ## ``len`` carries no domain meaning, so the opaque sealed ops apply; read
+  ## the text via ``$``.
+  rawValue: string
+
+defineSealedOpaqueStringOps(DisplayName)
+
+func parseDisplayName*(raw: string): Result[DisplayName, ValidationError] =
+  ## Rejects control characters — a defensive Layer-1 normalisation, not an
+  ## RFC 8620 §2 requirement (§2 calls ``name`` only a "user-friendly string"
+  ## and is silent on control characters; one almost always signals
+  ## corruption). Empty is permitted. Lifts the previous inline ``Account``
+  ## name check into a sealed smart constructor.
+  for ch in raw:
+    if ch < ' ' or ch == '\x7F':
+      return err(validationError("DisplayName", "contains control characters", raw))
+  ok(DisplayName(rawValue: raw))
+
+type ApiUrl* {.ruleOff: "objects".} = object
+  ## RFC 8620 §2 JMAP API endpoint URL (§2 specifies it only as a "URL").
+  ## Sealed value: required non-empty and free of embedded CR/LF — defensive
+  ## HTTP request-line framing safeguards, not §2 requirements. ``len``
+  ## carries no domain meaning; read the text via ``$``.
+  rawValue: string
+
+defineSealedOpaqueStringOps(ApiUrl)
+
+func parseApiUrl*(raw: string): Result[ApiUrl, ValidationError] =
+  ## Required non-empty and newline-free as HTTP request-line framing
+  ## safeguards (not RFC 8620 §2 requirements — §2 specifies only a "URL").
+  ## The existing ``detectApiUrl`` invariant lifted into a sealed smart
+  ## constructor.
+  if raw.len == 0:
+    return err(validationError("ApiUrl", "must not be empty", raw))
+  if raw.contains({'\c', '\L'}):
+    return err(validationError("ApiUrl", "must not contain newline characters", raw))
+  ok(ApiUrl(rawValue: raw))
 
 type Account* {.ruleOff: "objects".} = object
   ## A JMAP account the user has access to (RFC 8620 §2).
   ## Threading: value type, immutable after construction, freely
   ## shareable across threads.
-  rawName: string
-  rawPolicy: AccountPolicy
-  rawAccountCapabilities: seq[AccountCapabilityEntry]
-
-func name*(a: Account): string =
-  ## User-friendly display name (RFC 8620 §2).
-  a.rawName
-
-func policy*(a: Account): AccountPolicy =
-  ## Four-state classification of ``isPersonal`` × ``isReadOnly``.
-  a.rawPolicy
+  ##
+  ## A clean record with no cross-field invariant: ``name`` carries its
+  ## own constraint in the ``DisplayName`` type (Tier-A), while ``policy``
+  ## and ``accountCapabilities`` are independent public fields. ``policy``
+  ## classifies ownership and write access; ``accountCapabilities`` lists
+  ## every capability whose methods the user may use with this account
+  ## (RFC 8620 §2) — the two are orthogonal axes that do not constrain
+  ## each other.
+  name*: DisplayName
+  policy*: AccountPolicy
+  accountCapabilities*: seq[AccountCapabilityEntry]
 
 func isPersonal*(a: Account): bool =
   ## Derived from ``policy``. ``true`` iff the account belongs to the
   ## authenticated user. Wire surface unchanged.
-  case a.rawPolicy
+  case a.policy
   of apOwned, apOwnedReadOnly: true
   of apShared, apSharedReadOnly: false
 
 func isReadOnly*(a: Account): bool =
   ## Derived from ``policy``. ``true`` iff the entire account is read-
   ## only. Wire surface unchanged.
-  case a.rawPolicy
+  case a.policy
   of apOwnedReadOnly, apSharedReadOnly: true
   of apOwned, apShared: false
 
-func accountCapabilities*(a: Account): lent seq[AccountCapabilityEntry] =
-  ## Per-account capability declarations. RFC 8620 §2.
-  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
-  ## sealed container.
-  a.rawAccountCapabilities
-
 func mailCapability*(a: Account): Opt[MailAccountCapabilities] =
   ## First entry whose kind == ckMail; Opt.none otherwise.
-  for entry in a.rawAccountCapabilities:
+  for entry in a.accountCapabilities:
     if entry.kind == ckMail:
       return entry.asMailAccountCapabilities()
   Opt.none(MailAccountCapabilities)
 
 func submissionCapability*(a: Account): Opt[SubmissionAccountCapabilities] =
   ## First entry whose kind == ckSubmission; Opt.none otherwise.
-  for entry in a.rawAccountCapabilities:
+  for entry in a.accountCapabilities:
     if entry.kind == ckSubmission:
       return entry.asSubmissionAccountCapabilities()
   Opt.none(SubmissionAccountCapabilities)
@@ -97,7 +121,7 @@ func submissionCapability*(a: Account): Opt[SubmissionAccountCapabilities] =
 func supportsVacationResponse*(a: Account): bool =
   ## ``true`` iff the account advertises a ckVacationResponse entry
   ## (presence-only per RFC 8621 §1.3.3).
-  for entry in a.rawAccountCapabilities:
+  for entry in a.accountCapabilities:
     if entry.kind == ckVacationResponse:
       return true
   false
@@ -108,25 +132,19 @@ func parseAccount*(
     isReadOnly: bool,
     accountCapabilities: seq[AccountCapabilityEntry],
 ): Result[Account, ValidationError] =
-  ## RFC 8620 §2: ``name`` is a "user-friendly string"; control characters
-  ## are rejected; empty string accepted (RFC silent on minimum length).
-  ## B12: when ``isReadOnly=true``, write-implying capabilities are
-  ## silently dropped — Postel-receive resolution for server
-  ## contradictions.
-  for ch in name:
-    if ch < ' ' or ch == '\x7F':
-      return err(validationError("Account", "name contains control characters", name))
+  ## RFC 8620 §2: ``name`` is a "user-friendly string" (control characters
+  ## are rejected by ``DisplayName``; empty string accepted). ``isReadOnly``
+  ## is an account-wide axis independent of ``accountCapabilities``: a
+  ## read-only account still advertises every capability whose methods the
+  ## user may use (e.g. the read methods of ``urn:ietf:params:jmap:mail``),
+  ## so the server's list is preserved verbatim.
+  let dn = ?parseDisplayName(name)
   let policy =
     if isPersonal:
       if isReadOnly: apOwnedReadOnly else: apOwned
     else:
       if isReadOnly: apSharedReadOnly else: apShared
-  let filtered =
-    if policy in {apOwnedReadOnly, apSharedReadOnly}:
-      accountCapabilities.filterIt(it.kind notin WriteImplyingAccountCapabilities)
-    else:
-      accountCapabilities
-  ok(Account(rawName: name, rawPolicy: policy, rawAccountCapabilities: filtered))
+  ok(Account(name: dn, policy: policy, accountCapabilities: accountCapabilities))
 
 type UriPartKind* = enum
   ## Discriminator for ``UriPart``: a literal segment or a variable reference.
@@ -187,88 +205,49 @@ const CoreCapabilityUri* = "urn:ietf:params:jmap:core"
   ## on every accessor call — the core arm is stored once as a typed
   ## ``CoreCapabilities`` field, not as a case-object entry in the list.
 
-# nimalyzer: Session intentionally has no public fields. Fields are
-# module-private to enforce construction via parseSession (which guarantees
-# ckCore is present and apiUrl is non-empty). Public accessor funcs below
-# provide read access; UFCS makes s.field syntax work unchanged for callers.
 type Session* {.ruleOff: "objects".} = object
   ## The JMAP Session resource (RFC 8620 section 2). Contains server
   ## capabilities, user accounts, API endpoint URLs, and session state.
-  ## Fields are module-private; external access via UFCS accessor funcs.
   ##
-  ## ``rawCore`` stores the RFC-required core capability as typed data
+  ## ``core`` stores the RFC-required core capability as typed data
   ## (not a case-object arm) — parseSession extracts it from the input
-  ## capability list, so the MUST invariant lifts from a runtime panic
-  ## (previous ``raiseAssert`` in ``coreCapabilities``) into the type.
-  ## ``rawAdditional`` holds the remaining capabilities; the ``capabilities``
-  ## accessor synthesises the core entry on demand for API symmetry and
-  ## byte-identical wire serialisation.
-  rawCore: CoreCapabilities
-  rawAdditional: seq[ServerCapability]
-  rawAccounts: Table[AccountId, Account]
-  rawPrimaryAccounts: Table[string, AccountId]
-  rawUsername: string
-  rawApiUrl: string
-  rawDownloadUrl: UriTemplate
-  rawUploadUrl: UriTemplate
-  rawEventSourceUrl: UriTemplate
-  rawState: JmapState
+  ## capability list, so the §2 MUST invariant lifts from a runtime
+  ## panic into the type. ``additional`` holds the remaining
+  ## capabilities; the ``capabilities`` accessor synthesises the core
+  ## entry on demand for API symmetry and byte-identical wire
+  ## serialisation.
+  ##
+  ## Tier-C: per-template required-variable rules relating the three
+  ## UriTemplate fields are parseSession-enforced; raw construction is
+  ## out-of-contract.
+  core*: CoreCapabilities
+  additional*: seq[ServerCapability]
+  accounts*: Table[AccountId, Account]
+  primaryAccounts*: Table[string, AccountId]
+  username*: string
+  apiUrl*: ApiUrl
+  downloadUrl*: UriTemplate
+  uploadUrl*: UriTemplate
+  eventSourceUrl*: UriTemplate
+  state*: JmapState
 
 func capabilities*(s: Session): seq[ServerCapability] =
-  ## Server-level capabilities, core entry synthesised from ``rawCore``
+  ## Server-level capabilities, core entry synthesised from ``core``
   ## and prepended so the list is RFC-conformant and byte-identical to
   ## the wire format. ``parseServerCapability`` is total when given a
   ## well-formed core URI plus ``Opt.some(core)``; ``.get()`` cannot Err
   ## under this invariant.
-  let coreCap = parseServerCapability(
-      CoreCapabilityUri, Opt.some(s.rawCore), Opt.none(JsonNode)
-    )
-    .get()
+  let coreCap =
+    parseServerCapability(CoreCapabilityUri, Opt.some(s.core), Opt.none(JsonNode)).get()
   result = @[coreCap]
-  for cap in s.rawAdditional:
+  for cap in s.additional:
     result.add(cap)
-
-func accounts*(s: Session): lent Table[AccountId, Account] =
-  ## Accounts keyed by AccountId.
-  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
-  ## sealed container.
-  return s.rawAccounts
-
-func primaryAccounts*(s: Session): lent Table[string, AccountId] =
-  ## Primary accounts keyed by raw capability URI (not CapabilityKind).
-  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
-  ## sealed container.
-  return s.rawPrimaryAccounts
-
-func username*(s: Session): string =
-  ## Authenticated username, or empty string if none.
-  return s.rawUsername
-
-func apiUrl*(s: Session): string =
-  ## URL for JMAP API requests.
-  return s.rawApiUrl
-
-func downloadUrl*(s: Session): UriTemplate =
-  ## RFC 6570 Level 1 template for blob downloads.
-  return s.rawDownloadUrl
-
-func uploadUrl*(s: Session): UriTemplate =
-  ## RFC 6570 Level 1 template for uploads.
-  return s.rawUploadUrl
-
-func eventSourceUrl*(s: Session): UriTemplate =
-  ## RFC 6570 Level 1 template for event source.
-  return s.rawEventSourceUrl
-
-func state*(s: Session): JmapState =
-  ## Session state token.
-  return s.rawState
 
 func findCapability*(
     account: Account, kind: CapabilityKind
 ): Opt[AccountCapabilityEntry] =
   ## Finds the first account capability matching the given kind.
-  for entry in account.accountCapabilities():
+  for entry in account.accountCapabilities:
     if entry.kind == kind:
       return Opt.some(entry)
   return Opt.none(AccountCapabilityEntry)
@@ -277,8 +256,8 @@ func findCapabilityByUri*(account: Account, uri: string): Opt[AccountCapabilityE
   ## Looks up an account capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions (which all map to ckUnknown
   ## and would be ambiguous via findCapability).
-  for entry in account.accountCapabilities():
-    if entry.uri() == uri:
+  for entry in account.accountCapabilities:
+    if entry.uri == uri:
       return Opt.some(entry)
   return Opt.none(AccountCapabilityEntry)
 
@@ -509,8 +488,9 @@ func partitionCore(
   err(SessionViolation(kind: svMissingCoreCapability))
 
 func detectApiUrl(apiUrl: string): Result[void, SessionViolation] =
-  ## RFC 8620 section 2: apiUrl MUST be a non-empty URL free of embedded
-  ## newline characters (which would break HTTP request-line framing).
+  ## RFC 8620 §2 specifies ``apiUrl`` only as a "URL". The non-empty and
+  ## newline-free checks here are defensive HTTP request-line framing
+  ## safeguards, not §2 requirements.
   if apiUrl.len == 0:
     return err(SessionViolation(kind: svEmptyApiUrl))
   if apiUrl.contains({'\c', '\L'}):
@@ -539,8 +519,8 @@ func detectSession(
 ): Result[CorePartition, SessionViolation] =
   ## Composes the five structural sub-detectors with ``?`` short-circuit,
   ## returning the extracted core partition so ``parseSession`` can feed
-  ## ``rawCore`` / ``rawAdditional`` without a second traversal. First-
-  ## error ordering matches the pre-refactor behaviour.
+  ## ``core`` / ``additional`` without a second traversal. First-error
+  ## ordering matches the pre-refactor behaviour.
   let partition = ?partitionCore(capabilities)
   ?detectApiUrl(apiUrl)
   ?detectUriVariables(urDownload, downloadUrl)
@@ -572,38 +552,34 @@ func parseSession*(
     return err(toValidationError(error))
   ok(
     Session(
-      rawCore: partition.core,
-      rawAdditional: partition.additional,
-      rawAccounts: accounts,
-      rawPrimaryAccounts: primaryAccounts,
-      rawUsername: username,
-      rawApiUrl: apiUrl,
-      rawDownloadUrl: downloadUrl,
-      rawUploadUrl: uploadUrl,
-      rawEventSourceUrl: eventSourceUrl,
-      rawState: state,
+      core: partition.core,
+      additional: partition.additional,
+      accounts: accounts,
+      primaryAccounts: primaryAccounts,
+      username: username,
+      # detectApiUrl above proved the ApiUrl invariant (non-empty,
+      # newline-free), so module-internal raw construction is in-contract.
+      apiUrl: ApiUrl(rawValue: apiUrl),
+      downloadUrl: downloadUrl,
+      uploadUrl: uploadUrl,
+      eventSourceUrl: eventSourceUrl,
+      state: state,
     )
   )
 
-func coreCapabilities*(session: Session): CoreCapabilities =
-  ## Total function: ``rawCore`` is stored as a typed field at Session
-  ## construction time, so the RFC 8620 §2 MUST invariant is enforced by
-  ## the type — no panic path, no runtime assertion.
-  return session.rawCore
-
 func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapability] =
   ## Finds the first server capability matching the given kind. ``ckCore``
-  ## short-circuits to the synthesised core arm — ``rawCore`` is stored
-  ## directly, not in ``rawAdditional``. ``parseServerCapability`` is
+  ## short-circuits to the synthesised core arm — ``core`` is stored
+  ## directly, not in ``additional``. ``parseServerCapability`` is
   ## total when given the canonical core URI plus ``Opt.some(core)``;
   ## ``.get()`` cannot Err under this invariant.
   if kind == ckCore:
     let coreCap = parseServerCapability(
-        CoreCapabilityUri, Opt.some(session.rawCore), Opt.none(JsonNode)
+        CoreCapabilityUri, Opt.some(session.core), Opt.none(JsonNode)
       )
       .get()
     return Opt.some(coreCap)
-  for cap in session.rawAdditional:
+  for cap in session.additional:
     if cap.kind == kind:
       return Opt.some(cap)
   return Opt.none(ServerCapability)
@@ -615,12 +591,12 @@ func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] 
   ## proves ``parseServerCapability(...).get()`` is total.
   if uri == CoreCapabilityUri:
     let coreCap = parseServerCapability(
-        CoreCapabilityUri, Opt.some(session.rawCore), Opt.none(JsonNode)
+        CoreCapabilityUri, Opt.some(session.core), Opt.none(JsonNode)
       )
       .get()
     return Opt.some(coreCap)
-  for cap in session.rawAdditional:
-    if cap.uri() == uri:
+  for cap in session.additional:
+    if cap.uri == uri:
       return Opt.some(cap)
   return Opt.none(ServerCapability)
 
@@ -628,14 +604,14 @@ func primaryAccount*(session: Session, kind: CapabilityKind): Opt[AccountId] =
   ## Returns the primary account for a known capability kind.
   ## Returns none if kind == ckUnknown (no canonical URI) or no primary designated.
   let uri = ?capabilityUri(kind)
-  for key, val in session.rawPrimaryAccounts:
+  for key, val in session.primaryAccounts:
     if key == uri:
       return Opt.some(val)
   return Opt.none(AccountId)
 
 func findAccount*(session: Session, id: AccountId): Opt[Account] =
   ## Looks up an account by its AccountId.
-  for key, val in session.rawAccounts:
+  for key, val in session.accounts:
     if key == id:
       return Opt.some(val)
   return Opt.none(Account)

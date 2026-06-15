@@ -60,6 +60,51 @@ template fieldValue*[T](v: T): FieldEcho[T] =
   ## from the argument.
   FieldEcho[T](kind: fekValue, value: v)
 
+func isValue*[T](fe: FieldEcho[T]): bool =
+  ## ``true`` iff the server echoed a non-null value (``fekValue``).
+  fe.kind == fekValue
+
+func isNull*[T](fe: FieldEcho[T]): bool =
+  ## ``true`` iff the server echoed JSON ``null`` (``fekNull`` — the property
+  ## was affirmatively cleared, RFC 8620 §5.3).
+  fe.kind == fekNull
+
+func isAbsent*[T](fe: FieldEcho[T]): bool =
+  ## ``true`` iff the property was not echoed (``fekAbsent`` — unchanged / not
+  ## requested; distinct from ``isNull`` for incremental ``/changes`` sync).
+  fe.kind == fekAbsent
+
+template valueOr*[T](fe: FieldEcho[T], def: untyped): T =
+  ## Primary fallback reader, mirroring ``nim-results`` ``Opt.valueOr`` so an
+  ## ``Opt`` field and a ``FieldEcho`` field read through the same call shape:
+  ## the echoed value on ``fekValue``, the lazily-evaluated ``def`` on
+  ## ``fekAbsent``/``fekNull``. ``fe`` is bound once (the argument may be a
+  ## call), exactly as ``Opt.valueOr`` binds ``let s = self``.
+  let f = fe
+  case f.kind
+  of fekValue: f.value
+  of fekAbsent, fekNull: def
+
+iterator items*[T](fe: FieldEcho[T]): T =
+  ## Mirrors ``for v in opt:`` — yields once on ``fekValue``, never otherwise.
+  case fe.kind
+  of fekValue:
+    yield fe.value
+  of fekAbsent, fekNull:
+    discard
+
+func toOpt*[T](fe: FieldEcho[T]): Opt[T] =
+  ## The everyday bridge for render-only callers: lets ``Email.subject`` (Opt)
+  ## and ``PartialEmail.subject`` (FieldEcho) flow through one rendering
+  ## function. DELIBERATELY collapses ``fekAbsent`` + ``fekNull`` → ``none`` —
+  ## an opt-in lossy reader, NOT a converter, NOT erasure of the type (the
+  ## ``isAbsent``/``isNull`` predicates remain for offline-sync callers).
+  case fe.kind
+  of fekValue:
+    Opt.some(fe.value)
+  of fekAbsent, fekNull:
+    Opt.none(T)
+
 func `==`*[T](a, b: FieldEcho[T]): bool =
   ## Arm-dispatched equality. Case-objects under strict require nested
   ## ``case`` rather than mixed ``if``/field-access (Rule 1 in

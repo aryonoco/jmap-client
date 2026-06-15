@@ -60,7 +60,7 @@ testCase propSessionCoreCapabilitiesTotal:
         args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
       )
       .get()
-    discard coreCapabilities(session)
+    discard session.core
 
 testCase propSessionFindCoreCapability:
   let args = makeSessionArgs()
@@ -121,7 +121,7 @@ testCase propSessionPostConstructionInvariants:
   ## Verifies all five structural invariants guaranteed by parseSession.
   let session = parseSessionFromArgs(makeSessionArgs())
   doAssert findCapability(session, ckCore).isSome
-  doAssert session.apiUrl.len > 0
+  doAssert ($session.apiUrl).len > 0
   doAssert session.downloadUrl.hasVariable("accountId")
   doAssert session.downloadUrl.hasVariable("blobId")
   doAssert session.downloadUrl.hasVariable("type")
@@ -196,11 +196,11 @@ testCase propSessionCoreCapabilitiesPreserved:
         .get()
     ]
     let session = parseSessionFromArgs(args)
-    let extracted = coreCapabilities(session)
-    doAssert extracted.maxSizeUpload() == randomCore.maxSizeUpload()
-    doAssert extracted.maxConcurrentUpload() == randomCore.maxConcurrentUpload()
-    doAssert extracted.maxCallsInRequest() == randomCore.maxCallsInRequest()
-    doAssert extracted.maxObjectsInGet() == randomCore.maxObjectsInGet()
+    let extracted = session.core
+    doAssert extracted.maxSizeUpload == randomCore.maxSizeUpload
+    doAssert extracted.maxConcurrentUpload == randomCore.maxConcurrentUpload
+    doAssert extracted.maxCallsInRequest == randomCore.maxCallsInRequest
+    doAssert extracted.maxObjectsInGet == randomCore.maxObjectsInGet
 
 testCase propSessionWithRandomAccounts:
   checkPropertyN "findAccount returns added accounts", QuickTrials:

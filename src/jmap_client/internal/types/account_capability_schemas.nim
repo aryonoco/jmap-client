@@ -28,43 +28,22 @@ import ./submission_atoms
 
 type MailAccountCapabilities* {.ruleOff: "objects".} = object
   ## Per-account Mail capability schema (RFC 8621 §1.3.1).
+  ## Tier-C: numeric bounds (>=1 / >=100) are enforced by
+  ## parseMailAccountCapabilities; raw construction is out-of-contract.
   ## Threading: value type, immutable after construction, freely
   ## shareable across threads.
-  rawMaxMailboxesPerEmail: Opt[UnsignedInt]
-  rawMaxMailboxDepth: Opt[UnsignedInt]
-  rawMaxSizeMailboxName: Opt[UnsignedInt]
-  rawMaxSizeAttachmentsPerEmail: UnsignedInt
-  rawEmailQuerySortOptions: HashSet[string]
-  rawMayCreateTopLevelMailbox: bool
-
-func maxMailboxesPerEmail*(m: MailAccountCapabilities): Opt[UnsignedInt] =
-  ## Null when no per-account limit; ``>= 1`` when present per RFC 8621
-  ## §1.3.1.
-  m.rawMaxMailboxesPerEmail
-
-func maxMailboxDepth*(m: MailAccountCapabilities): Opt[UnsignedInt] =
-  ## Null when no per-account depth limit.
-  m.rawMaxMailboxDepth
-
-func maxSizeMailboxName*(m: MailAccountCapabilities): Opt[UnsignedInt] =
-  ## Octets. ``>= 100`` when present per RFC 8621 §1.3.1. Cyrus 3.12.2
-  ## omits the field; the Postel-receive serde surfaces absence as
-  ## ``Opt.none`` rather than synthesising a default.
-  m.rawMaxSizeMailboxName
-
-func maxSizeAttachmentsPerEmail*(m: MailAccountCapabilities): UnsignedInt =
-  ## Maximum total attachment size per email in octets.
-  m.rawMaxSizeAttachmentsPerEmail
-
-func emailQuerySortOptions*(m: MailAccountCapabilities): lent HashSet[string] =
-  ## Supported sort properties for ``Email/query`` calls.
-  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
-  ## sealed container.
-  m.rawEmailQuerySortOptions
-
-func mayCreateTopLevelMailbox*(m: MailAccountCapabilities): bool =
-  ## Whether the client may create top-level mailboxes.
-  m.rawMayCreateTopLevelMailbox
+  maxMailboxesPerEmail*: Opt[UnsignedInt]
+    ## null when no per-account limit; ``>= 1`` when present (RFC 8621 §1.3.1)
+  maxMailboxDepth*: Opt[UnsignedInt] ## null when no per-account depth limit
+  maxSizeMailboxName*: Opt[UnsignedInt]
+    ## octets; ``>= 100`` when present (RFC 8621 §1.3.1). Cyrus 3.12.2 omits
+    ## the field; the Postel-receive serde surfaces absence as ``Opt.none``
+    ## rather than synthesising a default.
+  maxSizeAttachmentsPerEmail*: UnsignedInt
+    ## maximum total attachment size per email in octets
+  emailQuerySortOptions*: HashSet[string]
+    ## supported sort properties for ``Email/query`` calls
+  mayCreateTopLevelMailbox*: bool ## whether the client may create top-level mailboxes
 
 func parseMailAccountCapabilities*(
     maxMailboxesPerEmail: Opt[UnsignedInt],
@@ -93,12 +72,12 @@ func parseMailAccountCapabilities*(
       )
   ok(
     MailAccountCapabilities(
-      rawMaxMailboxesPerEmail: maxMailboxesPerEmail,
-      rawMaxMailboxDepth: maxMailboxDepth,
-      rawMaxSizeMailboxName: maxSizeMailboxName,
-      rawMaxSizeAttachmentsPerEmail: maxSizeAttachmentsPerEmail,
-      rawEmailQuerySortOptions: emailQuerySortOptions,
-      rawMayCreateTopLevelMailbox: mayCreateTopLevelMailbox,
+      maxMailboxesPerEmail: maxMailboxesPerEmail,
+      maxMailboxDepth: maxMailboxDepth,
+      maxSizeMailboxName: maxSizeMailboxName,
+      maxSizeAttachmentsPerEmail: maxSizeAttachmentsPerEmail,
+      emailQuerySortOptions: emailQuerySortOptions,
+      mayCreateTopLevelMailbox: mayCreateTopLevelMailbox,
     )
   )
 
@@ -108,19 +87,16 @@ func parseMailAccountCapabilities*(
 
 type SubmissionAccountCapabilities* {.ruleOff: "objects".} = object
   ## Per-account Submission capability schema (RFC 8621 §1.3.2).
+  ## Both fields are public read fields carrying already-validated types,
+  ## so direct construction cannot forge an illegal value.
+  ## ``parseSubmissionAccountCapabilities`` remains the convenience
+  ## constructor.
   ## Threading: value type, immutable after construction, freely
   ## shareable across threads.
-  rawMaxDelayedSend: UnsignedInt
-  rawSubmissionExtensions: SubmissionExtensionMap
-
-func maxDelayedSend*(s: SubmissionAccountCapabilities): UnsignedInt =
-  ## Maximum delay in seconds for delayed send. ``0`` means delayed send
-  ## is not supported.
-  s.rawMaxDelayedSend
-
-func submissionExtensions*(s: SubmissionAccountCapabilities): SubmissionExtensionMap =
-  ## Server-advertised RFC 5321 ESMTP extension keywords with their args.
-  s.rawSubmissionExtensions
+  maxDelayedSend*: UnsignedInt
+    ## maximum delay in seconds for delayed send; ``0`` means unsupported
+  submissionExtensions*: SubmissionExtensionMap
+    ## server-advertised RFC 5321 ESMTP extension keywords with their args
 
 func parseSubmissionAccountCapabilities*(
     maxDelayedSend: UnsignedInt, submissionExtensions: SubmissionExtensionMap
@@ -132,7 +108,7 @@ func parseSubmissionAccountCapabilities*(
   ## constructor contract.
   ok(
     SubmissionAccountCapabilities(
-      rawMaxDelayedSend: maxDelayedSend, rawSubmissionExtensions: submissionExtensions
+      maxDelayedSend: maxDelayedSend, submissionExtensions: submissionExtensions
     )
   )
 
@@ -142,14 +118,21 @@ func parseSubmissionAccountCapabilities*(
 
 type AccountCapabilityEntry* {.ruleOff: "objects".} = object
   ## Per-account capability declaration (RFC 8620 §2, RFC 8621 §1.3).
+  ## kind↔uri consistency is parseAccountCapabilityEntry-guaranteed (Tier-C).
+  ## The typed ``mail`` and ``submission`` arms stay public: each domain
+  ## type carries its own validated shape, so exposing it cannot forge an
+  ## illegal value. The raw ``JsonNode`` vendor arms stay sealed
+  ## (H1b/P15/P16): a public raw arm would reopen construction and bypass
+  ## parseAccountCapabilityEntry's kind↔uri invariant. Read vendor
+  ## payloads via ``asRawData``.
   ## Threading: value type, immutable after construction, freely
   ## shareable across threads.
-  rawUri: string
+  uri*: string
   case kind*: CapabilityKind
   of ckMail:
-    rawMail: MailAccountCapabilities ## RFC 8621 §1.3.1
+    mail*: MailAccountCapabilities ## RFC 8621 §1.3.1
   of ckSubmission:
-    rawSubmission: SubmissionAccountCapabilities ## RFC 8621 §1.3.2
+    submission*: SubmissionAccountCapabilities ## RFC 8621 §1.3.2
   of ckVacationResponse:
     # RFC 8621 §1.3.3: presence-only (empty object), no payload.
     discard
@@ -177,17 +160,13 @@ type AccountCapabilityEntry* {.ruleOff: "objects".} = object
   of ckUnknown:
     rawUnknownData: JsonNode ## P19 exception (A22b): vendor URN forward-compat
 
-func uri*(e: AccountCapabilityEntry): string =
-  ## Round-trip-stable wire URI.
-  e.rawUri
-
 func asMailAccountCapabilities*(
     e: AccountCapabilityEntry
 ): Opt[MailAccountCapabilities] =
   ## Some only when kind == ckMail.
   case e.kind
   of ckMail:
-    Opt.some(e.rawMail)
+    Opt.some(e.mail)
   of ckSubmission, ckVacationResponse, ckCore, ckWebsocket, ckMdn, ckSmimeVerify,
       ckBlob, ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
     Opt.none(MailAccountCapabilities)
@@ -198,13 +177,13 @@ func asSubmissionAccountCapabilities*(
   ## Some only when kind == ckSubmission.
   case e.kind
   of ckSubmission:
-    Opt.some(e.rawSubmission)
+    Opt.some(e.submission)
   of ckMail, ckVacationResponse, ckCore, ckWebsocket, ckMdn, ckSmimeVerify, ckBlob,
       ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
     Opt.none(SubmissionAccountCapabilities)
 
 func asRawData*(e: AccountCapabilityEntry): Opt[JsonNode] =
-  ## Some for every ``rawXxxData``-bearing arm; none for ckMail,
+  ## Some for every ``xxxData``-bearing arm; none for ckMail,
   ## ckSubmission, ckVacationResponse.
   case e.kind
   of ckMail, ckSubmission, ckVacationResponse:
@@ -249,7 +228,7 @@ func parseAccountCapabilityEntry*(
           "AccountCapabilityEntry", "ckMail requires MailAccountCapabilities", uri
         )
       )
-    ok(AccountCapabilityEntry(kind: ckMail, rawUri: uri, rawMail: m))
+    ok(AccountCapabilityEntry(kind: ckMail, uri: uri, mail: m))
   of ckSubmission:
     let s = submission.valueOr:
       return err(
@@ -258,69 +237,69 @@ func parseAccountCapabilityEntry*(
           "ckSubmission requires SubmissionAccountCapabilities", uri,
         )
       )
-    ok(AccountCapabilityEntry(kind: ckSubmission, rawUri: uri, rawSubmission: s))
+    ok(AccountCapabilityEntry(kind: ckSubmission, uri: uri, submission: s))
   of ckVacationResponse:
-    ok(AccountCapabilityEntry(kind: ckVacationResponse, rawUri: uri))
+    ok(AccountCapabilityEntry(kind: ckVacationResponse, uri: uri))
   of ckCore:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckCore, rawUri: uri, rawCoreData: d))
+    ok(AccountCapabilityEntry(kind: ckCore, uri: uri, rawCoreData: d))
   of ckWebsocket:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckWebsocket, rawUri: uri, rawWebsocketData: d))
+    ok(AccountCapabilityEntry(kind: ckWebsocket, uri: uri, rawWebsocketData: d))
   of ckMdn:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckMdn, rawUri: uri, rawMdnData: d))
+    ok(AccountCapabilityEntry(kind: ckMdn, uri: uri, rawMdnData: d))
   of ckSmimeVerify:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckSmimeVerify, rawUri: uri, rawSmimeVerifyData: d))
+    ok(AccountCapabilityEntry(kind: ckSmimeVerify, uri: uri, rawSmimeVerifyData: d))
   of ckBlob:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckBlob, rawUri: uri, rawBlobData: d))
+    ok(AccountCapabilityEntry(kind: ckBlob, uri: uri, rawBlobData: d))
   of ckQuota:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckQuota, rawUri: uri, rawQuotaData: d))
+    ok(AccountCapabilityEntry(kind: ckQuota, uri: uri, rawQuotaData: d))
   of ckContacts:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckContacts, rawUri: uri, rawContactsData: d))
+    ok(AccountCapabilityEntry(kind: ckContacts, uri: uri, rawContactsData: d))
   of ckCalendars:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckCalendars, rawUri: uri, rawCalendarsData: d))
+    ok(AccountCapabilityEntry(kind: ckCalendars, uri: uri, rawCalendarsData: d))
   of ckSieve:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckSieve, rawUri: uri, rawSieveData: d))
+    ok(AccountCapabilityEntry(kind: ckSieve, uri: uri, rawSieveData: d))
   of ckUnknown:
     let d = rawData.valueOr:
       newJObject()
-    ok(AccountCapabilityEntry(kind: ckUnknown, rawUri: uri, rawUnknownData: d))
+    ok(AccountCapabilityEntry(kind: ckUnknown, uri: uri, rawUnknownData: d))
 
 func `==`*(a, b: AccountCapabilityEntry): bool =
   ## Arm-dispatched structural equality — Nim's auto-derived ``==`` uses a
   ## parallel ``fields`` iterator that rejects case objects.
   if a.kind != b.kind:
     return false
-  if a.rawUri != b.rawUri:
+  if a.uri != b.uri:
     return false
   case a.kind
   of ckMail:
     case b.kind
     of ckMail:
-      a.rawMail == b.rawMail
+      a.mail == b.mail
     of ckSubmission, ckVacationResponse, ckCore, ckWebsocket, ckMdn, ckSmimeVerify,
         ckBlob, ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
       false
   of ckSubmission:
     case b.kind
     of ckSubmission:
-      a.rawSubmission == b.rawSubmission
+      a.submission == b.submission
     of ckMail, ckVacationResponse, ckCore, ckWebsocket, ckMdn, ckSmimeVerify, ckBlob,
         ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
       false
@@ -399,20 +378,20 @@ func `==`*(a, b: AccountCapabilityEntry): bool =
 
 func `$`*(e: AccountCapabilityEntry): string =
   ## Diagnostic representation — kind tag plus the URI.
-  "AccountCapabilityEntry(uri=" & e.rawUri & " kind=" & $e.kind & ")"
+  "AccountCapabilityEntry(uri=" & e.uri & " kind=" & $e.kind & ")"
 
 func hash*(e: AccountCapabilityEntry): Hash =
   ## Arm-dispatched hash. ``JsonNode`` has no stdlib ``hash``; the
   ## render-then-hash path preserves structural equivalence at the cost
   ## of one serialisation per hash. Hash sites are diagnostic, not hot.
   var h: Hash = 0
-  h = h !& hash(e.rawUri)
+  h = h !& hash(e.uri)
   h = h !& hash(e.kind)
   case e.kind
   of ckMail:
-    h = h !& hash(e.rawMail.maxSizeAttachmentsPerEmail.toInt64)
+    h = h !& hash(e.mail.maxSizeAttachmentsPerEmail.toInt64)
   of ckSubmission:
-    h = h !& hash(e.rawSubmission.maxDelayedSend.toInt64)
+    h = h !& hash(e.submission.maxDelayedSend.toInt64)
   of ckVacationResponse:
     discard
   of ckCore:

@@ -375,7 +375,7 @@ testCase bodyValuesLastWinsOnDuplicatePartId: # scenario 72a
   let obj = bp.toJson()
   let bv = obj{"bodyValues"}
   doAssert bv != nil and bv.kind == JObject
-  assertLen toSeq(bv.keys), 1
+  assertLen sequtils.toSeq(bv.keys), 1
 
 testCase bodyValuesOrderSensitiveByteDiff: # scenario 72b
   # Two blueprints with leaves in swapped order emit byte-different JSON
@@ -421,7 +421,7 @@ testCase bodyValuesHarvestMultipleLeaves: # scenario 73
     )
     .get()
   let obj = bp.toJson()
-  assertLen toSeq(obj{"bodyValues"}.keys), 2
+  assertLen sequtils.toSeq(obj{"bodyValues"}.keys), 2
 
 testCase bodyValuesHarvestDepth5Tree: # scenario 73a
   # Depth-5 multipart spine with inline leaves at odd depths. The walker
@@ -446,4 +446,4 @@ testCase bodyValuesHarvestDepth5Tree: # scenario 73a
     )
     .get()
   let obj = bp.toJson()
-  assertLen toSeq(obj{"bodyValues"}.keys), 3
+  assertLen sequtils.toSeq(obj{"bodyValues"}.keys), 3

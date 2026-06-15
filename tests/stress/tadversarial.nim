@@ -865,8 +865,8 @@ testCase accountNameZeroWidthSpace:
       "admin\xE2\x80\x8Bbackup@co.com", isPersonal = true, isReadOnly = false, @[]
     )
     .get()
-  doAssert acct.name().len == 21
-  doAssert "\xE2\x80\x8B" in acct.name()
+  doAssert ($acct.name).len == 21
+  doAssert "\xE2\x80\x8B" in $acct.name
 
 testCase accountNameRightToLeftOverride:
   ## Right-to-left override U+202E (\xE2\x80\xAE) in Account.name is preserved.
@@ -874,8 +874,8 @@ testCase accountNameRightToLeftOverride:
       "admin\xE2\x80\xAErof@co.com", isPersonal = true, isReadOnly = false, @[]
     )
     .get()
-  doAssert acct.name().len == 18
-  doAssert "\xE2\x80\xAE" in acct.name()
+  doAssert ($acct.name).len == 18
+  doAssert "\xE2\x80\xAE" in $acct.name
 
 testCase accountNameBom:
   ## BOM U+FEFF (\xEF\xBB\xBF) at start of Account.name is preserved.
@@ -883,8 +883,8 @@ testCase accountNameBom:
       "\xEF\xBB\xBFadmin@co.com", isPersonal = true, isReadOnly = false, @[]
     )
     .get()
-  doAssert acct.name().len == 15
-  doAssert acct.name()[0 .. 2] == "\xEF\xBB\xBF"
+  doAssert ($acct.name).len == 15
+  doAssert ($acct.name)[0 .. 2] == "\xEF\xBB\xBF"
 
 # =============================================================================
 # 6a) Full control character range
@@ -1076,7 +1076,7 @@ testCase jsonNodeAliasingInMethodErrorExtras:
 
 testCase sessionDuplicateCkCore:
   ## Duplicate ckCore: parseSession accepts two ckCore ServerCapabilities
-  ## with different CoreCapabilities. coreCapabilities() returns the FIRST one.
+  ## with different CoreCapabilities. session.core returns the FIRST one.
   let coreCaps1 = parseCoreCapabilities(
       parseUnsignedInt(100).get(),
       parseUnsignedInt(1).get(),
@@ -1120,10 +1120,10 @@ testCase sessionDuplicateCkCore:
     args.state,
   )
   let session = res.get()
-  ## coreCapabilities() iterates and returns the first ckCore match.
-  let cc = session.coreCapabilities()
-  doAssert cc.maxSizeUpload() == parseUnsignedInt(100).get()
-  doAssert cc.maxConcurrentUpload() == parseUnsignedInt(1).get()
+  ## session.core resolves to the first ckCore match.
+  let cc = session.core
+  doAssert cc.maxSizeUpload == parseUnsignedInt(100).get()
+  doAssert cc.maxConcurrentUpload == parseUnsignedInt(1).get()
 
 testCase sessionFindCapabilityCkUnknown:
   ## findCapability(session, ckUnknown) returns the first ckUnknown entry.
@@ -1162,11 +1162,11 @@ testCase sessionFindCapabilityCkUnknown:
   ## findCapability returns the first ckUnknown.
   let first = session.findCapability(ckUnknown)
   assertSome first
-  doAssert first.get().uri() == "https://vendor.example.com/ext1"
+  doAssert first.get().uri == "https://vendor.example.com/ext1"
   ## findCapabilityByUri returns the exact match.
   let specific = session.findCapabilityByUri("https://vendor.example.com/ext2")
   assertSome specific
-  doAssert specific.get().uri() == "https://vendor.example.com/ext2"
+  doAssert specific.get().uri == "https://vendor.example.com/ext2"
 
 testCase uriTemplateNestedBracesRejected:
   ## Nested braces ``{{accountId}}`` are rejected at parse time: the

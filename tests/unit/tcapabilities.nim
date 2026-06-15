@@ -86,7 +86,7 @@ testCase serverCapabilityCore:
       "urn:ietf:params:jmap:core", Opt.some(caps), Opt.none(JsonNode)
     )
     .get()
-  doAssert sc.uri() == "urn:ietf:params:jmap:core"
+  doAssert sc.uri == "urn:ietf:params:jmap:core"
   doAssert sc.kind == ckCore
 
 testCase serverCapabilityDiscardArm:
@@ -96,7 +96,7 @@ testCase serverCapabilityDiscardArm:
       "urn:ietf:params:jmap:mail", Opt.none(CoreCapabilities), Opt.some(newJNull())
     )
     .get()
-  doAssert sc.uri() == "urn:ietf:params:jmap:mail"
+  doAssert sc.uri == "urn:ietf:params:jmap:mail"
   doAssert sc.kind == ckMail
   doAssert sc.asRawData().isNone
 
@@ -105,7 +105,7 @@ testCase serverCapabilityUnknown:
       "https://vendor.example/ext", Opt.none(CoreCapabilities), Opt.some(newJNull())
     )
     .get()
-  doAssert sc.uri() == "https://vendor.example/ext"
+  doAssert sc.uri == "https://vendor.example/ext"
   doAssert sc.kind == ckUnknown
 
 # --- Missing variant coverage ---
@@ -158,8 +158,8 @@ testCase capabilityUriRoundTrip:
 
 testCase coreCapabilitiesRealisticValues:
   let caps = realisticCoreCaps()
-  doAssert caps.maxSizeUpload() == parseUnsignedInt(50_000_000).get()
-  doAssert caps.maxCallsInRequest() == parseUnsignedInt(32).get()
+  doAssert caps.maxSizeUpload == parseUnsignedInt(50_000_000).get()
+  doAssert caps.maxCallsInRequest == parseUnsignedInt(32).get()
   doAssert caps.hasCollation(CollationAsciiCasemap)
   doAssert caps.hasCollation(CollationUnicodeCasemap)
 
@@ -168,7 +168,7 @@ testCase serverCapabilityRawUriPreserved:
       "urn:ietf:params:jmap:core", Opt.some(zeroCoreCaps()), Opt.none(JsonNode)
     )
     .get()
-  doAssert sc.uri() == "urn:ietf:params:jmap:core"
+  doAssert sc.uri == "urn:ietf:params:jmap:core"
 
 testCase parseCapabilityKindCaseNormalisation:
   ## nimIdentNormalize: first char is case-sensitive, rest is case-insensitive.
@@ -202,5 +202,5 @@ testCase serverCapabilityVendorExtension:
       "https://vendor.example/ext", Opt.none(CoreCapabilities), Opt.some(data)
     )
     .get()
-  doAssert sc.uri() == "https://vendor.example/ext"
+  doAssert sc.uri == "https://vendor.example/ext"
   doAssert sc.kind == ckUnknown

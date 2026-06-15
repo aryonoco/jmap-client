@@ -48,16 +48,14 @@ func fromJson*(
 
 # =============================================================================
 # PartialThread (A3.6) — Thread has no /set per RFC 8621 §3, partial is
-# sparse /get only. PartialThread mirrors Thread's private-fields-plus-
-# accessors shape (D8) for structural symmetry.
+# sparse /get only.
 # =============================================================================
 
 func fromJson*(
     T: typedesc[PartialThread], node: JsonNode, path: JsonPath = emptyJsonPath()
 ): Result[PartialThread, SerdeViolation] =
   ## Deserialise a partial Thread echo (RFC 8621 §3). Lenient on missing
-  ## fields. ``rawId`` and ``rawEmailIds`` are module-private — accessor
-  ## funcs ``id`` and ``emailIds`` provide read access (D8).
+  ## fields — a sparse projection carries no invariant.
   discard $T
   ?expectKind(node, JObject, path)
   let id = ?parsePartialOptField[Id](node, "id", path)

@@ -1183,7 +1183,7 @@ proc genSession*(rng: var Rand): Session =
     let aid = parseAccountId("A" & $rng.rand(1000 .. 9999)).get()
     accounts[aid] = rng.genAccount()
     if i == 0 and caps.len > 1:
-      primaryAccounts[caps[1].uri()] = aid
+      primaryAccounts[caps[1].uri] = aid
   let state = parseJmapState("s" & $rng.rand(0 .. 9999)).get()
   let downloadUrl = parseUriTemplate(
       "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}"
@@ -1871,6 +1871,16 @@ proc genDynamicHeaders(rng: var Rand): DynamicHeadersGen =
     reqHeadersAll[key] = vals
   DynamicHeadersGen(requestedHeaders: reqHeaders, requestedHeadersAll: reqHeadersAll)
 
+proc promoteHeaders[K, V](tbl: Table[K, V]): Opt[Table[K, V]] =
+  ## Mirrors serde ``promoteRequestedHeaders``: an empty dynamic-header table
+  ## means "not requested" (``Opt.none``); a populated one is ``Opt.some``.
+  ## Keeps a generated Email round-tripping through toJson/fromJson, since an
+  ## empty table serialises to wire absence and parses back as ``Opt.none``.
+  if tbl.len == 0:
+    Opt.none(Table[K, V])
+  else:
+    Opt.some(tbl)
+
 # -- Domain type generators --
 
 proc genEmailComparator*(rng: var Rand): EmailComparator =
@@ -2065,9 +2075,9 @@ proc genEmail*(rng: var Rand): Email =
     replyTo: ch.replyTo,
     subject: ch.subject,
     sentAt: ch.sentAt,
-    headers: rawHeaders,
-    requestedHeaders: dh.requestedHeaders,
-    requestedHeadersAll: dh.requestedHeadersAll,
+    headers: Opt.some(rawHeaders),
+    requestedHeaders: promoteHeaders(dh.requestedHeaders),
+    requestedHeadersAll: promoteHeaders(dh.requestedHeadersAll),
     bodyStructure: Opt.some(bf.bodyStructure),
     bodyValues: bf.bodyValues,
     textBody: bf.textBody,
@@ -2102,9 +2112,9 @@ proc genParsedEmail*(rng: var Rand): ParsedEmail =
     replyTo: ch.replyTo,
     subject: ch.subject,
     sentAt: ch.sentAt,
-    headers: rawHeaders,
-    requestedHeaders: dh.requestedHeaders,
-    requestedHeadersAll: dh.requestedHeadersAll,
+    headers: Opt.some(rawHeaders),
+    requestedHeaders: promoteHeaders(dh.requestedHeaders),
+    requestedHeadersAll: promoteHeaders(dh.requestedHeadersAll),
     bodyStructure: Opt.some(bf.bodyStructure),
     bodyValues: bf.bodyValues,
     textBody: bf.textBody,

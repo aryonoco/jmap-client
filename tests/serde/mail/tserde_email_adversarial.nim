@@ -46,7 +46,8 @@ testCase twoPhaseFromCoexist: # scenario 91
   let e = res.get()
   assertSome e.fromAddr
   assertEq e.fromAddr.get()[0].email, "alice@test.com"
-  assertEq e.requestedHeaders.len, 1
+  assertSome e.requestedHeaders
+  assertEq e.requestedHeaders.unsafeGet.len, 1
 
 testCase twoPhaseStress100Headers: # scenario 92
   ## 100 dynamic header keys all routed via Phase 2 iteration.
@@ -55,7 +56,8 @@ testCase twoPhaseStress100Headers: # scenario 92
     j["header:X-Custom-" & $i & ":asText"] = %("value" & $i)
   let res = emailFromJson(j)
   assertOk res
-  assertEq res.get().requestedHeaders.len, 100
+  assertSome res.get().requestedHeaders
+  assertEq res.get().requestedHeaders.unsafeGet.len, 100
 
 # =============================================================================
 # B. Dynamic Header Injection (scenarios 93–96)
@@ -291,7 +293,8 @@ testCase cyrillicHomoglyphHeader: # scenario 116
   j["header:Subject:asText"] = %"real"
   let res = emailFromJson(j)
   assertOk res
-  assertEq res.get().requestedHeaders.len, 1
+  assertSome res.get().requestedHeaders
+  assertEq res.get().requestedHeaders.unsafeGet.len, 1
 
 testCase maxUnsignedIntSize: # scenario 117
   ## size = 2^53-1 (max safe JSON integer) — parses successfully.
@@ -314,7 +317,8 @@ testCase sameHeaderDifferentForms: # scenario 118
   j["header:From:asAddresses"] = %*[{"name": "Alice", "email": "alice@test.com"}]
   let res = emailFromJson(j)
   assertOk res
-  assertEq res.get().requestedHeaders.len, 2
+  assertSome res.get().requestedHeaders
+  assertEq res.get().requestedHeaders.unsafeGet.len, 2
 
 testCase bodyValueAllFlagsTrue: # scenario 119
   ## isTruncated=true and isEncodingProblem=true are not mutually exclusive.

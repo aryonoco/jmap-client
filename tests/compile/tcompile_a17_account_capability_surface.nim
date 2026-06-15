@@ -18,7 +18,6 @@ static:
   doAssert declared(apOwnedReadOnly)
   doAssert declared(apShared)
   doAssert declared(apSharedReadOnly)
-  doAssert declared(WriteImplyingAccountCapabilities)
 
   # ---- Account convenience accessors ----
   doAssert compiles(default(Account).mailCapability())
@@ -34,22 +33,31 @@ static:
   doAssert compiles(asRawData(default(ServerCapability)))
   doAssert compiles(asCoreCapabilities(default(ServerCapability)))
 
-  # ---- Sealed Pattern-A: external raw construction must be rejected ----
-  doAssert not compiles(CoreCapabilities(rawMaxSizeUpload: default(UnsignedInt)))
-  doAssert not compiles(
-    ServerCapability(rawUri: "x", kind: ckCore, rawCore: default(CoreCapabilities))
+  # ---- S2 read model: capability records expose direct public fields ----
+  # The pass-through accessors and the private ``raw*`` fields are gone; each
+  # numeric limit is a validated ``UnsignedInt`` distinct, so direct
+  # construction cannot forge an illegal value (RFC 8620 §2). Reads land on
+  # the field, not an accessor call.
+  doAssert compiles(default(CoreCapabilities).maxSizeUpload)
+  doAssert compiles(default(ServerCapability).uri)
+  doAssert compiles(default(AccountCapabilityEntry).uri)
+  doAssert compiles(default(MailAccountCapabilities).maxMailboxesPerEmail)
+  doAssert compiles(default(SubmissionAccountCapabilities).maxDelayedSend)
+  doAssert compiles(default(Account).name)
+  doAssert compiles(default(Account).policy)
+  doAssert compiles(default(Account).accountCapabilities)
+
+  # Direct public-field construction now compiles — the former sealed
+  # Pattern-A seal was removed under S2 read-model uniformity.
+  doAssert compiles(CoreCapabilities(maxSizeUpload: default(UnsignedInt)))
+  doAssert compiles(
+    ServerCapability(uri: "x", kind: ckCore, core: default(CoreCapabilities))
   )
-  doAssert not compiles(
+  doAssert compiles(
     AccountCapabilityEntry(
-      rawUri: "x", kind: ckMail, rawMail: default(MailAccountCapabilities)
+      uri: "x", kind: ckMail, mail: default(MailAccountCapabilities)
     )
   )
-  doAssert not compiles(
-    Account(rawName: "x", rawPolicy: apOwned, rawAccountCapabilities: @[])
-  )
-  doAssert not compiles(
-    MailAccountCapabilities(rawMaxMailboxesPerEmail: Opt.none(UnsignedInt))
-  )
-  doAssert not compiles(
-    SubmissionAccountCapabilities(rawMaxDelayedSend: default(UnsignedInt))
+  doAssert compiles(
+    Account(name: default(DisplayName), policy: apOwned, accountCapabilities: @[])
   )

@@ -484,13 +484,22 @@ type Email* {.ruleOff: "objects".} = object
   sentAt*: Opt[Date] ## header:Date:asDate
 
   # -- Raw headers (section 4.1.3) --
-  headers*: seq[EmailHeader] ## All header fields in message order; @[] if absent.
+  headers*: Opt[seq[EmailHeader]]
+    ## All header fields in message order (RFC 8621 §4.1.3). NOT a default
+    ## ``Email/get`` property (§4.2): returned only on explicit request, so
+    ## ``Opt.none`` means "not fetched" — distinct from ``Opt.some(@[])``
+    ## ("fetched, message has no headers"). Mirrors the ``bodyStructure``
+    ## precedent below.
 
   # -- Dynamic header properties (section 4.1.3) --
-  requestedHeaders*: Table[HeaderPropertyKey, HeaderValue]
+  requestedHeaders*: Opt[Table[HeaderPropertyKey, HeaderValue]]
     ## Parsed headers requested via ``header:Name:asForm`` (last instance).
-  requestedHeadersAll*: Table[HeaderPropertyKey, seq[HeaderValue]]
+    ## A low-level §4.1.3 property, never a default fetch (§4.2): ``Opt.none``
+    ## means "not requested", not "no matching headers".
+  requestedHeadersAll*: Opt[Table[HeaderPropertyKey, seq[HeaderValue]]]
     ## Parsed headers requested via ``header:Name:asForm:all`` (all instances).
+    ## A low-level §4.1.3 property, never a default fetch (§4.2): ``Opt.none``
+    ## means "not requested", not "no matching headers".
 
   # -- Body (section 4.1.4) --
   bodyStructure*: Opt[EmailBodyPart]
@@ -600,13 +609,22 @@ type ParsedEmail* {.ruleOff: "objects".} = object
   sentAt*: Opt[Date] ## header:Date:asDate
 
   # -- Raw headers --
-  headers*: seq[EmailHeader] ## All header fields in message order; @[] if absent.
+  headers*: Opt[seq[EmailHeader]]
+    ## All header fields in message order (RFC 8621 §4.1.3). NOT a default
+    ## ``Email/parse`` property (§4.2): returned only on explicit request, so
+    ## ``Opt.none`` means "not fetched" — distinct from ``Opt.some(@[])``
+    ## ("fetched, message has no headers"). Mirrors the ``bodyStructure``
+    ## precedent below.
 
   # -- Dynamic header properties --
-  requestedHeaders*: Table[HeaderPropertyKey, HeaderValue]
+  requestedHeaders*: Opt[Table[HeaderPropertyKey, HeaderValue]]
     ## Parsed headers requested via ``header:Name:asForm`` (last instance).
-  requestedHeadersAll*: Table[HeaderPropertyKey, seq[HeaderValue]]
+    ## A low-level §4.1.3 property, never a default fetch (§4.2): ``Opt.none``
+    ## means "not requested", not "no matching headers".
+  requestedHeadersAll*: Opt[Table[HeaderPropertyKey, seq[HeaderValue]]]
     ## Parsed headers requested via ``header:Name:asForm:all`` (all instances).
+    ## A low-level §4.1.3 property, never a default fetch (§4.2): ``Opt.none``
+    ## means "not requested", not "no matching headers".
 
   # -- Body --
   bodyStructure*: Opt[EmailBodyPart]

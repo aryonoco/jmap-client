@@ -36,10 +36,10 @@ testCase sessionDeserGoldenRfcAndRoundTrip:
   let s = Session.fromJson(j).get()
   # Verify all 8 expected parsed values per section 13.1
   assertEq s.capabilities.len, 4
-  assertEq s.coreCapabilities().maxSizeUpload.toInt64, 50000000'i64
+  assertEq s.core.maxSizeUpload.toInt64, 50000000'i64
   # D2.6: singular maxConcurrentRequest parsed into plural field
-  assertEq s.coreCapabilities().maxConcurrentRequests.toInt64, 8'i64
-  assertEq s.coreCapabilities().collationAlgorithms.len, 3
+  assertEq s.core.maxConcurrentRequests.toInt64, 8'i64
+  assertEq s.core.collationAlgorithms.len, 3
   assertEq s.accounts.len, 2
   doAssert s.accounts[parseAccountId("A13824").get()].isPersonal
   assertEq s.primaryAccounts["urn:ietf:params:jmap:mail"],

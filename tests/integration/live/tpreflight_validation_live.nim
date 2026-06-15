@@ -37,7 +37,7 @@ testCase tpreflightValidationLive:
       )
       .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
-    let caps = session.coreCapabilities()
+    let caps = session.core
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 

@@ -24,7 +24,7 @@ testCase tcapturedSession:
 
     doAssert s.capabilities.len >= 4,
       "configured targets advertise >=4 capabilities (got " & $s.capabilities.len & ")"
-    let core = s.coreCapabilities()
+    let core = s.core
     # ``maxSizeUpload`` may be 0 to signal "no enforced limit" — Cyrus
     # 3.12.2 reports 0; Stalwart and James both advertise non-zero
     # caps. UnsignedInt is non-negative by construction, so the parse

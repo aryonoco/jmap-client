@@ -83,8 +83,10 @@ testCase fromJsonDynamicHeader: # scenario 8
   let res = emailFromJson(j)
   assertOk res
   let e = res.get()
-  assertEq e.requestedHeaders.len, 1
-  for key, val in e.requestedHeaders:
+  assertSome e.requestedHeaders
+  let reqHeaders = e.requestedHeaders.unsafeGet
+  assertEq reqHeaders.len, 1
+  for key, val in reqHeaders:
     assertEq key.name, "subject"
     assertEq key.form, hfText
     doAssert not key.isAll, "must not be :all"
@@ -95,8 +97,10 @@ testCase fromJsonDynamicHeaderAll: # scenario 9
   let res = emailFromJson(j)
   assertOk res
   let e = res.get()
-  assertEq e.requestedHeadersAll.len, 1
-  for key, vals in e.requestedHeadersAll:
+  assertSome e.requestedHeadersAll
+  let reqHeadersAll = e.requestedHeadersAll.unsafeGet
+  assertEq reqHeadersAll.len, 1
+  for key, vals in reqHeadersAll:
     assertEq key.name, "from"
     assertEq key.form, hfAddresses
     doAssert key.isAll, "must be :all"
@@ -108,8 +112,10 @@ testCase fromJsonBothDynamicHeaders: # scenario 10
   let res = emailFromJson(j)
   assertOk res
   let e = res.get()
-  assertEq e.requestedHeaders.len, 1
-  assertEq e.requestedHeadersAll.len, 1
+  assertSome e.requestedHeaders
+  assertSome e.requestedHeadersAll
+  assertEq e.requestedHeaders.unsafeGet.len, 1
+  assertEq e.requestedHeadersAll.unsafeGet.len, 1
 
 testCase fromJsonUnknownKeyIgnored: # scenario 11
   var j = makeEmailJson()
@@ -287,7 +293,9 @@ testCase toJsonRequestedHeaders: # scenario 20
   var e = makeEmail()
   let hpk = parseHeaderPropertyName("header:Subject:asText").get()
   let hv = HeaderValue(form: hfText, textValue: "Test Subject")
-  e.requestedHeaders[hpk] = hv
+  var headerTable = initTable[HeaderPropertyKey, HeaderValue]()
+  headerTable[hpk] = hv
+  e.requestedHeaders = Opt.some(headerTable)
   let node = e.toJson()
   doAssert node{"header:subject:asText"} != nil,
     "dynamic header key must appear as top-level key"
@@ -298,7 +306,9 @@ testCase toJsonRequestedHeadersAll: # scenario 21
   let hv = HeaderValue(
     form: hfAddresses, addresses: @[EmailAddress(name: Opt.none(string), email: "a@b")]
   )
-  e.requestedHeadersAll[hpk] = @[hv]
+  var headerTableAll = initTable[HeaderPropertyKey, seq[HeaderValue]]()
+  headerTableAll[hpk] = @[hv]
+  e.requestedHeadersAll = Opt.some(headerTableAll)
   let node = e.toJson()
   doAssert node{"header:from:asAddresses:all"} != nil,
     "dynamic :all header key must appear"
@@ -356,8 +366,10 @@ testCase parsedEmailDynamicHeaders: # scenario 28
   let res = parsedEmailFromJson(j)
   assertOk res
   let pe = res.get()
-  assertEq pe.requestedHeaders.len, 1
-  assertEq pe.requestedHeadersAll.len, 1
+  assertSome pe.requestedHeaders
+  assertSome pe.requestedHeadersAll
+  assertEq pe.requestedHeaders.unsafeGet.len, 1
+  assertEq pe.requestedHeadersAll.unsafeGet.len, 1
 
 testCase parsedEmailThreadIdWrongType: # scenario 29
   var j = makeParsedEmailJson()

@@ -73,11 +73,16 @@ testCase sharedHelperParity: # scenario 132
   # Raw headers
   doAssert e.headers == pe.headers, "raw headers mismatch"
 
-  # Dynamic headers
-  doAssert headerTableEq(e.requestedHeaders, pe.requestedHeaders),
+  # Dynamic headers — both sides parse from the same JSON, so presence agrees
+  assertSome e.requestedHeaders
+  assertSome pe.requestedHeaders
+  doAssert headerTableEq(e.requestedHeaders.unsafeGet, pe.requestedHeaders.unsafeGet),
     "requestedHeaders mismatch"
-  doAssert headerTableAllEq(e.requestedHeadersAll, pe.requestedHeadersAll),
-    "requestedHeadersAll mismatch"
+  assertSome e.requestedHeadersAll
+  assertSome pe.requestedHeadersAll
+  doAssert headerTableAllEq(
+    e.requestedHeadersAll.unsafeGet, pe.requestedHeadersAll.unsafeGet
+  ), "requestedHeadersAll mismatch"
 
   # Body fields — both ``bodyStructure`` are ``Opt[EmailBodyPart]``;
   # the shared-helper parity test fixtures always set them.
@@ -117,21 +122,24 @@ testCase emailRoundTripWithDynamicHeaders: # scenario 133
   e.messageId = Opt.some(@["msg-rt@test.com"])
 
   # Populate requestedHeaders with two entries
+  var reqHeaders = initTable[HeaderPropertyKey, HeaderValue]()
   let hpkText = parseHeaderPropertyName("header:X-Custom:asText").get()
-  e.requestedHeaders[hpkText] =
-    HeaderValue(form: hfText, textValue: "custom text value")
+  reqHeaders[hpkText] = HeaderValue(form: hfText, textValue: "custom text value")
   let hpkAddr = parseHeaderPropertyName("header:X-Sender:asAddresses").get()
-  e.requestedHeaders[hpkAddr] = HeaderValue(
+  reqHeaders[hpkAddr] = HeaderValue(
     form: hfAddresses,
     addresses: @[EmailAddress(name: Opt.none(string), email: "bob@test.com")],
   )
+  e.requestedHeaders = Opt.some(reqHeaders)
 
   # Populate requestedHeadersAll with one entry
+  var reqHeadersAll = initTable[HeaderPropertyKey, seq[HeaderValue]]()
   let hpkAll = parseHeaderPropertyName("header:X-Trace:asText:all").get()
-  e.requestedHeadersAll[hpkAll] = @[
+  reqHeadersAll[hpkAll] = @[
     HeaderValue(form: hfText, textValue: "trace-1"),
     HeaderValue(form: hfText, textValue: "trace-2"),
   ]
+  e.requestedHeadersAll = Opt.some(reqHeadersAll)
 
   # Round-trip
   let roundTripped = emailFromJson(e.toJson())
@@ -152,8 +160,10 @@ testCase dynamicHeaderPhase2RoundTrip: # scenario 134
   let res = emailFromJson(j)
   assertOk res
   let e = res.get()
-  assertEq e.requestedHeaders.len, 1
-  assertEq e.requestedHeadersAll.len, 1
+  assertSome e.requestedHeaders
+  assertSome e.requestedHeadersAll
+  assertEq e.requestedHeaders.unsafeGet.len, 1
+  assertEq e.requestedHeadersAll.unsafeGet.len, 1
 
   # Re-serialise and verify keys are lowercase-normalised
   let serialised = e.toJson()

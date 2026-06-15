@@ -230,14 +230,20 @@ func parseConvenienceHeaders(
 
 func parseRawHeaders(
     node: JsonNode, path: JsonPath
-): Result[seq[EmailHeader], SerdeViolation] =
-  ## Extracts the headers field (seq[EmailHeader]). Absent key yields empty seq.
-  var hdrs: seq[EmailHeader] = @[]
+): Result[Opt[seq[EmailHeader]], SerdeViolation] =
+  ## Extracts the optional ``headers`` field (``seq[EmailHeader]``). Absent or
+  ## null yields ``Opt.none``: ``headers`` is not a default property (RFC 8621
+  ## §4.2), so its absence means "not fetched", not "message has no headers".
+  ## A present array yields ``Opt.some`` (possibly an empty seq). Mirrors the
+  ## optional-array helpers above (``parseOptStringSeq``).
   let headersNode = node{"headers"}
-  if not headersNode.isNil and headersNode.kind == JArray:
-    for i, elem in headersNode.getElems(@[]):
-      hdrs.add(?EmailHeader.fromJson(elem, path / "headers" / i))
-  return ok(hdrs)
+  if headersNode.isNil or headersNode.kind == JNull:
+    return ok(Opt.none(seq[EmailHeader]))
+  ?expectKind(headersNode, JArray, path / "headers")
+  var hdrs: seq[EmailHeader] = @[]
+  for i, elem in headersNode.getElems(@[]):
+    hdrs.add(?EmailHeader.fromJson(elem, path / "headers" / i))
+  return ok(Opt.some(hdrs))
 
 func parseBodyValues(
     node: JsonNode, path: JsonPath
@@ -321,6 +327,16 @@ func parseHeaderValueArray(
     values.add(?parseHeaderValue(form, elem, path / i))
   return ok(values)
 
+func promoteRequestedHeaders[K, V](tbl: Table[K, V]): Opt[Table[K, V]] =
+  ## Promotes a dynamic-header accumulator to ``Opt``: an empty table means
+  ## no ``header:`` property was requested (``Opt.none``); a populated table
+  ## carries the parsed values (``Opt.some``). Lets ``Opt.none`` distinguish
+  ## "not requested" from "requested but server matched nothing" (§4.1.3).
+  if tbl.len == 0:
+    Opt.none(Table[K, V])
+  else:
+    Opt.some(tbl)
+
 # =============================================================================
 # emailFromJson
 # =============================================================================
@@ -366,6 +382,8 @@ func emailFromJson*(
         reqHeadersAll[hpk] = ?parseHeaderValueArray(val, hpk.form, path / key)
       else:
         reqHeaders[hpk] = ?parseHeaderValue(hpk.form, val, path / key)
+  let requestedHeaders = promoteRequestedHeaders(reqHeaders)
+  let requestedHeadersAll = promoteRequestedHeaders(reqHeadersAll)
 
   return ok(
     Email(
@@ -388,8 +406,8 @@ func emailFromJson*(
       subject: convHeaders.subject,
       sentAt: convHeaders.sentAt,
       headers: hdrs,
-      requestedHeaders: reqHeaders,
-      requestedHeadersAll: reqHeadersAll,
+      requestedHeaders: requestedHeaders,
+      requestedHeadersAll: requestedHeadersAll,
       bodyStructure: bf.bodyStructure,
       bodyValues: bf.bodyValues,
       textBody: bf.textBody,
@@ -633,6 +651,8 @@ func parsedEmailFromJson*(
         reqHeadersAll[hpk] = ?parseHeaderValueArray(val, hpk.form, path / key)
       else:
         reqHeaders[hpk] = ?parseHeaderValue(hpk.form, val, path / key)
+  let requestedHeaders = promoteRequestedHeaders(reqHeaders)
+  let requestedHeadersAll = promoteRequestedHeaders(reqHeadersAll)
 
   return ok(
     ParsedEmail(
@@ -649,8 +669,8 @@ func parsedEmailFromJson*(
       subject: convHeaders.subject,
       sentAt: convHeaders.sentAt,
       headers: hdrs,
-      requestedHeaders: reqHeaders,
-      requestedHeadersAll: reqHeadersAll,
+      requestedHeaders: requestedHeaders,
+      requestedHeadersAll: requestedHeadersAll,
       bodyStructure: bf.bodyStructure,
       bodyValues: bf.bodyValues,
       textBody: bf.textBody,
@@ -687,13 +707,46 @@ func emitOptAddressesOrNull(
   else:
     node[key] = newJNull()
 
+func emitRawHeaders(node: JsonNode, headers: Opt[seq[EmailHeader]]) =
+  ## Emit the §4.1.3 ``headers`` array, shared by ``Email.toJson`` and
+  ## ``ParsedEmail.toJson``. A non-default property (§4.2): ``Opt.none`` (not
+  ## fetched) emits nothing, so an unfetched Email round-trips to wire absence
+  ## rather than to a value the server never sent.
+  for hdrs in headers:
+    var arr = newJArray()
+    for eh in hdrs:
+      arr.add(eh.toJson())
+    node["headers"] = arr
+
+func emitDynamicHeaders(
+    node: JsonNode,
+    requestedHeaders: Opt[Table[HeaderPropertyKey, HeaderValue]],
+    requestedHeadersAll: Opt[Table[HeaderPropertyKey, seq[HeaderValue]]],
+) =
+  ## Emit the §4.1.3 dynamic header properties as N top-level keys, shared by
+  ## ``Email.toJson`` and ``ParsedEmail.toJson``. Non-default properties (§4.2):
+  ## ``Opt.none`` (not requested) emits nothing.
+  for tbl in requestedHeaders:
+    for hpk, val in tbl:
+      node[hpk.toPropertyString()] = val.toJson()
+  for tbl in requestedHeadersAll:
+    for hpk, vals in tbl:
+      var arr = newJArray()
+      for v in vals:
+        arr.add(v.toJson())
+      node[hpk.toPropertyString()] = arr
+
 # =============================================================================
 # Email.toJson
 # =============================================================================
 
 func toJson*(e: Email): JsonNode =
-  ## Serialise Email to JSON. Emits all domain fields always (D5).
+  ## Serialise Email to JSON. Emits all domain fields always (D5):
   ## ``Opt.none`` emits null, empty seq emits ``[]``, empty Table emits ``{}``.
+  ## The §4.1.3 raw-header fields (``headers``, ``requestedHeaders``,
+  ## ``requestedHeadersAll``) are the exception — being non-default properties
+  ## (§4.2), ``Opt.none`` omits the key entirely so an unfetched Email
+  ## round-trips to wire absence, not to a value the server never sent.
   ## Dynamic headers emitted as N top-level keys.
   ## ``fromAddr`` emits as ``"from"`` JSON key.
   var node = newJObject()
@@ -720,11 +773,9 @@ func toJson*(e: Email): JsonNode =
   node["subject"] = e.subject.optStringToJsonOrNull()
   node["sentAt"] = e.sentAt.optToJsonOrNull()
 
-  # Raw headers
-  var headersArr = newJArray()
-  for eh in e.headers:
-    headersArr.add(eh.toJson())
-  node["headers"] = headersArr
+  # Raw headers — omitted entirely when not fetched (Opt.none); §4.1.3 is not
+  # a default property (§4.2), so absence on the wire means "not fetched".
+  emitRawHeaders(node, e.headers)
 
   # Body
   node["bodyStructure"] = e.bodyStructure.optToJsonOrNull()
@@ -747,14 +798,8 @@ func toJson*(e: Email): JsonNode =
   node["hasAttachment"] = %e.hasAttachment
   node["preview"] = %e.preview
 
-  # Dynamic headers: N top-level keys
-  for hpk, val in e.requestedHeaders:
-    node[hpk.toPropertyString()] = val.toJson()
-  for hpk, vals in e.requestedHeadersAll:
-    var arr = newJArray()
-    for v in vals:
-      arr.add(v.toJson())
-    node[hpk.toPropertyString()] = arr
+  # Dynamic headers: N top-level keys; Opt.none (not requested) emits nothing.
+  emitDynamicHeaders(node, e.requestedHeaders, e.requestedHeadersAll)
 
   return node
 
@@ -783,11 +828,9 @@ func toJson*(pe: ParsedEmail): JsonNode =
   node["subject"] = pe.subject.optStringToJsonOrNull()
   node["sentAt"] = pe.sentAt.optToJsonOrNull()
 
-  # Raw headers
-  var headersArr = newJArray()
-  for eh in pe.headers:
-    headersArr.add(eh.toJson())
-  node["headers"] = headersArr
+  # Raw headers — omitted entirely when not fetched (Opt.none); §4.1.3 is not
+  # a default property (§4.2), so absence on the wire means "not fetched".
+  emitRawHeaders(node, pe.headers)
 
   # Body
   node["bodyStructure"] = pe.bodyStructure.optToJsonOrNull()
@@ -810,14 +853,8 @@ func toJson*(pe: ParsedEmail): JsonNode =
   node["hasAttachment"] = %pe.hasAttachment
   node["preview"] = %pe.preview
 
-  # Dynamic headers: N top-level keys
-  for hpk, val in pe.requestedHeaders:
-    node[hpk.toPropertyString()] = val.toJson()
-  for hpk, vals in pe.requestedHeadersAll:
-    var arr = newJArray()
-    for v in vals:
-      arr.add(v.toJson())
-    node[hpk.toPropertyString()] = arr
+  # Dynamic headers: N top-level keys; Opt.none (not requested) emits nothing.
+  emitDynamicHeaders(node, pe.requestedHeaders, pe.requestedHeadersAll)
 
   return node
 

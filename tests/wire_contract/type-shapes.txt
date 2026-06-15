@@ -6,11 +6,17 @@
 # tests/lint/h17_type_shape_snapshot.nim so any drift is deliberate.
 # Regenerate with: just freeze-type-shapes
 ## Account [jmap_client/internal/types/session]
+  name*: DisplayName
+  policy*: AccountPolicy
+  accountCapabilities*: seq[AccountCapabilityEntry]
 
 ## AccountCapabilityEntry [jmap_client/internal/types/account_capability_schemas]
+  uri*: string
   case kind*: CapabilityKind
   of ckMail:
+    mail*: MailAccountCapabilities
   of ckSubmission:
+    submission*: SubmissionAccountCapabilities
   of ckVacationResponse:
   of ckCore:
   of ckWebsocket:
@@ -32,6 +38,7 @@
   apSharedReadOnly
 
 ## AddedItem [jmap_client/internal/types/framework]
+  id*: Id
   index*: UnsignedInt
 
 ## AnyEmailSubmission [jmap_client/internal/mail/email_submission]
@@ -39,6 +46,8 @@
   of usPending:
   of usFinal:
   of usCanceled:
+
+## ApiUrl [jmap_client/internal/types/session]
 
 ## AuthScheme [jmap_client/internal/types/credential]
   asBearer = "Bearer"
@@ -185,6 +194,7 @@
   caOther
 
 ## Comparator [jmap_client/internal/types/framework]
+  property*: PropertyName
   direction*: SortDirection
   collation*: Opt[CollationAlgorithm]
 
@@ -232,6 +242,14 @@
   createResults*: Table[CreationId, Result[T, SetError]]
 
 ## CoreCapabilities [jmap_client/internal/types/capabilities]
+  maxSizeUpload*: UnsignedInt
+  maxConcurrentUpload*: UnsignedInt
+  maxSizeRequest*: UnsignedInt
+  maxConcurrentRequests*: UnsignedInt
+  maxCallsInRequest*: UnsignedInt
+  maxObjectsInGet*: UnsignedInt
+  maxObjectsInSet*: UnsignedInt
+  collationAlgorithms*: HashSet[CollationAlgorithm]
 
 ## CreationId [jmap_client/internal/types/identifiers]
 
@@ -274,6 +292,8 @@
 
 ## DispatchedResponse [jmap_client/internal/protocol/dispatch]
 
+## DisplayName [jmap_client/internal/types/session]
+
 ## DisplayedState [jmap_client/internal/mail/submission_status]
   dpUnknown = "unknown"
   dpYes = "yes"
@@ -308,9 +328,9 @@
   replyTo*: Opt[seq[EmailAddress]]
   subject*: Opt[string]
   sentAt*: Opt[Date]
-  headers*: seq[EmailHeader]
-  requestedHeaders*: Table[HeaderPropertyKey, HeaderValue]
-  requestedHeadersAll*: Table[HeaderPropertyKey, seq[HeaderValue]]
+  headers*: Opt[seq[EmailHeader]]
+  requestedHeaders*: Opt[Table[HeaderPropertyKey, HeaderValue]]
+  requestedHeadersAll*: Opt[Table[HeaderPropertyKey, seq[HeaderValue]]]
   bodyStructure*: Opt[EmailBodyPart]
   bodyValues*: Table[PartId, EmailBodyValue]
   textBody*: seq[EmailBodyPart]
@@ -836,6 +856,12 @@
   kspSomeInThreadHaveKeyword = "someInThreadHaveKeyword"
 
 ## MailAccountCapabilities [jmap_client/internal/types/account_capability_schemas]
+  maxMailboxesPerEmail*: Opt[UnsignedInt]
+  maxMailboxDepth*: Opt[UnsignedInt]
+  maxSizeMailboxName*: Opt[UnsignedInt]
+  maxSizeAttachmentsPerEmail*: UnsignedInt
+  emailQuerySortOptions*: HashSet[string]
+  mayCreateTopLevelMailbox*: bool
 
 ## Mailbox [jmap_client/internal/mail/mailbox]
   id*: Id
@@ -1058,7 +1084,7 @@
 
 ## NonEmptyEmailUpdates [jmap_client/internal/mail/email_update]
 
-## NonEmptyIdSeq [jmap_client/internal/mail/email_submission]
+## NonEmptyIdSeq [jmap_client/internal/types/primitives]
 
 ## NonEmptyIdentityUpdates [jmap_client/internal/mail/identity]
 
@@ -1102,9 +1128,9 @@
   replyTo*: Opt[seq[EmailAddress]]
   subject*: Opt[string]
   sentAt*: Opt[Date]
-  headers*: seq[EmailHeader]
-  requestedHeaders*: Table[HeaderPropertyKey, HeaderValue]
-  requestedHeadersAll*: Table[HeaderPropertyKey, seq[HeaderValue]]
+  headers*: Opt[seq[EmailHeader]]
+  requestedHeaders*: Opt[Table[HeaderPropertyKey, HeaderValue]]
+  requestedHeadersAll*: Opt[Table[HeaderPropertyKey, seq[HeaderValue]]]
   bodyStructure*: Opt[EmailBodyPart]
   bodyValues*: Table[PartId, EmailBodyValue]
   textBody*: seq[EmailBodyPart]
@@ -1187,6 +1213,8 @@
   isSubscribed*: Opt[bool]
 
 ## PartialThread [jmap_client/internal/mail/thread]
+  id*: Opt[Id]
+  emailIds*: Opt[seq[Id]]
 
 ## PartialVacationResponse [jmap_client/internal/mail/vacation]
   isEnabled*: Opt[bool]
@@ -1319,8 +1347,10 @@
   proc (req: HttpRequest): Result[HttpResponse, TransportError] {.closure, raises: [].}
 
 ## ServerCapability [jmap_client/internal/types/capabilities]
+  uri*: string
   case kind*: CapabilityKind
   of ckCore:
+    core*: CoreCapabilities
   of ckMail:
   of ckSubmission:
   of ckVacationResponse:
@@ -1335,6 +1365,16 @@
   of ckUnknown:
 
 ## Session [jmap_client/internal/types/session]
+  core*: CoreCapabilities
+  additional*: seq[ServerCapability]
+  accounts*: Table[AccountId, Account]
+  primaryAccounts*: Table[string, AccountId]
+  username*: string
+  apiUrl*: ApiUrl
+  downloadUrl*: UriTemplate
+  uploadUrl*: UriTemplate
+  eventSourceUrl*: UriTemplate
+  state*: JmapState
 
 ## SessionEndpoint [jmap_client/internal/types/session_endpoint]
   case rawKind: SessionEndpointKind
@@ -1428,6 +1468,8 @@
 ## SubjectCode [jmap_client/internal/mail/submission_status]
 
 ## SubmissionAccountCapabilities [jmap_client/internal/types/account_capability_schemas]
+  maxDelayedSend*: UnsignedInt
+  submissionExtensions*: SubmissionExtensionMap
 
 ## SubmissionAddress [jmap_client/internal/mail/submission_envelope]
   mailbox*: RFC5321Mailbox
@@ -1478,6 +1520,8 @@
   sfNotSubscribed
 
 ## Thread [jmap_client/internal/mail/thread]
+  id*: Id
+  emailIds*: NonEmptyIdSeq
 
 ## ThreadGetProperty [jmap_client/internal/mail/thread]
   case rawKind: ThreadGetPropertyKind

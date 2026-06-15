@@ -100,7 +100,13 @@ be empty. Then the read side splits its optionality model:
 accessor on the hub** — so every consumer writes the same `fieldEchoOr`
 three-state matcher. The echo is principled (it distinguishes "server
 omitted" from "server sent null"), but shipping it without a reader pushes
-that principle onto every call site. Net: the power is real and safe; the
+that principle onto every call site. **S2 update.** The hub now ships that
+reader — `valueOr` (a template mirroring `Opt.valueOr`),
+`isValue`/`isNull`/`isAbsent`, an `items` iterator and `toOpt` — so `subject`
+reads `pe.subject.valueOr("(no subject)")`, identical to a plain-`Opt` read,
+and the CLI deleted its hand-written `fieldEchoOr`. Both types are kept (the
+echo's absent-vs-null bit is genuine RFC 8620 §5.3 fidelity), but the
+principle is no longer taxed at the call site. Net: the power is real and safe; the
 on-ramp is a sequence of small sealing ceremonies that a thin combinator
 layer (a query-then-get helper, a `fieldEchoOr`, a limit shorthand) would
 smooth without losing any safety.
@@ -131,8 +137,11 @@ also flips the result type to `PartialEmail`), whose `subject` is a plain
 `Opt[string]` and `preview` a bare `string`. That is *easier* than the
 partial get — and that is itself the surprise: the same `subject` field is
 `FieldEcho` on `PartialEmail` and `Opt` on `Email`, so switching between
-the two gets silently changes the read idiom with no call-site cue. The
-body itself is the bigger ask. RFC 8621 separates body *structure*
+the two gets silently changes the read idiom with no call-site cue. **S2
+update.** The read idiom is now uniform — `valueOr` reads both — so switching
+gets no longer changes the call shape; the two types still differ, but by
+design (the `FieldEcho` keeps the §5.3 absent-vs-null bit a plain `Opt` would
+discard). The body itself is the bigger ask. RFC 8621 separates body *structure*
 (`textBody`) from body *values* (`bodyValues`, keyed by `partId`), and the
 API faithfully mirrors that — correct, but it means every consumer
 hand-writes a `textBody`-walk that joins against the `bodyValues` table,
@@ -143,7 +152,11 @@ reading a returned field forces `import std/tables`
 (the hub re-exports `results` but not `tables`), and the `isTruncated` /
 `isEncodingProblem` flags on a body value are easy to forget. None of this
 is wrong — it is RFC fidelity — but `email.decodedTextBody()` is the one
-convenience whose absence every mail client will feel immediately.
+convenience whose absence every mail client will feel immediately. **S2
+note.** S2 settled read *shapes*, not new convenience; these body readers —
+`decodedTextBody` / `leafTextParts`, and a `bodyValues` reader that does not
+make the consumer `import std/tables` — are NEW readers, so they are deferred
+to S3, not yet delivered.
 
 **Threads and identities** expose the read-model's *inconsistency*.
 `Identity` is flat and direct — `id`/`name`/`email` are public fields, and
@@ -158,6 +171,24 @@ as an email property, so "show this message's thread" is inherently two
 round-trips. These are small frictions, but their *unevenness* is the
 finding: the API would feel more learnable if its read-models shared one
 access idiom.
+
+**S2 update.** That unevenness is the read-model uniformity sub-project's
+target, and it is resolved. `Thread.id`/`emailIds` are now direct public
+fields (`emailIds` a `NonEmptyIdSeq`, so the "≥1 Email" invariant lives in
+the field type yet reads like a plain seq), and the `lent`-accessor ceremony
+is gone. The rule is now uniform and easy to state: immutable **data**
+records — `Mailbox`, `Identity`, `Thread`, `Account`, `Session`, the
+capability schemas, `Comparator`, `AddedItem` — read by direct public field;
+**accessors are reserved for stateful handles** (the client, the request
+builder). With the `FieldEcho` reader above, the three read shapes a newcomer
+used to meet collapse to one. (`session.coreCapabilities()` is now the field
+`session.core`; the capability case-objects expose a public discriminator plus
+public arms.) The `threadId`-only-as-an-email-property two-round-trip remains —
+but that is a protocol shape, not a read-model one. A separate S2
+RFC-conformance audit also corrected `parseAccount`, which had been dropping a
+read-only account's write-implying capabilities (RFC 8620 §2 requires them
+listed), so `mailCapability()` no longer falsely reports `none` for a
+read-only mail account.
 
 ## Mutating: flags, moves, vacation
 
@@ -298,8 +329,9 @@ the honest answer is *area-dependent*:
   directly.** The entity models are clean, the server-side back-reference
   (`reference[seq[Id]]`) is a genuine highlight that a hand-rolled client
   gets wrong, and the convenience `*ThenGet`/`*ChangesToGet` combinators
-  already smooth the common pairs. A thin `fieldEchoOr` and a bare-get
-  one-shot are the only things a reader writes twice.
+  already smooth the common pairs. The `fieldEchoOr` a reader used to write
+  by hand is now shipped on the hub (S2 — `FieldEcho.valueOr` and friends), so
+  a bare-get one-shot is the only thing a reader still writes twice.
 - **Mutating (flag, move, vacation): reach for it, but write one helper.**
   The DSL verbs (`markRead`, `moveToMailbox`, `setIsEnabled`) are exemplary
   (P18); the triple-seal + accumulating-error envelope around them is the
@@ -345,7 +377,12 @@ rail on single constructions; the two-error-rail split between `send`
 (direct fields vs accessor funcs vs Opt-vs-FieldEcho for the same field).
 A small, blessed convenience layer — `connect`, `sendPlainText`,
 `addEmailUpdate`, `fieldEchoOr`, `decodedTextBody` — would erase the
-friction without touching the principled core.
+friction without touching the principled core. **S2 has since closed the
+read-model half of this:** the `FieldEcho` reader is shipped (`valueOr` and
+friends) and the unevenness is gone — every immutable data record reads by
+direct public field, accessors are reserved for stateful handles — so of the
+wishlist above, `fieldEchoOr` is already delivered, and `decodedTextBody` (a
+new body-walk reader) is deferred to S3.
 
 **The most consequential finding is not ergonomic at all.** The frozen
 `public-api.txt` contract — the thing meant to lock the surface at 1.0

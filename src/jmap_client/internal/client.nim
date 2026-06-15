@@ -393,7 +393,7 @@ proc performSend(
   ## HTTP POST via Transport + response classification + decode.
   ## Pre-flight validation (``validateLimits``) MUST happen in
   ## ``send`` before invoking this.
-  let coreCaps = session.coreCapabilities()
+  let coreCaps = session.core
   let jsonNode = request.toJson()
   let body = $jsonNode
   client.fireDebug(wdSend, body.toOpenArrayByte(0, body.high))
@@ -412,7 +412,7 @@ proc performSend(
       jmapTransport(transportError(tekNetwork, "session URL unresolved before send"))
     )
   let req = HttpRequest(
-    url: resolveAgainstSession(baseUrl, session.apiUrl),
+    url: resolveAgainstSession(baseUrl, $session.apiUrl),
     httpMethod: hmPost,
     body: body,
     authorization: authorizationHeader(client),
@@ -462,7 +462,7 @@ proc send*(client: JmapClient, req: sink BuiltRequest): JmapResult[DispatchedRes
   ## ``=dup`` are ``{.error.}``); double-``send`` of the same ``req`` is
   ## a compile error.
   let session = ?ensureSession(client)
-  let coreCaps = session.coreCapabilities()
+  let coreCaps = session.core
   ?validateLimits(req, coreCaps).lift
   let wire = ?performSend(client, req.request, session)
   ok(initDispatchedResponse(wire, req.builderId))

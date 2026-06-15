@@ -13,15 +13,6 @@ import jmap_client
 import jmap_client/convenience # opt-in; NOT re-exported by `import jmap_client`
 import ./cli_session
 
-func fieldEchoOr[T](fe: FieldEcho[T], fallback: T): T =
-  ## PartialEmail header-derived fields (subject, fromAddr, ...) are
-  ## three-state FieldEcho with NO hub read accessor — only the
-  ## fieldAbsent/fieldNull/fieldValue constructors and the public `value*`
-  ## field on the fekValue arm — so every consumer hand-writes this.
-  case fe.kind
-  of fekValue: fe.value
-  of fekAbsent, fekNull: fallback
-
 proc resolveInbox(ctx: CliContext): JmapResult[Opt[Id]] =
   ## Mailbox/get scanned for the Inbox role. A dispatch fault rides the rail; a
   ## method error is reported here and surfaces as `none` (no Inbox resolvable),
@@ -126,8 +117,11 @@ proc queryInbox(ctx: CliContext, unreadOnly: bool): JmapResult[int] =
             $pe.threadId.get()
           else:
             "-" # Opt[Id]
-        let subject = fieldEchoOr(pe.subject, "(no subject)") # FieldEcho[string]
-        let fromAddrs = fieldEchoOr(pe.fromAddr, @[]) # FieldEcho[seq[EmailAddress]]
+        # FieldEcho fields read through the hub `valueOr` — the same call
+        # shape as the plain-Opt fields below (`preview`), so the consumer no
+        # longer hand-rolls a three-state matcher.
+        let subject = pe.subject.valueOr("(no subject)") # FieldEcho[string]
+        let fromAddrs = pe.fromAddr.valueOr(@[]) # FieldEcho[seq[EmailAddress]]
         let sender =
           if fromAddrs.len > 0:
             fromAddrs[0].name.valueOr(fromAddrs[0].email)

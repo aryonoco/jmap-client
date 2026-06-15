@@ -251,12 +251,10 @@ func subject (bp: EmailBlueprint): Opt[string]
 func to (bp: EmailBlueprint): Opt[seq[EmailAddress]]
 
 ## jmap_client/internal/mail/email_submission
-func $ (a: NonEmptyIdSeq): string
 func $ (p: EmailSubmissionGetProperty): string
 func == (a, b: AnyEmailSubmission): bool
 func == (a, b: EmailSubmissionGetProperty): bool
 func == (a, b: IdOrCreationRef): bool
-func == (a, b: NonEmptyIdSeq): bool
 type AnyEmailSubmission
 type EmailSubmission [S]
 type EmailSubmissionBlueprint
@@ -274,11 +272,9 @@ type EmailSubmissionUpdateVariantKind
 type IdOrCreationRef
 type IdOrCreationRefKind
 type NonEmptyEmailSubmissionUpdates
-type NonEmptyIdSeq
 type NonEmptyOnSuccessDestroyEmail
 type NonEmptyOnSuccessUpdateEmail
 type PartialEmailSubmission
-func [] (a: NonEmptyIdSeq, i: Idx): lent Id
 func asCanceled (s: AnyEmailSubmission): Opt[EmailSubmission[usCanceled]]
 func asCreationRef (x: IdOrCreationRef): Opt[CreationId]
 func asDirectRef (x: IdOrCreationRef): Opt[Id]
@@ -317,27 +313,22 @@ enumfield esspThreadId
 enumfield esuSetUndoStatusToCanceled
 func hash (k: IdOrCreationRef): Hash
 func hash (p: EmailSubmissionGetProperty): Hash
-func head (a: NonEmptyIdSeq): lent Id
 enumfield icrCreation
 enumfield icrDirect
 func identityId (bp: EmailSubmissionBlueprint): Id
-iterator items (a: NonEmptyIdSeq): Id
 func kind (p: EmailSubmissionGetProperty): EmailSubmissionGetPropertyKind
 func kind (x: IdOrCreationRef): IdOrCreationRefKind
 func len (a: NonEmptyEmailSubmissionUpdates): int
-func len (a: NonEmptyIdSeq): int
 func parseEmailSubmissionBlueprint (identityId: Id, emailId: Id, envelope: Opt[Envelope] = Opt.none(Envelope)): Result[EmailSubmissionBlueprint, NonEmptySeq[ValidationError]]
 func parseEmailSubmissionComparator (rawProperty: string, direction: SortDirection = sdServerDefault, collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm)): Result[EmailSubmissionComparator, ValidationError]
 func parseEmailSubmissionGetProperty (raw: string): Result[EmailSubmissionGetProperty, ValidationError]
 func parseNonEmptyEmailSubmissionUpdates (items: openArray[(Id, EmailSubmissionUpdate)]): Result[NonEmptyEmailSubmissionUpdates, NonEmptySeq[ValidationError]]
-func parseNonEmptyIdSeq (items: openArray[Id]): Result[NonEmptyIdSeq, ValidationError]
 func parseNonEmptyOnSuccessDestroyEmail (items: openArray[IdOrCreationRef]): Result[NonEmptyOnSuccessDestroyEmail, NonEmptySeq[ValidationError]]
 func parseNonEmptyOnSuccessUpdateEmail (items: openArray[(IdOrCreationRef, EmailUpdateSet)]): Result[NonEmptyOnSuccessUpdateEmail, NonEmptySeq[ValidationError]]
 func setUndoStatusToCanceled (): EmailSubmissionUpdate
 func toAny (s: EmailSubmission[usCanceled]): AnyEmailSubmission
 func toAny (s: EmailSubmission[usFinal]): AnyEmailSubmission
 func toAny (s: EmailSubmission[usPending]): AnyEmailSubmission
-func toSeq (a: NonEmptyIdSeq): seq[Id]
 func toSeq (s: NonEmptyOnSuccessDestroyEmail): seq[IdOrCreationRef]
 func toTable (s: NonEmptyEmailSubmissionUpdates): Table[Id, EmailSubmissionUpdate]
 func toTable (s: NonEmptyOnSuccessUpdateEmail): Table[IdOrCreationRef, EmailUpdateSet]
@@ -656,13 +647,6 @@ func wireName (p: MailboxGetProperty): string
 
 ## jmap_client/internal/mail/mailbox_changes_response
 type MailboxChangesResponse
-func accountId (r: MailboxChangesResponse): AccountId
-func created (r: MailboxChangesResponse): lent seq[Id]
-func destroyed (r: MailboxChangesResponse): lent seq[Id]
-func hasMoreChanges (r: MailboxChangesResponse): bool
-func newState (r: MailboxChangesResponse): JmapState
-func oldState (r: MailboxChangesResponse): JmapState
-func updated (r: MailboxChangesResponse): lent seq[Id]
 
 ## jmap_client/internal/mail/snippet
 type SearchSnippet
@@ -828,11 +812,7 @@ type PartialThread
 type Thread
 type ThreadGetProperty
 type ThreadGetPropertyKind
-func emailIds (p: PartialThread): Opt[seq[Id]]
-func emailIds (t: Thread): lent seq[Id]
 func hash (p: ThreadGetProperty): Hash
-func id (p: PartialThread): Opt[Id]
-func id (t: Thread): Id
 func initPartialThread (id: Opt[Id], emailIds: Opt[seq[Id]]): PartialThread
 func kind (p: ThreadGetProperty): ThreadGetPropertyKind
 func parseThread (id: Id, emailIds: seq[Id]): Result[Thread, ValidationError]
@@ -991,7 +971,11 @@ type SetRequest [T; C; U]
 type SetResponse [T; U]
 enumfield cdmDestroyAfterSuccess
 enumfield cdmKeep
+iterator createFailures [T; U](r: SetResponse[T, U]): tuple[id: CreationId, error: SetError]
+iterator created [T; U](r: SetResponse[T, U]): tuple[id: CreationId, value: T]
 func destroyAfterSuccess (ifInState: Opt[JmapState] = Opt.none(JmapState)): CopyDestroyMode
+iterator destroyFailures [T; U](r: SetResponse[T, U]): tuple[id: Id, error: SetError]
+iterator destroyed [T; U](r: SetResponse[T, U]): Id
 func fromJson (T: typedesc[JsonNode], node: JsonNode, path: JsonPath = emptyJsonPath()): Result[JsonNode, SerdeViolation]
 func fromJson [T; R:type](R: typedesc[ChangesResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()): Result[ChangesResponse[T], SerdeViolation]
 func fromJson [T; R:type](R: typedesc[CopyResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()): Result[CopyResponse[T], SerdeViolation]
@@ -1006,6 +990,8 @@ func toJson [T; U](resp: SetResponse[T, U]): JsonNode
 func toJson [T](req: ChangesRequest[T]): JsonNode
 func toJson [T](req: GetRequest[T]): JsonNode
 func toJson [T](resp: CopyResponse[T]): JsonNode
+iterator updateFailures [T; U](r: SetResponse[T, U]): tuple[id: Id, error: SetError]
+iterator updated [T; U](r: SetResponse[T, U]): tuple[id: Id, serverEcho: Opt[U]]
 
 ## jmap_client/internal/protocol/preflight
 func requirePrimaryAccount (session: Session, kind: CapabilityKind): Result[AccountId, JmapError]
@@ -1036,16 +1022,7 @@ type SubmissionAccountCapabilities
 func asMailAccountCapabilities (e: AccountCapabilityEntry): Opt[MailAccountCapabilities]
 func asRawData (e: AccountCapabilityEntry): Opt[JsonNode]
 func asSubmissionAccountCapabilities (e: AccountCapabilityEntry): Opt[SubmissionAccountCapabilities]
-func emailQuerySortOptions (m: MailAccountCapabilities): lent HashSet[string]
 func hash (e: AccountCapabilityEntry): Hash
-func maxDelayedSend (s: SubmissionAccountCapabilities): UnsignedInt
-func maxMailboxDepth (m: MailAccountCapabilities): Opt[UnsignedInt]
-func maxMailboxesPerEmail (m: MailAccountCapabilities): Opt[UnsignedInt]
-func maxSizeAttachmentsPerEmail (m: MailAccountCapabilities): UnsignedInt
-func maxSizeMailboxName (m: MailAccountCapabilities): Opt[UnsignedInt]
-func mayCreateTopLevelMailbox (m: MailAccountCapabilities): bool
-func submissionExtensions (s: SubmissionAccountCapabilities): SubmissionExtensionMap
-func uri (e: AccountCapabilityEntry): string
 
 ## jmap_client/internal/types/capabilities
 func $ (c: ServerCapability): string
@@ -1070,19 +1047,10 @@ enumfield ckSubmission
 enumfield ckUnknown
 enumfield ckVacationResponse
 enumfield ckWebsocket
-func collationAlgorithms (c: CoreCapabilities): lent HashSet[CollationAlgorithm]
 func hasCollation (c: CoreCapabilities, algorithm: CollationAlgorithm): bool
 func hash (c: ServerCapability): Hash
-func maxCallsInRequest (c: CoreCapabilities): UnsignedInt
-func maxConcurrentRequests (c: CoreCapabilities): UnsignedInt
-func maxConcurrentUpload (c: CoreCapabilities): UnsignedInt
-func maxObjectsInGet (c: CoreCapabilities): UnsignedInt
-func maxObjectsInSet (c: CoreCapabilities): UnsignedInt
-func maxSizeRequest (c: CoreCapabilities): UnsignedInt
-func maxSizeUpload (c: CoreCapabilities): UnsignedInt
 func parseCapabilityKind (uri: string): CapabilityKind
 func parseCapabilityUri (raw: string): Result[CapabilityUri, ValidationError]
-func uri (c: ServerCapability): string
 
 ## jmap_client/internal/types/collation
 func $ (c: CollationAlgorithm): string
@@ -1213,6 +1181,12 @@ template fieldAbsent [T; t:type](t: typedesc[T]): FieldEcho[T]
 template fieldNull [T; t:type](t: typedesc[T]): FieldEcho[T]
 template fieldValue [T](v: T): FieldEcho[T]
 func hash [T](e: FieldEcho[T]): Hash
+func isAbsent [T](fe: FieldEcho[T]): bool
+func isNull [T](fe: FieldEcho[T]): bool
+func isValue [T](fe: FieldEcho[T]): bool
+iterator items [T](fe: FieldEcho[T]): T
+func toOpt [T](fe: FieldEcho[T]): Opt[T]
+template valueOr [T](fe: FieldEcho[T], def: untyped): T
 
 ## jmap_client/internal/types/framework
 type AddedItem
@@ -1232,12 +1206,10 @@ enumfield fkOperator
 enumfield foAnd
 enumfield foNot
 enumfield foOr
-func id (item: AddedItem): Id
 func initAddedItem (id: Id, index: UnsignedInt): AddedItem
 func operands [C](f: Filter[C]): seq[Filter[C]]
 func parseComparator (property: PropertyName, direction: SortDirection = sdServerDefault, collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm)): Comparator
 func parsePropertyName (raw: string): Result[PropertyName, ValidationError]
-func property (c: Comparator): PropertyName
 enumfield sdAscending
 enumfield sdDescending
 enumfield sdServerDefault
@@ -1316,7 +1288,9 @@ enumfield rpUpdated
 enumfield rpUpdatedProperties
 
 ## jmap_client/internal/types/primitives
+func $ (a: NonEmptyIdSeq): string
 func - (a: JmapInt): JmapInt
+func == (a, b: NonEmptyIdSeq): bool
 type Date
 type Id
 type JmapInt
@@ -1324,45 +1298,47 @@ type MaxChanges
 const MaxJmapInt : int64
 const MaxUnsignedInt : int64
 const MinJmapInt : int64
+type NonEmptyIdSeq
 type NonEmptySeq [T]
 type UTCDate
 type UnsignedInt
+func [] (a: NonEmptyIdSeq, i: Idx): lent Id
 func asSeq [T](a: NonEmptySeq[T]): lent seq[T]
+func head (a: NonEmptyIdSeq): lent Id
 func head [T](a: NonEmptySeq[T]): lent T
+iterator items (a: NonEmptyIdSeq): Id
+func len (a: NonEmptyIdSeq): int
 func parseDate (raw: string): Result[Date, ValidationError]
 func parseId (raw: string): Result[Id, ValidationError]
 func parseIdFromServer (raw: string): Result[Id, ValidationError]
 func parseJmapInt (value: int64): Result[JmapInt, ValidationError]
 func parseMaxChanges (raw: UnsignedInt): Result[MaxChanges, ValidationError]
+func parseNonEmptyIdSeq (items: openArray[Id]): Result[NonEmptyIdSeq, ValidationError]
 func parseNonEmptySeq [T](s: seq[T]): Result[NonEmptySeq[T], ValidationError]
 func parseUnsignedInt (value: int64): Result[UnsignedInt, ValidationError]
 func parseUtcDate (raw: string): Result[UTCDate, ValidationError]
 func toInt64 (j: JmapInt): int64
 func toInt64 (m: MaxChanges): int64
 func toInt64 (u: UnsignedInt): int64
+func toSeq (a: NonEmptyIdSeq): seq[Id]
 
 ## jmap_client/internal/types/session
 func $ (t: UriTemplate): string
 func == (a, b: UriTemplate): bool
 type Account
 type AccountPolicy
+type ApiUrl
 const CoreCapabilityUri : string
+type DisplayName
 type Session
 type UriPart
 type UriPartKind
 type UriTemplate
-const WriteImplyingAccountCapabilities : set[CapabilityKind]
-func accountCapabilities (a: Account): lent seq[AccountCapabilityEntry]
-func accounts (s: Session): lent Table[AccountId, Account]
 enumfield apOwned
 enumfield apOwnedReadOnly
 enumfield apShared
 enumfield apSharedReadOnly
-func apiUrl (s: Session): string
 func capabilities (s: Session): seq[ServerCapability]
-func coreCapabilities (session: Session): CoreCapabilities
-func downloadUrl (s: Session): UriTemplate
-func eventSourceUrl (s: Session): UriTemplate
 func expandUriTemplate (tmpl: UriTemplate, variables: openArray[(string, string)]): string
 func findAccount (session: Session, id: AccountId): Opt[Account]
 func findCapability (account: Account, kind: CapabilityKind): Opt[AccountCapabilityEntry]
@@ -1375,19 +1351,15 @@ func hash (t: UriTemplate): Hash
 func isPersonal (a: Account): bool
 func isReadOnly (a: Account): bool
 func mailCapability (a: Account): Opt[MailAccountCapabilities]
-func name (a: Account): string
+func parseApiUrl (raw: string): Result[ApiUrl, ValidationError]
+func parseDisplayName (raw: string): Result[DisplayName, ValidationError]
 func parseUriTemplate (raw: string): Result[UriTemplate, ValidationError]
 func parts (t: UriTemplate): lent seq[UriPart]
-func policy (a: Account): AccountPolicy
 func primaryAccount (session: Session, kind: CapabilityKind): Opt[AccountId]
-func primaryAccounts (s: Session): lent Table[string, AccountId]
-func state (s: Session): JmapState
 func submissionCapability (a: Account): Opt[SubmissionAccountCapabilities]
 func supportsVacationResponse (a: Account): bool
 enumfield upLiteral
 enumfield upVariable
-func uploadUrl (s: Session): UriTemplate
-func username (s: Session): string
 func variables (t: UriTemplate): lent HashSet[string]
 
 ## jmap_client/internal/types/session_endpoint
@@ -1418,6 +1390,7 @@ func toOrderedTable (m: SubmissionExtensionMap): OrderedTable[RFC5321Keyword, se
 
 ## jmap_client/internal/types/validation
 func $ (a: AccountId): string
+func $ (a: ApiUrl): string
 func $ (a: BlobId): string
 func $ (a: BlueprintBodyHeaderName): string
 func $ (a: BlueprintEmailHeaderName): string
@@ -1425,6 +1398,7 @@ func $ (a: CapabilityUri): string
 func $ (a: CreationId): string
 func $ (a: Date): string
 func $ (a: DetailCode): string
+func $ (a: DisplayName): string
 func $ (a: HoldForSeconds): string
 func $ (a: Id): string
 func $ (a: Idx): string
@@ -1475,6 +1449,7 @@ func <= (a, b: MtPriority): bool
 func <= (a, b: UnsignedInt): bool
 func <= (a: Idx, b: int): bool
 func == (a, b: AccountId): bool
+func == (a, b: ApiUrl): bool
 func == (a, b: BlobId): bool
 func == (a, b: BlueprintBodyHeaderName): bool
 func == (a, b: BlueprintEmailHeaderName): bool
@@ -1482,6 +1457,7 @@ func == (a, b: CapabilityUri): bool
 func == (a, b: CreationId): bool
 func == (a, b: Date): bool
 func == (a, b: DetailCode): bool
+func == (a, b: DisplayName): bool
 func == (a, b: HoldForSeconds): bool
 func == (a, b: Id): bool
 func == (a, b: Idx): bool
@@ -1560,6 +1536,7 @@ template defineSealedOpaqueStringOps (T: typedesc)
 template defineSealedStringOps (T: typedesc)
 template defineSealedTagIntOps (T: typedesc)
 func hash (a: AccountId): Hash
+func hash (a: ApiUrl): Hash
 func hash (a: BlobId): Hash
 func hash (a: BlueprintBodyHeaderName): Hash
 func hash (a: BlueprintEmailHeaderName): Hash
@@ -1567,6 +1544,7 @@ func hash (a: CapabilityUri): Hash
 func hash (a: CreationId): Hash
 func hash (a: Date): Hash
 func hash (a: DetailCode): Hash
+func hash (a: DisplayName): Hash
 func hash (a: HoldForSeconds): Hash
 func hash (a: Id): Hash
 func hash (a: Idx): Hash

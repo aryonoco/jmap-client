@@ -25,14 +25,14 @@ testCase roundTripAccountCapabilityEntryVendor:
   let data = %*{"limit": 100}
   let entry = AccountCapabilityEntry.fromJson("https://vendor.example/ext", data).get()
   doAssert entry.kind == ckUnknown
-  assertEq entry.uri(), "https://vendor.example/ext"
+  assertEq entry.uri, "https://vendor.example/ext"
   doAssert entry.toJson() == data
 
 testCase accountCapabilityEntryDeserUnknownUri:
   let r =
     AccountCapabilityEntry.fromJson("https://vendor.example/ext", newJObject()).get()
   doAssert r.kind == ckUnknown
-  assertEq r.uri(), "https://vendor.example/ext"
+  assertEq r.uri, "https://vendor.example/ext"
 
 testCase accountCapabilityEntryNilDataForRawArm:
   const nilData: JsonNode = nil
@@ -123,7 +123,7 @@ testCase accountDeserEmptyAccountCapabilities:
     "name": "test", "isPersonal": true, "isReadOnly": false, "accountCapabilities": {}
   }
   let r = Account.fromJson(j).get()
-  assertEq r.accountCapabilities().len, 0
+  assertEq r.accountCapabilities.len, 0
 
 # =============================================================================
 # C. Property-based Account round-trip

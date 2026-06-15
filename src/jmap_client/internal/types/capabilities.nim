@@ -45,7 +45,7 @@ func parseCapabilityKind*(uri: string): CapabilityKind =
 
 func capabilityUri*(kind: CapabilityKind): Opt[string] =
   ## Returns the IANA-registered URI for a known capability.
-  ## Returns none for ckUnknown — callers must use rawUri from ServerCapability.
+  ## Returns none for ckUnknown — callers must use uri from ServerCapability.
   ## Uses ``$`` on the string-backed enum, which returns the backing string.
   if kind == ckUnknown:
     return Opt.none(string)
@@ -53,50 +53,21 @@ func capabilityUri*(kind: CapabilityKind): Opt[string] =
 
 type CoreCapabilities* {.ruleOff: "objects".} = object
   ## Server-advertised core limits and supported collations (RFC 8620 §2).
+  ## All fields are public read fields: the numeric limits are already
+  ## validated ``UnsignedInt`` distincts, so direct construction cannot
+  ## forge an illegal value. ``parseCoreCapabilities`` remains the
+  ## convenience constructor.
   ## Threading: value type, immutable after construction, freely
   ## shareable across threads.
-  rawMaxSizeUpload: UnsignedInt
-  rawMaxConcurrentUpload: UnsignedInt
-  rawMaxSizeRequest: UnsignedInt
-  rawMaxConcurrentRequests: UnsignedInt
-  rawMaxCallsInRequest: UnsignedInt
-  rawMaxObjectsInGet: UnsignedInt
-  rawMaxObjectsInSet: UnsignedInt
-  rawCollationAlgorithms: HashSet[CollationAlgorithm]
-
-func maxSizeUpload*(c: CoreCapabilities): UnsignedInt =
-  ## Max file size in octets for a single upload.
-  c.rawMaxSizeUpload
-
-func maxConcurrentUpload*(c: CoreCapabilities): UnsignedInt =
-  ## Max concurrent requests to the upload endpoint.
-  c.rawMaxConcurrentUpload
-
-func maxSizeRequest*(c: CoreCapabilities): UnsignedInt =
-  ## Max request size in octets for the API endpoint.
-  c.rawMaxSizeRequest
-
-func maxConcurrentRequests*(c: CoreCapabilities): UnsignedInt =
-  ## Max concurrent requests to the API endpoint.
-  c.rawMaxConcurrentRequests
-
-func maxCallsInRequest*(c: CoreCapabilities): UnsignedInt =
-  ## Max method calls per single API request.
-  c.rawMaxCallsInRequest
-
-func maxObjectsInGet*(c: CoreCapabilities): UnsignedInt =
-  ## Max objects per single /get call.
-  c.rawMaxObjectsInGet
-
-func maxObjectsInSet*(c: CoreCapabilities): UnsignedInt =
-  ## Max combined create/update/destroy per /set call.
-  c.rawMaxObjectsInSet
-
-func collationAlgorithms*(c: CoreCapabilities): lent HashSet[CollationAlgorithm] =
-  ## RFC 4790 collation algorithm identifiers advertised by the server.
-  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
-  ## sealed container.
-  c.rawCollationAlgorithms
+  maxSizeUpload*: UnsignedInt ## max file size in octets for a single upload
+  maxConcurrentUpload*: UnsignedInt ## max concurrent requests to upload endpoint
+  maxSizeRequest*: UnsignedInt ## max request size in octets for the API endpoint
+  maxConcurrentRequests*: UnsignedInt ## max concurrent requests to API endpoint
+  maxCallsInRequest*: UnsignedInt ## max method calls per single API request
+  maxObjectsInGet*: UnsignedInt ## max objects per single /get call
+  maxObjectsInSet*: UnsignedInt ## max create/update/destroy per /set call
+  collationAlgorithms*: HashSet[CollationAlgorithm]
+    ## RFC 4790 collation algorithm identifiers advertised by the server
 
 func parseCoreCapabilities*(
     maxSizeUpload: UnsignedInt,
@@ -114,25 +85,31 @@ func parseCoreCapabilities*(
   ## ``?`` / ``valueOr:``.
   ok(
     CoreCapabilities(
-      rawMaxSizeUpload: maxSizeUpload,
-      rawMaxConcurrentUpload: maxConcurrentUpload,
-      rawMaxSizeRequest: maxSizeRequest,
-      rawMaxConcurrentRequests: maxConcurrentRequests,
-      rawMaxCallsInRequest: maxCallsInRequest,
-      rawMaxObjectsInGet: maxObjectsInGet,
-      rawMaxObjectsInSet: maxObjectsInSet,
-      rawCollationAlgorithms: collationAlgorithms,
+      maxSizeUpload: maxSizeUpload,
+      maxConcurrentUpload: maxConcurrentUpload,
+      maxSizeRequest: maxSizeRequest,
+      maxConcurrentRequests: maxConcurrentRequests,
+      maxCallsInRequest: maxCallsInRequest,
+      maxObjectsInGet: maxObjectsInGet,
+      maxObjectsInSet: maxObjectsInSet,
+      collationAlgorithms: collationAlgorithms,
     )
   )
 
 type ServerCapability* {.ruleOff: "objects".} = object
   ## Server-level capability declaration (RFC 8620 §2, RFC 8621 §1.3).
+  ## kind↔uri consistency is parseServerCapability-guaranteed (Tier-C).
+  ## The typed ``core`` arm stays public: ``CoreCapabilities`` carries its
+  ## own validated shape, so exposing it cannot forge an illegal value. The
+  ## raw ``JsonNode`` vendor arms stay sealed (H1b/P15/P16): a public raw
+  ## arm would reopen construction and bypass parseServerCapability's
+  ## kind↔uri invariant. Read vendor payloads via ``asRawData``.
   ## Threading: value type, immutable after construction, freely
   ## shareable across threads.
-  rawUri: string
+  uri*: string
   case kind*: CapabilityKind
   of ckCore:
-    rawCore: CoreCapabilities
+    core*: CoreCapabilities
   of ckMail:
     discard
   of ckSubmission:
@@ -159,21 +136,17 @@ type ServerCapability* {.ruleOff: "objects".} = object
   of ckUnknown:
     rawUnknownData: JsonNode ## P19 exception (A22b): vendor URN forward-compat
 
-func uri*(c: ServerCapability): string =
-  ## Round-trip-stable wire URI.
-  c.rawUri
-
 func asCoreCapabilities*(c: ServerCapability): Opt[CoreCapabilities] =
   ## Some only when kind == ckCore; none for every other arm.
   case c.kind
   of ckCore:
-    Opt.some(c.rawCore)
+    Opt.some(c.core)
   of ckMail, ckSubmission, ckVacationResponse, ckWebsocket, ckMdn, ckSmimeVerify,
       ckBlob, ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
     Opt.none(CoreCapabilities)
 
 func asRawData*(c: ServerCapability): Opt[JsonNode] =
-  ## Some for every ``rawXxxData``-bearing arm; none for ckCore and the
+  ## Some for every ``xxxData``-bearing arm; none for ckCore and the
   ## three discard arms (ckMail / ckSubmission / ckVacationResponse —
   ## RFC 8621 §1.3 declares them empty at session scope).
   case c.kind
@@ -212,62 +185,62 @@ func parseServerCapability*(
       return err(
         validationError("ServerCapability", "ckCore requires CoreCapabilities", uri)
       )
-    ok(ServerCapability(kind: ckCore, rawUri: uri, rawCore: coreVal))
+    ok(ServerCapability(kind: ckCore, uri: uri, core: coreVal))
   of ckMail:
-    ok(ServerCapability(kind: ckMail, rawUri: uri))
+    ok(ServerCapability(kind: ckMail, uri: uri))
   of ckSubmission:
-    ok(ServerCapability(kind: ckSubmission, rawUri: uri))
+    ok(ServerCapability(kind: ckSubmission, uri: uri))
   of ckVacationResponse:
-    ok(ServerCapability(kind: ckVacationResponse, rawUri: uri))
+    ok(ServerCapability(kind: ckVacationResponse, uri: uri))
   of ckWebsocket:
     let d = rawData.valueOr:
       newJObject()
-    ok(ServerCapability(kind: ckWebsocket, rawUri: uri, rawWebsocketData: d))
+    ok(ServerCapability(kind: ckWebsocket, uri: uri, rawWebsocketData: d))
   of ckMdn:
     let d = rawData.valueOr:
       newJObject()
-    ok(ServerCapability(kind: ckMdn, rawUri: uri, rawMdnData: d))
+    ok(ServerCapability(kind: ckMdn, uri: uri, rawMdnData: d))
   of ckSmimeVerify:
     let d = rawData.valueOr:
       newJObject()
-    ok(ServerCapability(kind: ckSmimeVerify, rawUri: uri, rawSmimeVerifyData: d))
+    ok(ServerCapability(kind: ckSmimeVerify, uri: uri, rawSmimeVerifyData: d))
   of ckBlob:
     let d = rawData.valueOr:
       newJObject()
-    ok(ServerCapability(kind: ckBlob, rawUri: uri, rawBlobData: d))
+    ok(ServerCapability(kind: ckBlob, uri: uri, rawBlobData: d))
   of ckQuota:
     let d = rawData.valueOr:
       newJObject()
-    ok(ServerCapability(kind: ckQuota, rawUri: uri, rawQuotaData: d))
+    ok(ServerCapability(kind: ckQuota, uri: uri, rawQuotaData: d))
   of ckContacts:
     let d = rawData.valueOr:
       newJObject()
-    ok(ServerCapability(kind: ckContacts, rawUri: uri, rawContactsData: d))
+    ok(ServerCapability(kind: ckContacts, uri: uri, rawContactsData: d))
   of ckCalendars:
     let d = rawData.valueOr:
       newJObject()
-    ok(ServerCapability(kind: ckCalendars, rawUri: uri, rawCalendarsData: d))
+    ok(ServerCapability(kind: ckCalendars, uri: uri, rawCalendarsData: d))
   of ckSieve:
     let d = rawData.valueOr:
       newJObject()
-    ok(ServerCapability(kind: ckSieve, rawUri: uri, rawSieveData: d))
+    ok(ServerCapability(kind: ckSieve, uri: uri, rawSieveData: d))
   of ckUnknown:
     let d = rawData.valueOr:
       newJObject()
-    ok(ServerCapability(kind: ckUnknown, rawUri: uri, rawUnknownData: d))
+    ok(ServerCapability(kind: ckUnknown, uri: uri, rawUnknownData: d))
 
 func `==`*(a, b: ServerCapability): bool =
   ## Arm-dispatched structural equality — Nim's auto-derived ``==`` uses
   ## a parallel ``fields`` iterator that rejects case objects.
   if a.kind != b.kind:
     return false
-  if a.rawUri != b.rawUri:
+  if a.uri != b.uri:
     return false
   case a.kind
   of ckCore:
     case b.kind
     of ckCore:
-      a.rawCore == b.rawCore
+      a.core == b.core
     of ckMail, ckSubmission, ckVacationResponse, ckWebsocket, ckMdn, ckSmimeVerify,
         ckBlob, ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
       false
@@ -339,18 +312,18 @@ func `==`*(a, b: ServerCapability): bool =
 
 func `$`*(c: ServerCapability): string =
   ## Diagnostic representation — kind tag plus the URI.
-  "ServerCapability(uri=" & c.rawUri & " kind=" & $c.kind & ")"
+  "ServerCapability(uri=" & c.uri & " kind=" & $c.kind & ")"
 
 func hash*(c: ServerCapability): Hash =
   ## Arm-dispatched hash. ``JsonNode`` has no stdlib ``hash``; rendering
   ## via ``$`` then hashing preserves structural equivalence at the cost
   ## of one serialisation per hash. Hash sites are diagnostic, not hot.
   var h: Hash = 0
-  h = h !& hash(c.rawUri)
+  h = h !& hash(c.uri)
   h = h !& hash(c.kind)
   case c.kind
   of ckCore:
-    h = h !& hash(c.rawCore.maxSizeUpload.toInt64)
+    h = h !& hash(c.core.maxSizeUpload.toInt64)
   of ckMail, ckSubmission, ckVacationResponse:
     discard
   of ckWebsocket:
@@ -375,7 +348,7 @@ func hash*(c: ServerCapability): Hash =
 
 func hasCollation*(c: CoreCapabilities, algorithm: CollationAlgorithm): bool =
   ## Checks whether the server supports a given RFC 4790 collation algorithm.
-  return algorithm in c.collationAlgorithms()
+  return algorithm in c.collationAlgorithms
 
 type CapabilityUri* {.ruleOff: "objects".} = object
   ## RFC 8620 §2 capability URI carrier. Used internally by every typed

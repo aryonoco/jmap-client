@@ -361,6 +361,62 @@ func asSeq*[T](a: NonEmptySeq[T]): lent seq[T] {.inline.} =
   ## field across module boundaries.
   a.rawValue
 
+# =============================================================================
+# NonEmptyIdSeq
+# =============================================================================
+#
+# A dedicated sealed ``seq[Id]`` — deliberately not a ``NonEmptySeq[Id]``
+# alias — so it can carry ``Id``-typed read ops (``head``, ``[]``, ``items``,
+# ``toSeq``) and a single-``ValidationError`` constructor mirroring
+# ``parseNonEmptySeq``. It lives in L1 because more than one mail entity needs
+# a non-empty Id-list field; homing it in any single mail module would force
+# the others to depend on that module.
+
+type NonEmptyIdSeq* {.ruleOff: "objects".} = object
+  ## Non-empty seq of ``Id`` for filter list fields. Sealed Pattern-A
+  ## object — ``rawValue`` is module-private. Construction is gated by
+  ## ``parseNonEmptyIdSeq``.
+  rawValue: seq[Id]
+
+func `==`*(a, b: NonEmptyIdSeq): bool =
+  ## Element-wise equality delegated to the underlying ``seq[Id]``.
+  a.rawValue == b.rawValue
+
+func `$`*(a: NonEmptyIdSeq): string =
+  ## Textual form delegated to the underlying ``seq[Id]`` (diagnostic only).
+  $a.rawValue
+
+func len*(a: NonEmptyIdSeq): int =
+  ## Element count; invariant ``>= 1`` by construction.
+  a.rawValue.len
+
+func `[]`*(a: NonEmptyIdSeq, i: Idx): lent Id =
+  ## Indexed read-only access via sealed non-negative ``Idx``.
+  a.rawValue[i.toInt]
+
+func head*(a: NonEmptyIdSeq): lent Id =
+  ## First element — guaranteed present by the non-empty invariant.
+  ## Semantic accessor that reads cleaner than ``a[idx(0)]``.
+  a.rawValue[0]
+
+iterator items*(a: NonEmptyIdSeq): Id =
+  ## Iteration over the underlying ``seq[Id]``.
+  for x in a.rawValue:
+    yield x
+
+func toSeq*(a: NonEmptyIdSeq): seq[Id] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying seq.
+  a.rawValue
+
+func parseNonEmptyIdSeq*(items: openArray[Id]): Result[NonEmptyIdSeq, ValidationError] =
+  ## Strict: rejects empty input. Duplicate ids permitted (RFC 8621 §7.3
+  ## filter list semantics accept any combination). Matches
+  ## ``parseNonEmptySeq`` (primitives.nim) — single ``ValidationError``,
+  ## non-empty check only.
+  if items.len == 0:
+    return err(validationError("NonEmptyIdSeq", "must not be empty", ""))
+  ok(NonEmptyIdSeq(rawValue: @items))
+
 # The accumulating validators carry their violations on a
 # ``NonEmptySeq[ValidationError]`` rail; this instantiation supplies the sealed
 # read surface (``==`` / ``$`` / ``hash`` / ``len`` / ``[]`` / ``contains`` /

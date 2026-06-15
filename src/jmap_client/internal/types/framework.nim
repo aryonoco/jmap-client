@@ -105,16 +105,12 @@ type Comparator* {.ruleOff: "objects".} = object
   ## Sort criterion for /query requests (RFC 8620 §5.5). Determines the
   ## sort order for results returned by a /query method call.
   ##
-  ## Construction sealed via Pattern A (architecture §1.5.2):
-  ## ``rawProperty`` is module-private, blocking direct construction
-  ## from outside this module. Use ``parseComparator`` to construct.
-  rawProperty: PropertyName ## module-private; validated PropertyName
+  ## ``property`` is a public read field: ``PropertyName`` is an
+  ## already-validated newtype, so direct construction cannot forge an
+  ## illegal value. ``parseComparator`` remains the convenience constructor.
+  property*: PropertyName ## validated property name (RFC 8620 §5.5)
   direction*: SortDirection ## sort direction (RFC 8620 §5.5 ``isAscending``)
   collation*: Opt[CollationAlgorithm] ## RFC 4790 collation algorithm identifier
-
-func property*(c: Comparator): PropertyName =
-  ## Returns the validated property name for this comparator.
-  return c.rawProperty
 
 func parseComparator*(
     property: PropertyName,
@@ -122,24 +118,20 @@ func parseComparator*(
     collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),
 ): Comparator =
   ## Constructs a Comparator. Infallible given a valid PropertyName.
-  return Comparator(rawProperty: property, direction: direction, collation: collation)
+  return Comparator(property: property, direction: direction, collation: collation)
 
 type AddedItem* {.ruleOff: "objects".} = object
   ## An item added to query results at a specific position (RFC 8620 §5.6).
   ##
-  ## Construction sealed via Pattern A (architecture Limitation 5/6a):
-  ## ``rawId`` is module-private, blocking direct construction from outside
-  ## this module. Use ``initAddedItem`` to construct.
-  rawId: Id ## module-private; validated Id
+  ## ``id`` is a public read field: ``Id`` is an already-validated newtype,
+  ## so direct construction cannot forge an illegal value. ``initAddedItem``
+  ## remains the convenience constructor.
+  id*: Id ## validated item identifier
   index*: UnsignedInt ## the position index
-
-func id*(item: AddedItem): Id =
-  ## Returns the validated item identifier.
-  return item.rawId
 
 func initAddedItem*(id: Id, index: UnsignedInt): AddedItem =
   ## Constructs an AddedItem. Infallible given validated Id and UnsignedInt.
-  return AddedItem(rawId: id, index: index)
+  return AddedItem(id: id, index: index)
 
 type QueryParams* = object
   ## Standard query window parameters shared by all ``/query`` methods

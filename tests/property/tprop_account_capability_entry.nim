@@ -18,11 +18,11 @@ import ../mtestblock
 testCase propAccountCapabilityEntryRoundTrip:
   checkProperty "AccountCapabilityEntry round-trip preserves the entry":
     let entry = rng.genAccountCapabilityEntry()
-    lastInput = entry.uri()
-    let rt = AccountCapabilityEntry.fromJson(entry.uri(), entry.toJson())
-    doAssert rt.isOk, "fromJson failed for " & entry.uri() & ": " & $rt.error
+    lastInput = entry.uri
+    let rt = AccountCapabilityEntry.fromJson(entry.uri, entry.toJson())
+    doAssert rt.isOk, "fromJson failed for " & entry.uri & ": " & $rt.error
     doAssert rt.get() == entry,
-      "round-trip mismatch for " & entry.uri() & " (kind " & $entry.kind & ")"
+      "round-trip mismatch for " & entry.uri & " (kind " & $entry.kind & ")"
 
 testCase propAccountCapabilityEntryEveryArmExercised:
   ## Across enough trials, the generator hits every arm. Verify each arm
