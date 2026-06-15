@@ -44,6 +44,40 @@ const WriteImplyingAccountCapabilities* = {
   ## semantics we cannot inspect — read-only by default. Every other
   ## standard arm implies write access.
 
+type DisplayName* {.ruleOff: "objects".} = object
+  ## RFC 8620 §2 account display name — a "user-friendly string". Sealed
+  ## value: rejects control characters; empty is permitted. ``len`` carries
+  ## no domain meaning, so the opaque sealed ops apply; read the text via ``$``.
+  rawValue: string
+
+defineSealedOpaqueStringOps(DisplayName)
+
+func parseDisplayName*(raw: string): Result[DisplayName, ValidationError] =
+  ## Rejects control characters (RFC 8620 §2 "user-friendly string"); empty is
+  ## permitted. Lifts the previous inline ``Account`` name check into a sealed
+  ## smart constructor.
+  for ch in raw:
+    if ch < ' ' or ch == '\x7F':
+      return err(validationError("DisplayName", "contains control characters", raw))
+  ok(DisplayName(rawValue: raw))
+
+type ApiUrl* {.ruleOff: "objects".} = object
+  ## RFC 8620 §2 JMAP API endpoint URL. Sealed value: non-empty and free of
+  ## embedded CR/LF (which would break HTTP request-line framing). ``len``
+  ## carries no domain meaning; read the text via ``$``.
+  rawValue: string
+
+defineSealedOpaqueStringOps(ApiUrl)
+
+func parseApiUrl*(raw: string): Result[ApiUrl, ValidationError] =
+  ## Non-empty, newline-free — the existing ``detectApiUrl`` invariant lifted
+  ## into a sealed smart constructor.
+  if raw.len == 0:
+    return err(validationError("ApiUrl", "must not be empty", raw))
+  if raw.contains({'\c', '\L'}):
+    return err(validationError("ApiUrl", "must not contain newline characters", raw))
+  ok(ApiUrl(rawValue: raw))
+
 type Account* {.ruleOff: "objects".} = object
   ## A JMAP account the user has access to (RFC 8620 §2).
   ## Threading: value type, immutable after construction, freely
