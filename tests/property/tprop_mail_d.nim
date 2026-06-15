@@ -50,7 +50,7 @@ testCase propRoundTripPartialEmail:
     ThoroughTrials:
     let p = rng.genPartialEmail()
     lastInput = (if p.id.isSome: $p.id.unsafeGet else: "Opt.none")
-    let j = p.toJson()
+    let j = p.toJsonForFixture()
     let rtResult = emailFromJson(j)
     doAssert rtResult.isOk, "Partial Email round-trip fromJson failed"
     doAssert emailEq(rtResult.get(), p), "Partial Email round-trip identity violated"
