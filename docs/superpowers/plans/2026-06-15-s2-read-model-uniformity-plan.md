@@ -31,7 +31,7 @@ No new deps, no `converter`s, no `requiresInit`.
   is `just build`, NOT `just ci`; `just ci` runs only at Phase 13).
 - **Status:** 🟢 IN PROGRESS. (Mark each phase ✅ DONE with its commit SHA here.)
   - P0 FieldEcho reader ✅ `0d93a4a` · P1 NonEmptyIdSeq relocate ✅ `a4f5a44` · P2 newtypes ✅ `6c9a306` ·
-    P3 ceremony flips ⬜ · P4 Thread ⬜ · P5 capability arms ⬜ · P6 Account ⬜ ·
+    P3 ceremony flips ✅ `5785fa2` · P4 Thread ⬜ · P5 capability arms ⬜ · P6 Account ⬜ ·
     P7 Session ⬜ · P8 Email headers + MailboxChangesResponse ⬜ ·
     P9 SetResponse projections ⬜ · P10 contract regen ⬜ · P11 test sweep ⬜ ·
     P12 CLI re-bench ⬜ · P13 gates ⬜.
@@ -48,10 +48,12 @@ If you are picking this up mid-flight, do EXACTLY this, in order:
 3. The **Status** line above + `git log` are the source of truth: the last phase
    marked ✅ with a SHA is done; resume at the next ⬜ phase from its Phase section.
 4. Per-phase discipline (MANDATORY): a fresh subagent per phase → review its full
-   diff against the spec → re-run `just build` YOURSELF → commit with explicit
-   paths (NEVER `git add -A`) using the Linux-kernel trailer block below → mark the
-   phase ✅ + SHA on the Status line. Verification is `just build`, NOT `just ci`,
-   until Phase 13.
+   diff against the spec → re-run `just build` YOURSELF → run `just fmt` so the
+   touched files are nph-canonical (`fmt-check` is part of `just ci` at P13) →
+   commit with explicit paths (NEVER `git add -A`) using the Linux-kernel trailer
+   block below → mark the phase ✅ + SHA on the Status line. Verification is
+   `just build`, NOT `just ci`, until Phase 13. (Substantive phases also get a
+   two-stage subagent review — spec-compliance then code-quality — before commit.)
 5. STOP and ask the user only for: a genuine plan↔code contradiction needing a
    design call; any push/PR/merge; Phase 13's live gate (needs `just jmap-up`).
 6. Quality lens governs every call: future application developer only; libcurl/
@@ -93,6 +95,8 @@ below; do not re-discover them:
 ## Conventions (MANDATORY — from CLAUDE.md / handoff §10)
 
 - **Per-phase verification:** `just build` (compiles `src/`). Commit only when green.
+  Run `just fmt` before each commit so every phase commit is nph-canonical
+  (`fmt-check` runs in `just ci` at P13). Phases that add a test also run that test.
 - **Stage explicit paths; NEVER `git add -A`.**
 - **Commit messages — Linux-kernel style.** Subject `subsystem: short imperative`
   ≤75 cols; body wrapped ~75 cols explaining *why*; end EVERY body with exactly:
