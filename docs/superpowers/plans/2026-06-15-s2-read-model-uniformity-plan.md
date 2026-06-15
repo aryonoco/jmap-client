@@ -33,7 +33,7 @@ No new deps, no `converter`s, no `requiresInit`.
   - P0 FieldEcho reader ✅ `0d93a4a` · P1 NonEmptyIdSeq relocate ✅ `a4f5a44` · P2 newtypes ✅ `6c9a306` ·
     P3 ceremony flips ✅ `5785fa2` · P4 Thread ✅ `55042d8` · P5 capability arms ✅ `b83f091` · P6 Account ✅ `b2242fc` ·
     P7 Session ✅ `065eb6f` · P8 Email headers + MailboxChangesResponse ✅ `27443be` ·
-    P9 SetResponse projections ✅ `759ab11` · P10 contract regen ✅ `c9f35ff` · P11 test sweep 🔜 ·
+    P9 SetResponse projections ✅ `759ab11` · P10 contract regen ✅ `c9f35ff` · P11 test sweep ✅ `e9a459a` ·
     P12 CLI re-bench ⬜ · P13 gates ⬜.
 
 ### RESUME PROTOCOL (for a zero-context successor after compaction)
@@ -134,6 +134,15 @@ must migrate these (compiler is the gate; tests adapt to the API, never the reve
   asserts `declared(WriteImplyingAccountCapabilities)` — that const is gone; remove the assert.
 
 ### DEFERRED FINDINGS (discovered during execution; OUT of S2 scope)
+
+- **`NonEmptyIdSeq.toSeq` collides with `std/sequtils.toSeq`** and is inconsistent
+  with the sibling `NonEmptySeq[T].asSeq` (which is named `asSeq` precisely to dodge
+  that collision). A consumer with `primitives` re-exported into scope who calls bare
+  `toSeq(someIterator)` can hit overload ambiguity (surfaced in
+  `tserde_email_blueprint.nim`, fixed by qualifying `sequtils.toSeq`). Pre-existing
+  (predates the S2 relocation), minor, manageable by qualifying. A future refinement
+  could rename `NonEmptyIdSeq.toSeq` → `.asSeq` for sibling-consistency + collision
+  avoidance (a public-API rename; out of S2 scope).
 
 - **The D5 "always emit every field, `null` for `Opt.none`" toJson convention is
   NOT RFC-faithful** (RFC-verified during P8, citing RFC 8620 §5.1: a `/get`
