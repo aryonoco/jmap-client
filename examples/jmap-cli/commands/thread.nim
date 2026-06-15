@@ -9,31 +9,35 @@
 import jmap_client
 import ./cli_session
 
+proc showThread(threadIdArg: string): JmapResult[int] =
+  # The id is server-sourced (lenient parser); folding it onto the rail with one
+  # `.lift` keeps the whole body on the single JmapError rail.
+  let threadId = ?parseIdFromServer(threadIdArg).lift
+  let ctx = ?connect()
+  let (b, handle) = ctx.client.newBuilder().addThreadGet(
+      ctx.mailAccount, ids = Opt.some(direct(@[threadId]))
+    )
+  let dr = ?ctx.client.send(b.freeze())
+  let outcome = ?dr.get(handle)
+  case outcome.kind
+  of mokMethodError:
+    stderr.writeLine "Thread/get: " & outcome.error.message
+    ok(1)
+  of mokValue:
+    if outcome.value.list.len == 0:
+      stderr.writeLine "thread not found"
+      return ok(1)
+    for th in outcome.value.list:
+      # Thread is sealed: id and emailIds are accessor FUNCS, not fields.
+      echo "thread ", $th.id, " has ", $th.emailIds.len, " emails:"
+      for eid in th.emailIds:
+        echo "  ", $eid
+    ok(0)
+
 proc run*(args: seq[string]): int =
   if args.len < 2 or args[0] != "show":
     stderr.writeLine "usage: jmap-cli thread show <threadId>"
     return 2
-  let threadId = parseIdFromServer(args[1]).valueOr:
-    stderr.writeLine "bad thread id: " & error.message
-    return 2
-  let ctx = connect().valueOr:
-    stderr.writeLine error
+  showThread(args[1]).valueOr:
+    stderr.writeLine error.message
     return 1
-  let (b, handle) = ctx.client.newBuilder().addThreadGet(
-      ctx.mailAccount, ids = Opt.some(direct(@[threadId]))
-    )
-  let dr = ctx.client.send(b.freeze()).valueOr:
-    stderr.writeLine "send failed: " & error.message
-    return 1
-  let resp = dr.get(handle).valueOr:
-    stderr.writeLine "Thread/get failed: " & error.message
-    return 1
-  if resp.list.len == 0:
-    stderr.writeLine "thread not found"
-    return 1
-  for th in resp.list:
-    # Thread is sealed: id and emailIds are accessor FUNCS, not fields.
-    echo "thread ", $th.id, " has ", $th.emailIds.len, " emails:"
-    for eid in th.emailIds:
-      echo "  ", $eid
-  return 0

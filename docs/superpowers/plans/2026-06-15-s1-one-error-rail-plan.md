@@ -25,7 +25,21 @@ two non-consumer leaf rails go internal.
 ## STATE / HANDOFF  (update this block as each phase lands)
 
 - **Branch:** `api/s1-one-error-rail` (off `main`, after S0 merge).
-- **Current phase:** Phase 5 **complete**; Phase 6 next.
+- **Current phase:** Phase 6 **complete**; Phase 7 next.
+- **Phase 6 done (commit pending this turn):** `convenience.nim` needed no
+  rewrite — Phases 3/4 already migrated its `getBoth` to `MethodOutcome`/
+  `JmapError`; a rail-smell scan found no string rails or conversion shims.
+  The CLI bench (13 `examples/jmap-cli/commands/*.nim`) was rewritten to thread
+  `JmapError` end to end: `joinErrs` and every `Result[T, string]` collapse
+  deleted; construction calls take one `.lift`, the pipeline a bare `?`; `get`
+  sites `case` on `MethodOutcome`; `cli_session.connect` uses
+  `?session.requirePrimaryAccount(ckMail)` for the preflight. `email_send.nim`
+  is the headline single-`?` build→send→get pipeline (the P29 proof). One
+  necessary exception: `addEmailSubmissionAndEmailSet` returns an *uncopyable*
+  `RequestBuilder` in its Ok arm, so it uses an explicit `if r.isErr: return
+  err(r.error.toJmapError)` + `move` (a separate uncopyable-builder friction =
+  R4/S4, not an error-rail issue). Verified: `check-public-only.sh` OK, example
+  builds 0 warnings, library still builds, no string rails remain in CLI code.
 - **Phase 5 done (commit pending this turn):** New L3 module
   `protocol/preflight.nim` with `requirePrimaryAccount(session, kind):
   Result[AccountId, JmapError]` — the `jeSession` seed (sfCapabilityAbsent /
@@ -112,7 +126,7 @@ two non-consumer leaf rails go internal.
 - [x] Phase 3 — `send`/transport/request → `JmapError`; relocate+re-point `JmapResult`; retire `ClientError`
 - [x] Phase 4 — `get`/`getBoth`/`getAll` → `MethodOutcome`; retire `GetError`
 - [x] Phase 5 — `jeSession` producer + privatise `TokenViolation`/`SmtpReplyViolation`
-- [ ] Phase 6 — fix consumers (`convenience.nim` + `examples/jmap-cli`)
+- [x] Phase 6 — fix consumers (`convenience.nim` clean; `examples/jmap-cli` rewritten)
 - [ ] Phase 7 — regenerate oracle contract + sweep tests + AUDIT triage
 - [ ] Phase 8 — both gates green + adversarial review + finalize
 
