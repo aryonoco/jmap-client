@@ -82,48 +82,37 @@ type Account* {.ruleOff: "objects".} = object
   ## A JMAP account the user has access to (RFC 8620 §2).
   ## Threading: value type, immutable after construction, freely
   ## shareable across threads.
-  rawName: string
-  rawPolicy: AccountPolicy
-  rawAccountCapabilities: seq[AccountCapabilityEntry]
-
-func name*(a: Account): string =
-  ## User-friendly display name (RFC 8620 §2).
-  a.rawName
-
-func policy*(a: Account): AccountPolicy =
-  ## Four-state classification of ``isPersonal`` × ``isReadOnly``.
-  a.rawPolicy
+  ## Tier-C: the read-only ⇒ write-capability filtering between policy and
+  ## accountCapabilities is parseAccount-enforced; raw construction is
+  ## out-of-contract.
+  name*: DisplayName
+  policy*: AccountPolicy
+  accountCapabilities*: seq[AccountCapabilityEntry]
 
 func isPersonal*(a: Account): bool =
   ## Derived from ``policy``. ``true`` iff the account belongs to the
   ## authenticated user. Wire surface unchanged.
-  case a.rawPolicy
+  case a.policy
   of apOwned, apOwnedReadOnly: true
   of apShared, apSharedReadOnly: false
 
 func isReadOnly*(a: Account): bool =
   ## Derived from ``policy``. ``true`` iff the entire account is read-
   ## only. Wire surface unchanged.
-  case a.rawPolicy
+  case a.policy
   of apOwnedReadOnly, apSharedReadOnly: true
   of apOwned, apShared: false
 
-func accountCapabilities*(a: Account): lent seq[AccountCapabilityEntry] =
-  ## Per-account capability declarations. RFC 8620 §2.
-  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
-  ## sealed container.
-  a.rawAccountCapabilities
-
 func mailCapability*(a: Account): Opt[MailAccountCapabilities] =
   ## First entry whose kind == ckMail; Opt.none otherwise.
-  for entry in a.rawAccountCapabilities:
+  for entry in a.accountCapabilities:
     if entry.kind == ckMail:
       return entry.asMailAccountCapabilities()
   Opt.none(MailAccountCapabilities)
 
 func submissionCapability*(a: Account): Opt[SubmissionAccountCapabilities] =
   ## First entry whose kind == ckSubmission; Opt.none otherwise.
-  for entry in a.rawAccountCapabilities:
+  for entry in a.accountCapabilities:
     if entry.kind == ckSubmission:
       return entry.asSubmissionAccountCapabilities()
   Opt.none(SubmissionAccountCapabilities)
@@ -131,7 +120,7 @@ func submissionCapability*(a: Account): Opt[SubmissionAccountCapabilities] =
 func supportsVacationResponse*(a: Account): bool =
   ## ``true`` iff the account advertises a ckVacationResponse entry
   ## (presence-only per RFC 8621 §1.3.3).
-  for entry in a.rawAccountCapabilities:
+  for entry in a.accountCapabilities:
     if entry.kind == ckVacationResponse:
       return true
   false
@@ -147,9 +136,7 @@ func parseAccount*(
   ## B12: when ``isReadOnly=true``, write-implying capabilities are
   ## silently dropped — Postel-receive resolution for server
   ## contradictions.
-  for ch in name:
-    if ch < ' ' or ch == '\x7F':
-      return err(validationError("Account", "name contains control characters", name))
+  let dn = ?parseDisplayName(name)
   let policy =
     if isPersonal:
       if isReadOnly: apOwnedReadOnly else: apOwned
@@ -160,7 +147,7 @@ func parseAccount*(
       accountCapabilities.filterIt(it.kind notin WriteImplyingAccountCapabilities)
     else:
       accountCapabilities
-  ok(Account(rawName: name, rawPolicy: policy, rawAccountCapabilities: filtered))
+  ok(Account(name: dn, policy: policy, accountCapabilities: filtered))
 
 type UriPartKind* = enum
   ## Discriminator for ``UriPart``: a literal segment or a variable reference.
@@ -302,7 +289,7 @@ func findCapability*(
     account: Account, kind: CapabilityKind
 ): Opt[AccountCapabilityEntry] =
   ## Finds the first account capability matching the given kind.
-  for entry in account.accountCapabilities():
+  for entry in account.accountCapabilities:
     if entry.kind == kind:
       return Opt.some(entry)
   return Opt.none(AccountCapabilityEntry)
@@ -311,7 +298,7 @@ func findCapabilityByUri*(account: Account, uri: string): Opt[AccountCapabilityE
   ## Looks up an account capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions (which all map to ckUnknown
   ## and would be ambiguous via findCapability).
-  for entry in account.accountCapabilities():
+  for entry in account.accountCapabilities:
     if entry.uri == uri:
       return Opt.some(entry)
   return Opt.none(AccountCapabilityEntry)

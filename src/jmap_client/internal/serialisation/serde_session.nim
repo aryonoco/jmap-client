@@ -369,12 +369,10 @@ func toJson*(acct: Account): JsonNode =
   ## Serialise Account to JSON (RFC 8620 §2). ``isPersonal``/``isReadOnly``
   ## are derived from ``policy``; the wire shape is unchanged.
   var node = %*{
-    "name": acct.name(),
-    "isPersonal": acct.isPersonal(),
-    "isReadOnly": acct.isReadOnly(),
+    "name": $acct.name, "isPersonal": acct.isPersonal(), "isReadOnly": acct.isReadOnly()
   }
   var acctCaps = newJObject()
-  for entry in acct.accountCapabilities():
+  for entry in acct.accountCapabilities:
     acctCaps[entry.uri] = entry.toJson()
   node["accountCapabilities"] = acctCaps
   return node
