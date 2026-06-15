@@ -43,5 +43,15 @@ export email
 export email_update
 export snippet
 export submission_envelope
-export submission_status
+# ``SmtpReplyViolation`` (with its members) and the ``detect*`` SMTP-reply
+# validators are internal parsing primitives projected to ``ValidationError`` by
+# the public ``parseSmtpReply`` constructor; they are filtered from the public
+# surface (tests reach them via direct import per H10).
+export submission_status except
+  SmtpReplyViolation, srEmpty, srControlChars, srLineTooShort, srBadReplyCodeDigit1,
+  srBadReplyCodeDigit2, srBadReplyCodeDigit3, srBadSeparator, srMultilineCodeMismatch,
+  srMultilineContinuation, srMultilineFinalHyphen, srEnhancedMalformedTriple,
+  srEnhancedClassInvalid, srEnhancedSubjectOverflow, srEnhancedDetailOverflow,
+  srEnhancedMultilineMismatch, detectReplyCodeGrammar, detectSeparator,
+  detectClassDigit, detectSubjectInRange, detectDetailInRange, detectConsistentItems
 export email_submission

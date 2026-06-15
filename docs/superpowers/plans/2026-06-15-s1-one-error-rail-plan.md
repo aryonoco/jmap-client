@@ -25,7 +25,20 @@ two non-consumer leaf rails go internal.
 ## STATE / HANDOFF  (update this block as each phase lands)
 
 - **Branch:** `api/s1-one-error-rail` (off `main`, after S0 merge).
-- **Current phase:** Phase 4 **complete**; Phase 5 next.
+- **Current phase:** Phase 5 **complete**; Phase 6 next.
+- **Phase 5 done (commit pending this turn):** New L3 module
+  `protocol/preflight.nim` with `requirePrimaryAccount(session, kind):
+  Result[AccountId, JmapError]` — the `jeSession` seed (sfCapabilityAbsent /
+  sfPrimaryAccountAbsent), re-exported via the protocol hub. `TokenViolation`
+  (+7 members +6 `detect*`) privatised from the L1 hub (`types.nim`);
+  `SmtpReplyViolation` (+15 members +6 `detect*`) privatised from the mail hub
+  (`mail/types.nim`) — both verified **gone** from the live S0-oracle api +
+  type-shapes output (internal callers use direct `validation`/`submission_status`
+  imports, so unaffected; tests reach them via direct import per H10).
+  `just build` green; `JmapError`/`MethodOutcome`/`requirePrimaryAccount` present
+  in the oracle. NOTE: the committed wire-contract snapshots are now stale across
+  all of S1 — `lint-public-api`/`lint-type-shapes` (and H16/H17) fail until the
+  Phase 7 regeneration; expected.
 - **Phase 4 done (commit pending this turn):** `GetError` **retired**. New
   `classifyInvocation[T]` in `dispatch.nim` splits the located invocation into
   rail/data: missing→`jeProtocol pfMissingCall`, real `"error"` invocation→
@@ -98,7 +111,7 @@ two non-consumer leaf rails go internal.
 - [x] Phase 2 — validation rail → `NonEmptySeq[ValidationError]`; retire `EmailBlueprintErrors`
 - [x] Phase 3 — `send`/transport/request → `JmapError`; relocate+re-point `JmapResult`; retire `ClientError`
 - [x] Phase 4 — `get`/`getBoth`/`getAll` → `MethodOutcome`; retire `GetError`
-- [ ] Phase 5 — `jeSession` producer + privatise `TokenViolation`/`SmtpReplyViolation`
+- [x] Phase 5 — `jeSession` producer + privatise `TokenViolation`/`SmtpReplyViolation`
 - [ ] Phase 6 — fix consumers (`convenience.nim` + `examples/jmap-cli`)
 - [ ] Phase 7 — regenerate oracle contract + sweep tests + AUDIT triage
 - [ ] Phase 8 — both gates green + adversarial review + finalize

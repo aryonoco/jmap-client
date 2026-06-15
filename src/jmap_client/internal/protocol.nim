@@ -30,10 +30,12 @@ import ./protocol/methods
 import ./protocol/dispatch
 import ./protocol/builder
 import ./protocol/jmap_error
+import ./protocol/preflight
 
 export jmap_error except
   jmapMisuse, jmapProtocol, misuse, protocolMissingCall, protocolMalformedError,
   protocolDecode, methodValue, methodFailure
+export preflight
 export entity
 export methods except
   SerializedSort, SerializedFilter, toJsonNode, serializeOptSort, serializeOptFilter,
