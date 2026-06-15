@@ -314,7 +314,12 @@ type CompoundResults*[A, B] {.ruleOff: "objects".} = object
   ## ``implicit`` outcome is ``Opt``: RFC 8620 §5.4 emits the implicit call only
   ## when the primary method *succeeds*, so it is absent (``none``) exactly when
   ## ``primary`` is a method error, and present (``some``) — itself a
-  ## ``MethodOutcome`` — when the primary ran.
+  ## ``MethodOutcome`` — when the primary ran. ``getBoth`` is the sole producer
+  ## and never emits a contradictory pair (a value primary with no implicit, or
+  ## an errored primary with one); the ``Opt`` is kept rather than collapsed into
+  ## the discriminator because its *payload* — the implicit response — is not
+  ## derivable from ``primary``. Branch on either ``primary.kind`` or
+  ## ``implicit``; they agree.
   primary*: MethodOutcome[A]
   implicit*: Opt[MethodOutcome[B]]
 

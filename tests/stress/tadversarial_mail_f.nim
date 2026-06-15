@@ -843,7 +843,7 @@ testCase getBothAdversarialGroup:
     doAssert res.isErr
     doAssert res.error.kind == jeProtocol
     doAssert res.error.protocol.kind == pfMissingCall
-    doAssert res.error.protocol.callId == Opt.some(sharedId)
+    doAssert res.error.protocol.callId == sharedId
 
   block getBothImplicitDestroyErrorTag:
     # The destroy handle is a NameBoundHandle filtering by method-name
@@ -871,7 +871,7 @@ testCase getBothAdversarialGroup:
     doAssert res.isErr
     doAssert res.error.kind == jeProtocol
     doAssert res.error.protocol.kind == pfMissingCall
-    doAssert res.error.protocol.callId == Opt.some(sharedId)
+    doAssert res.error.protocol.callId == sharedId
 
   block getBothCopyMethodError:
     # Symmetric half: when the COPY invocation is an ``error`` envelope,

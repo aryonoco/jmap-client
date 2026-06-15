@@ -136,7 +136,7 @@ testCase getNotFound:
   let je = result.error()
   doAssert je.kind == jeProtocol
   doAssert je.protocol.kind == pfMissingCall
-  doAssert je.protocol.callId == Opt.some(makeMcid("c99"))
+  doAssert je.protocol.callId == makeMcid("c99")
 
 testCase getMethodError:
   ## Invocation name is "error" with type "unknownMethod". A method-level error
@@ -165,7 +165,7 @@ testCase getMalformedErrorResponse:
   let je = result.error()
   doAssert je.kind == jeProtocol
   doAssert je.protocol.kind == pfMalformedError
-  doAssert je.protocol.callId == Opt.some(makeMcid("c0"))
+  doAssert je.protocol.callId == makeMcid("c0")
 
 testCase getValidationError:
   ## A normal invocation whose arguments fail typed decoding rides
@@ -179,7 +179,7 @@ testCase getValidationError:
   let je = result.error()
   doAssert je.kind == jeProtocol
   doAssert je.protocol.kind == pfDecode
-  doAssert je.protocol.callId == Opt.some(makeMcid("c0"))
+  doAssert je.protocol.decodeCallId == Opt.some(makeMcid("c0"))
 
 testCase getHandleMismatch:
   ## A handle issued by builder A applied to a DispatchedResponse from

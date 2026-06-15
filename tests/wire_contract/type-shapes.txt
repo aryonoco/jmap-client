@@ -1207,11 +1207,12 @@
 ## PropertyName [jmap_client/internal/types/framework]
 
 ## ProtocolFault [jmap_client/internal/protocol/jmap_error]
-  callId*: Opt[MethodCallId]
   case kind*: ProtocolFaultKind
-  of pfDecode:
-    violation*: SerdeViolation
   of pfMissingCall, pfMalformedError:
+    callId*: MethodCallId
+  of pfDecode:
+    decodeCallId*: Opt[MethodCallId]
+    violation*: SerdeViolation
 
 ## ProtocolFaultKind [jmap_client/internal/protocol/jmap_error]
   pfMissingCall

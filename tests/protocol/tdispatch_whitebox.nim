@@ -29,7 +29,7 @@ testCase protocolDecodePreservesViolation:
   let callId = makeMcid("c0")
   let pf = protocolDecode(callId, sv)
   doAssert pf.kind == pfDecode
-  doAssert pf.callId == Opt.some(callId)
+  doAssert pf.decodeCallId == Opt.some(callId)
   doAssert pf.violation.kind == svkFieldParserFailed
   doAssert pf.violation.inner.typeName == "AccountId"
   doAssert pf.violation.inner.value == ""

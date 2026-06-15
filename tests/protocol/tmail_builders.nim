@@ -688,7 +688,7 @@ testCase getBothDestroyMissingRidesProtocolRail:
   doAssert results.isErr
   doAssert results.error.kind == jeProtocol
   doAssert results.error.protocol.kind == pfMissingCall
-  doAssert results.error.protocol.callId == Opt.some(cid)
+  doAssert results.error.protocol.callId == cid
 
 testCase getBothDestroyErrorTagRidesProtocolRail:
   ## M.4: well-formed copy + an "error" invocation at the shared cid (wire
@@ -710,7 +710,7 @@ testCase getBothDestroyErrorTagRidesProtocolRail:
   doAssert results.isErr
   doAssert results.error.kind == jeProtocol
   doAssert results.error.protocol.kind == pfMissingCall
-  doAssert results.error.protocol.callId == Opt.some(cid)
+  doAssert results.error.protocol.callId == cid
 
 # ===========================================================================
 # N. addMailboxSet typed-update migration (Design §3.3)
@@ -842,7 +842,7 @@ testCase getBothInnerErrorTagRidesProtocolRail:
   doAssert results.isErr
   doAssert results.error.kind == jeProtocol
   doAssert results.error.protocol.kind == pfMissingCall
-  doAssert results.error.protocol.callId == Opt.some(cid)
+  doAssert results.error.protocol.callId == cid
 
 testCase getBothInnerAbsentRidesProtocolRail:
   ## O.4 — G2 §8.6 row 3: well-formed submission, NO ``Email/set``
@@ -861,7 +861,7 @@ testCase getBothInnerAbsentRidesProtocolRail:
   doAssert results.isErr
   doAssert results.error.kind == jeProtocol
   doAssert results.error.protocol.kind == pfMissingCall
-  doAssert results.error.protocol.callId == Opt.some(cid)
+  doAssert results.error.protocol.callId == cid
 
 testCase getBothInnerMcIdMismatch:
   ## O.5 — G2 §8.6 row 4: outer submission at ``c0`` well-formed + a
@@ -892,7 +892,7 @@ testCase getBothInnerMcIdMismatch:
   doAssert results.isErr
   doAssert results.error.kind == jeProtocol
   doAssert results.error.protocol.kind == pfMissingCall
-  doAssert results.error.protocol.callId == Opt.some(outerCid)
+  doAssert results.error.protocol.callId == outerCid
 
 testCase getBothOuterNotCreatedSole:
   ## O.6 — G2 §8.6 row 5: outer submission with one ``notCreated``
