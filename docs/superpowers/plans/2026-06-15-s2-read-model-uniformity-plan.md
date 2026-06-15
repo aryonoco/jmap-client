@@ -32,7 +32,7 @@ No new deps, no `converter`s, no `requiresInit`.
 - **Status:** 🟢 IN PROGRESS. (Mark each phase ✅ DONE with its commit SHA here.)
   - P0 FieldEcho reader ✅ `0d93a4a` · P1 NonEmptyIdSeq relocate ✅ `a4f5a44` · P2 newtypes ✅ `6c9a306` ·
     P3 ceremony flips ✅ `5785fa2` · P4 Thread ✅ `55042d8` · P5 capability arms ✅ `b83f091` · P6 Account ✅ `b2242fc` ·
-    P7 Session ✅ `065eb6f` · P8 Email headers + MailboxChangesResponse ⬜ ·
+    P7 Session ✅ `065eb6f` · P8 Email headers + MailboxChangesResponse ✅ `27443be` ·
     P9 SetResponse projections ⬜ · P10 contract regen ⬜ · P11 test sweep ⬜ ·
     P12 CLI re-bench ⬜ · P13 gates ⬜.
 
@@ -78,6 +78,50 @@ below; do not re-discover them:
   via the forwarders, so flattening needs no caller migration.
 - Minor drift only: `NonEmptySeq[T]` is at `primitives.nim:328` (plan said ~343);
   `Id` is local to `primitives.nim`, `Idx` is imported from `./validation`.
+
+### RFC-AUDIT FINDINGS (2026-06-15, audited vs docs/rfcs/ — design docs are NOT authoritative)
+
+A full RFC audit of the protocol claims S2 propagated from the agent-authored
+spec/D-decisions. 6 confirmed CORRECT (headers-not-§4.2-default; the 6 bare
+default fields; URL-template required vars §2; mayDelete always-present Boolean
+§6; FieldEcho absent/null/value §5.1+§5.3). Actions:
+- **🔴 B12 was a REAL RFC violation (committed P6) — ✅ FIXED `d062e04`.**
+  `parseAccount` silently dropped write-implying capabilities from a read-only
+  account's `accountCapabilities`. RFC 8620 §2: a capability MUST be listed "if the
+  user may use those methods"; `isReadOnly` is a SEPARATE account-wide axis (a
+  read-only mail account still supports `Email/get`/`query`), so `jmap:mail` MUST
+  stay listed. The filter made `hasCapability(ckMail)`/`mailCapability()` falsely
+  report no mail support. **Resolution (user-chosen): removed the filter entirely**
+  — `parseAccount` now preserves the server's list verbatim; the
+  `WriteImplyingAccountCapabilities` set is deleted; Account is now a clean record
+  (no Tier-C cross-field invariant). **P11 must SEMANTICALLY update (not mechanically
+  adapt) the tests asserting the old drop:** `tests/property/tprop_account.nim`
+  (`propAccountB12SilentDropWriteImplying`), `tests/unit/tsession_account_convenience.nim`
+  (section E `b12…`), `tests/compile/tcompile_a17_account_capability_surface.nim:21`
+  (`declared(WriteImplyingAccountCapabilities)`). **P10** drops `public-api.txt:1354`
+  (the removed const) in the regen.
+- **Citation/wording fixes (no behaviour) — ✅ ALL DONE:** snippet.nim §4.8→§5 (P8
+  `27443be`); thread.nim "implicitly non-empty per §3", session.nim DisplayName /
+  ApiUrl / detectApiUrl citations softened, serde_session.nim B12 docstring (all
+  `d062e04`).
+- **Post-S2: a dedicated RFC-conformance audit of the WHOLE codebase** (every D/A/B
+  decision + protocol claim, not just S2-touched) is a USER-APPROVED new sub-project
+  to run AFTER S2 completes — record it in the campaign handoff at S2 wrap-up.
+
+### DEFERRED FINDINGS (discovered during execution; OUT of S2 scope)
+
+- **The D5 "always emit every field, `null` for `Opt.none`" toJson convention is
+  NOT RFC-faithful** (RFC-verified during P8, citing RFC 8620 §5.1: a `/get`
+  response returns only the requested properties, so an unrequested property is
+  ABSENT, never present-as-`null`). The codebase's `toJson` (Email and others)
+  emits `null` for every `none`, fabricating a response no compliant server would
+  send. The two-state `Opt` also conflates "not requested" with "requested-and-
+  null", which only `FieldEcho[T]`'s three states preserve. P8 makes the three
+  Email header fields correctly OMIT-on-none (RFC-correct), but the broader
+  convention is a serde-fidelity defect for a FUTURE sub-project — do NOT fix in
+  S2. (The omit rule is correct ONLY for render-from-not-requested fields; a
+  genuinely wire-nullable property that was requested-and-absent must serialise as
+  `null`, so this must not be generalised to "omit all none fields".)
 
 ---
 
