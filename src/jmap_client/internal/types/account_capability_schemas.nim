@@ -28,43 +28,22 @@ import ./submission_atoms
 
 type MailAccountCapabilities* {.ruleOff: "objects".} = object
   ## Per-account Mail capability schema (RFC 8621 §1.3.1).
+  ## Tier-C: numeric bounds (>=1 / >=100) are enforced by
+  ## parseMailAccountCapabilities; raw construction is out-of-contract.
   ## Threading: value type, immutable after construction, freely
   ## shareable across threads.
-  rawMaxMailboxesPerEmail: Opt[UnsignedInt]
-  rawMaxMailboxDepth: Opt[UnsignedInt]
-  rawMaxSizeMailboxName: Opt[UnsignedInt]
-  rawMaxSizeAttachmentsPerEmail: UnsignedInt
-  rawEmailQuerySortOptions: HashSet[string]
-  rawMayCreateTopLevelMailbox: bool
-
-func maxMailboxesPerEmail*(m: MailAccountCapabilities): Opt[UnsignedInt] =
-  ## Null when no per-account limit; ``>= 1`` when present per RFC 8621
-  ## §1.3.1.
-  m.rawMaxMailboxesPerEmail
-
-func maxMailboxDepth*(m: MailAccountCapabilities): Opt[UnsignedInt] =
-  ## Null when no per-account depth limit.
-  m.rawMaxMailboxDepth
-
-func maxSizeMailboxName*(m: MailAccountCapabilities): Opt[UnsignedInt] =
-  ## Octets. ``>= 100`` when present per RFC 8621 §1.3.1. Cyrus 3.12.2
-  ## omits the field; the Postel-receive serde surfaces absence as
-  ## ``Opt.none`` rather than synthesising a default.
-  m.rawMaxSizeMailboxName
-
-func maxSizeAttachmentsPerEmail*(m: MailAccountCapabilities): UnsignedInt =
-  ## Maximum total attachment size per email in octets.
-  m.rawMaxSizeAttachmentsPerEmail
-
-func emailQuerySortOptions*(m: MailAccountCapabilities): lent HashSet[string] =
-  ## Supported sort properties for ``Email/query`` calls.
-  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
-  ## sealed container.
-  m.rawEmailQuerySortOptions
-
-func mayCreateTopLevelMailbox*(m: MailAccountCapabilities): bool =
-  ## Whether the client may create top-level mailboxes.
-  m.rawMayCreateTopLevelMailbox
+  maxMailboxesPerEmail*: Opt[UnsignedInt]
+    ## null when no per-account limit; ``>= 1`` when present (RFC 8621 §1.3.1)
+  maxMailboxDepth*: Opt[UnsignedInt] ## null when no per-account depth limit
+  maxSizeMailboxName*: Opt[UnsignedInt]
+    ## octets; ``>= 100`` when present (RFC 8621 §1.3.1). Cyrus 3.12.2 omits
+    ## the field; the Postel-receive serde surfaces absence as ``Opt.none``
+    ## rather than synthesising a default.
+  maxSizeAttachmentsPerEmail*: UnsignedInt
+    ## maximum total attachment size per email in octets
+  emailQuerySortOptions*: HashSet[string]
+    ## supported sort properties for ``Email/query`` calls
+  mayCreateTopLevelMailbox*: bool ## whether the client may create top-level mailboxes
 
 func parseMailAccountCapabilities*(
     maxMailboxesPerEmail: Opt[UnsignedInt],
@@ -93,12 +72,12 @@ func parseMailAccountCapabilities*(
       )
   ok(
     MailAccountCapabilities(
-      rawMaxMailboxesPerEmail: maxMailboxesPerEmail,
-      rawMaxMailboxDepth: maxMailboxDepth,
-      rawMaxSizeMailboxName: maxSizeMailboxName,
-      rawMaxSizeAttachmentsPerEmail: maxSizeAttachmentsPerEmail,
-      rawEmailQuerySortOptions: emailQuerySortOptions,
-      rawMayCreateTopLevelMailbox: mayCreateTopLevelMailbox,
+      maxMailboxesPerEmail: maxMailboxesPerEmail,
+      maxMailboxDepth: maxMailboxDepth,
+      maxSizeMailboxName: maxSizeMailboxName,
+      maxSizeAttachmentsPerEmail: maxSizeAttachmentsPerEmail,
+      emailQuerySortOptions: emailQuerySortOptions,
+      mayCreateTopLevelMailbox: mayCreateTopLevelMailbox,
     )
   )
 
@@ -108,19 +87,16 @@ func parseMailAccountCapabilities*(
 
 type SubmissionAccountCapabilities* {.ruleOff: "objects".} = object
   ## Per-account Submission capability schema (RFC 8621 §1.3.2).
+  ## Both fields are public read fields carrying already-validated types,
+  ## so direct construction cannot forge an illegal value.
+  ## ``parseSubmissionAccountCapabilities`` remains the convenience
+  ## constructor.
   ## Threading: value type, immutable after construction, freely
   ## shareable across threads.
-  rawMaxDelayedSend: UnsignedInt
-  rawSubmissionExtensions: SubmissionExtensionMap
-
-func maxDelayedSend*(s: SubmissionAccountCapabilities): UnsignedInt =
-  ## Maximum delay in seconds for delayed send. ``0`` means delayed send
-  ## is not supported.
-  s.rawMaxDelayedSend
-
-func submissionExtensions*(s: SubmissionAccountCapabilities): SubmissionExtensionMap =
-  ## Server-advertised RFC 5321 ESMTP extension keywords with their args.
-  s.rawSubmissionExtensions
+  maxDelayedSend*: UnsignedInt
+    ## maximum delay in seconds for delayed send; ``0`` means unsupported
+  submissionExtensions*: SubmissionExtensionMap
+    ## server-advertised RFC 5321 ESMTP extension keywords with their args
 
 func parseSubmissionAccountCapabilities*(
     maxDelayedSend: UnsignedInt, submissionExtensions: SubmissionExtensionMap
@@ -132,7 +108,7 @@ func parseSubmissionAccountCapabilities*(
   ## constructor contract.
   ok(
     SubmissionAccountCapabilities(
-      rawMaxDelayedSend: maxDelayedSend, rawSubmissionExtensions: submissionExtensions
+      maxDelayedSend: maxDelayedSend, submissionExtensions: submissionExtensions
     )
   )
 

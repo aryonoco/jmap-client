@@ -53,50 +53,21 @@ func capabilityUri*(kind: CapabilityKind): Opt[string] =
 
 type CoreCapabilities* {.ruleOff: "objects".} = object
   ## Server-advertised core limits and supported collations (RFC 8620 §2).
+  ## All fields are public read fields: the numeric limits are already
+  ## validated ``UnsignedInt`` distincts, so direct construction cannot
+  ## forge an illegal value. ``parseCoreCapabilities`` remains the
+  ## convenience constructor.
   ## Threading: value type, immutable after construction, freely
   ## shareable across threads.
-  rawMaxSizeUpload: UnsignedInt
-  rawMaxConcurrentUpload: UnsignedInt
-  rawMaxSizeRequest: UnsignedInt
-  rawMaxConcurrentRequests: UnsignedInt
-  rawMaxCallsInRequest: UnsignedInt
-  rawMaxObjectsInGet: UnsignedInt
-  rawMaxObjectsInSet: UnsignedInt
-  rawCollationAlgorithms: HashSet[CollationAlgorithm]
-
-func maxSizeUpload*(c: CoreCapabilities): UnsignedInt =
-  ## Max file size in octets for a single upload.
-  c.rawMaxSizeUpload
-
-func maxConcurrentUpload*(c: CoreCapabilities): UnsignedInt =
-  ## Max concurrent requests to the upload endpoint.
-  c.rawMaxConcurrentUpload
-
-func maxSizeRequest*(c: CoreCapabilities): UnsignedInt =
-  ## Max request size in octets for the API endpoint.
-  c.rawMaxSizeRequest
-
-func maxConcurrentRequests*(c: CoreCapabilities): UnsignedInt =
-  ## Max concurrent requests to the API endpoint.
-  c.rawMaxConcurrentRequests
-
-func maxCallsInRequest*(c: CoreCapabilities): UnsignedInt =
-  ## Max method calls per single API request.
-  c.rawMaxCallsInRequest
-
-func maxObjectsInGet*(c: CoreCapabilities): UnsignedInt =
-  ## Max objects per single /get call.
-  c.rawMaxObjectsInGet
-
-func maxObjectsInSet*(c: CoreCapabilities): UnsignedInt =
-  ## Max combined create/update/destroy per /set call.
-  c.rawMaxObjectsInSet
-
-func collationAlgorithms*(c: CoreCapabilities): lent HashSet[CollationAlgorithm] =
-  ## RFC 4790 collation algorithm identifiers advertised by the server.
-  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
-  ## sealed container.
-  c.rawCollationAlgorithms
+  maxSizeUpload*: UnsignedInt ## max file size in octets for a single upload
+  maxConcurrentUpload*: UnsignedInt ## max concurrent requests to upload endpoint
+  maxSizeRequest*: UnsignedInt ## max request size in octets for the API endpoint
+  maxConcurrentRequests*: UnsignedInt ## max concurrent requests to API endpoint
+  maxCallsInRequest*: UnsignedInt ## max method calls per single API request
+  maxObjectsInGet*: UnsignedInt ## max objects per single /get call
+  maxObjectsInSet*: UnsignedInt ## max create/update/destroy per /set call
+  collationAlgorithms*: HashSet[CollationAlgorithm]
+    ## RFC 4790 collation algorithm identifiers advertised by the server
 
 func parseCoreCapabilities*(
     maxSizeUpload: UnsignedInt,
@@ -114,14 +85,14 @@ func parseCoreCapabilities*(
   ## ``?`` / ``valueOr:``.
   ok(
     CoreCapabilities(
-      rawMaxSizeUpload: maxSizeUpload,
-      rawMaxConcurrentUpload: maxConcurrentUpload,
-      rawMaxSizeRequest: maxSizeRequest,
-      rawMaxConcurrentRequests: maxConcurrentRequests,
-      rawMaxCallsInRequest: maxCallsInRequest,
-      rawMaxObjectsInGet: maxObjectsInGet,
-      rawMaxObjectsInSet: maxObjectsInSet,
-      rawCollationAlgorithms: collationAlgorithms,
+      maxSizeUpload: maxSizeUpload,
+      maxConcurrentUpload: maxConcurrentUpload,
+      maxSizeRequest: maxSizeRequest,
+      maxConcurrentRequests: maxConcurrentRequests,
+      maxCallsInRequest: maxCallsInRequest,
+      maxObjectsInGet: maxObjectsInGet,
+      maxObjectsInSet: maxObjectsInSet,
+      collationAlgorithms: collationAlgorithms,
     )
   )
 
@@ -375,7 +346,7 @@ func hash*(c: ServerCapability): Hash =
 
 func hasCollation*(c: CoreCapabilities, algorithm: CollationAlgorithm): bool =
   ## Checks whether the server supports a given RFC 4790 collation algorithm.
-  return algorithm in c.collationAlgorithms()
+  return algorithm in c.collationAlgorithms
 
 type CapabilityUri* {.ruleOff: "objects".} = object
   ## RFC 8620 §2 capability URI carrier. Used internally by every typed
