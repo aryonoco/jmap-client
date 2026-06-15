@@ -162,7 +162,7 @@ testCase stressCombinatorialSession:
     .get()
   doAssert session.accounts.len == 50
   doAssert session.capabilities.len == 4
-  doAssert session.coreCapabilities().maxSizeUpload == realisticCoreCaps().maxSizeUpload
+  doAssert session.core.maxSizeUpload == realisticCoreCaps().maxSizeUpload
 
 testCase stressFilterWide50000:
   ## Filter tree with 50000 children. Tests wide allocation under ARC.

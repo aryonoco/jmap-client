@@ -19,10 +19,10 @@ import ../mtestblock
 testCase propServerCapabilityRoundTrip:
   checkProperty "ServerCapability round-trip preserves the capability":
     let cap = rng.genServerCapability()
-    lastInput = cap.uri()
-    let rt = ServerCapability.fromJson(cap.uri(), cap.toJson())
-    doAssert rt.isOk, "fromJson failed for " & cap.uri()
-    doAssert rt.get() == cap, "round-trip mismatch for " & cap.uri()
+    lastInput = cap.uri
+    let rt = ServerCapability.fromJson(cap.uri, cap.toJson())
+    doAssert rt.isOk, "fromJson failed for " & cap.uri
+    doAssert rt.get() == cap, "round-trip mismatch for " & cap.uri
 
 testCase propServerCapabilityEveryArmExercised:
   ## Across enough trials, the generator hits every arm. Verify each
@@ -44,7 +44,7 @@ testCase propServerCapabilityEveryArmExercised:
       "urn:ietf:params:jmap:core", Opt.some(coreCaps), Opt.none(JsonNode)
     )
     .get()
-  doAssert coreCap == ServerCapability.fromJson(coreCap.uri(), coreCap.toJson()).get()
+  doAssert coreCap == ServerCapability.fromJson(coreCap.uri, coreCap.toJson()).get()
 
   const discardUris = [
     "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission",

@@ -71,35 +71,37 @@ testCase supportsVacationResponseFalseWhenAbsent:
 
 testCase accountPolicyOwnedPersonalReadWrite:
   let acct = parseAccount("x", isPersonal = true, isReadOnly = false, @[]).get()
-  doAssert acct.policy() == apOwned
+  doAssert acct.policy == apOwned
   doAssert acct.isPersonal()
   doAssert not acct.isReadOnly()
 
 testCase accountPolicyOwnedReadOnly:
   let acct = parseAccount("x", isPersonal = true, isReadOnly = true, @[]).get()
-  doAssert acct.policy() == apOwnedReadOnly
+  doAssert acct.policy == apOwnedReadOnly
   doAssert acct.isPersonal()
   doAssert acct.isReadOnly()
 
 testCase accountPolicySharedReadWrite:
   let acct = parseAccount("x", isPersonal = false, isReadOnly = false, @[]).get()
-  doAssert acct.policy() == apShared
+  doAssert acct.policy == apShared
   doAssert not acct.isPersonal()
   doAssert not acct.isReadOnly()
 
 testCase accountPolicySharedReadOnly:
   let acct = parseAccount("x", isPersonal = false, isReadOnly = true, @[]).get()
-  doAssert acct.policy() == apSharedReadOnly
+  doAssert acct.policy == apSharedReadOnly
   doAssert not acct.isPersonal()
   doAssert acct.isReadOnly()
 
 # =============================================================================
-# E. B12 silent-drop — observable through convenience accessors
+# E. Capabilities preserved regardless of isReadOnly
 # =============================================================================
 
-testCase b12SilentDropMailCapabilityOnSharedReadOnly:
-  ## Read-only account constructed with a ckMail entry: parseAccount
-  ## silently drops the entry, so mailCapability returns none.
+testCase mailCapabilityPreservedOnSharedReadOnly:
+  ## A read-only account preserves every capability the server advertised.
+  ## Dropping write-implying capabilities from a read-only account would
+  ## violate RFC 8620 §2, so parseAccount keeps the ckMail entry and
+  ## mailCapability returns some.
   let acct = parseAccount(
       "shared-ro",
       isPersonal = false,
@@ -107,5 +109,5 @@ testCase b12SilentDropMailCapabilityOnSharedReadOnly:
       @[makeMailAccountEntry(makeMailAccountCapabilities())],
     )
     .get()
-  doAssert acct.mailCapability().isNone
-  doAssert acct.accountCapabilities().len == 0
+  doAssert acct.mailCapability().isSome
+  doAssert acct.accountCapabilities.len == 1

@@ -593,9 +593,9 @@ proc makeEmail*(): Email =
     replyTo: Opt.none(seq[EmailAddress]),
     subject: Opt.none(string),
     sentAt: Opt.none(Date),
-    headers: @[],
-    requestedHeaders: initTable[HeaderPropertyKey, HeaderValue](),
-    requestedHeadersAll: initTable[HeaderPropertyKey, seq[HeaderValue]](),
+    headers: Opt.some(newSeq[EmailHeader]()),
+    requestedHeaders: Opt.none(Table[HeaderPropertyKey, HeaderValue]),
+    requestedHeadersAll: Opt.none(Table[HeaderPropertyKey, seq[HeaderValue]]),
     bodyStructure: Opt.some(leaf),
     bodyValues: initTable[PartId, EmailBodyValue](),
     textBody: @[],
@@ -621,9 +621,9 @@ proc makeParsedEmail*(): ParsedEmail =
     replyTo: Opt.none(seq[EmailAddress]),
     subject: Opt.none(string),
     sentAt: Opt.none(Date),
-    headers: @[],
-    requestedHeaders: initTable[HeaderPropertyKey, HeaderValue](),
-    requestedHeadersAll: initTable[HeaderPropertyKey, seq[HeaderValue]](),
+    headers: Opt.some(newSeq[EmailHeader]()),
+    requestedHeaders: Opt.none(Table[HeaderPropertyKey, HeaderValue]),
+    requestedHeadersAll: Opt.none(Table[HeaderPropertyKey, seq[HeaderValue]]),
     bodyStructure: Opt.some(leaf),
     bodyValues: initTable[PartId, EmailBodyValue](),
     textBody: @[],
@@ -989,6 +989,20 @@ proc optKeywordSetEq(a, b: Opt[KeywordSet]): bool =
     return a.unsafeGet.toHashSet == b.unsafeGet.toHashSet
   return a.isSome == b.isSome
 
+proc optHeaderTableEq(a, b: Opt[Table[HeaderPropertyKey, HeaderValue]]): bool =
+  ## ``requestedHeaders`` is now ``Opt[Table[...]]``; both none → equal,
+  ## both some → defer to ``headerTableEq`` (case-object ``HeaderValue``),
+  ## mixed → not equal. Mirrors ``optBodyPartEq``.
+  if a.isSome and b.isSome:
+    return headerTableEq(a.unsafeGet, b.unsafeGet)
+  return a.isSome == b.isSome
+
+proc optHeaderTableAllEq(a, b: Opt[Table[HeaderPropertyKey, seq[HeaderValue]]]): bool =
+  ## Same shape as ``optHeaderTableEq`` for the ``:all`` dynamic header table.
+  if a.isSome and b.isSome:
+    return headerTableAllEq(a.unsafeGet, b.unsafeGet)
+  return a.isSome == b.isSome
+
 proc emailMetadataEq(a, b: Email): bool =
   ## Compares Email metadata fields (7 ``Opt`` fields). Distinct HashSet
   ## types are unwrapped because ``defineHashSetDistinctOps`` omits ``==``.
@@ -1002,20 +1016,18 @@ proc emailEq*(a, b: Email): bool =
   ## convenience headers, dynamic headers, and body sub-comparisons.
   ## Follows ``sessionEq`` pattern.
   emailMetadataEq(a, b) and convStringHeadersEq(a, b) and convAddressHeadersEq(a, b) and
-    a.headers == b.headers and headerTableEq(a.requestedHeaders, b.requestedHeaders) and
-    headerTableAllEq(a.requestedHeadersAll, b.requestedHeadersAll) and bodyFieldsEq(
-    a, b
-  )
+    a.headers == b.headers and optHeaderTableEq(a.requestedHeaders, b.requestedHeaders) and
+    optHeaderTableAllEq(a.requestedHeadersAll, b.requestedHeadersAll) and
+    bodyFieldsEq(a, b)
 
 proc parsedEmailEq*(a, b: ParsedEmail): bool =
   ## Deep value equality for ParsedEmail (22 fields). Same shared field groups
   ## as ``emailEq`` minus 6 metadata fields, plus ``threadId: Opt[Id]``.
   ## Reuses generic sub-helpers for shared convenience header and body groups.
   a.threadId == b.threadId and convStringHeadersEq(a, b) and convAddressHeadersEq(a, b) and
-    a.headers == b.headers and headerTableEq(a.requestedHeaders, b.requestedHeaders) and
-    headerTableAllEq(a.requestedHeadersAll, b.requestedHeadersAll) and bodyFieldsEq(
-    a, b
-  )
+    a.headers == b.headers and optHeaderTableEq(a.requestedHeaders, b.requestedHeaders) and
+    optHeaderTableAllEq(a.requestedHeadersAll, b.requestedHeadersAll) and
+    bodyFieldsEq(a, b)
 
 proc emailComparatorEq*(a, b: EmailComparator): bool =
   ## Deep value equality for EmailComparator (case object). Follows

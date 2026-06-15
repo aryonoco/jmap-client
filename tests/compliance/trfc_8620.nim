@@ -233,7 +233,7 @@ testCase rfc8620_S1_8_rawUriPreservedForVendorExtension:
       Opt.some(newJObject()),
     )
     .get()
-  doAssert sc.uri() == "https://vendor.example/custom"
+  doAssert sc.uri == "https://vendor.example/custom"
   doAssert sc.kind == ckUnknown
 
 # =============================================================================
@@ -336,10 +336,10 @@ testCase rfc8620_S2_coreCapabilitiesAllEightFields:
 testCase rfc8620_S2_accountObjectStructure:
   ## RFC S2 Account object has name, isPersonal, isReadOnly, accountCapabilities.
   let acct = parseAccount("Personal", isPersonal = true, isReadOnly = false, @[]).get()
-  doAssert acct.name() == "Personal"
+  doAssert $acct.name == "Personal"
   doAssert acct.isPersonal() == true
   doAssert acct.isReadOnly() == false
-  doAssert acct.accountCapabilities().len == 0
+  doAssert acct.accountCapabilities.len == 0
 
 testCase rfc8620_S2_collationAlgorithmStandardIdentifiers:
   ## RFC 4790 standard collation identifiers used in JMAP core capabilities.
@@ -1207,7 +1207,7 @@ testCase rfc8620_S2_goldenSessionToJson:
   let session = r
   # Verify structural properties
   assertEq session.username, "john@example.com"
-  assertEq session.apiUrl, "https://jmap.example.com/api/"
+  assertEq $session.apiUrl, "https://jmap.example.com/api/"
   assertEq session.state, parseJmapState("75128aab4b1b").get()
   # Serialise and verify key fields in the output JSON
   let outJson = session.toJson()

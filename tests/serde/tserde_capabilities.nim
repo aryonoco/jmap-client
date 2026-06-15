@@ -75,9 +75,9 @@ testCase coreCapabilitiesDeserValid:
     "collationAlgorithms": ["i;ascii-numeric"],
   }
   let caps = CoreCapabilities.fromJson(j).get()
-  assertEq caps.maxSizeUpload().toInt64, 50000000'i64
-  assertEq caps.maxCallsInRequest().toInt64, 32'i64
-  doAssert caps.collationAlgorithms().contains(CollationAsciiNumeric)
+  assertEq caps.maxSizeUpload.toInt64, 50000000'i64
+  assertEq caps.maxCallsInRequest.toInt64, 32'i64
+  doAssert caps.collationAlgorithms.contains(CollationAsciiNumeric)
 
 testCase coreCapabilitiesDeserMissingField:
   let j = %*{
@@ -129,7 +129,7 @@ testCase coreCapabilitiesDeserEmptyCollation:
     "collationAlgorithms": [],
   }
   let r = CoreCapabilities.fromJson(j).get()
-  assertEq r.collationAlgorithms().len, 0
+  assertEq r.collationAlgorithms.len, 0
 
 testCase coreCapabilitiesDeserCollationNonString:
   let j = %*{
@@ -174,7 +174,7 @@ testCase coreCapabilitiesDeserSingularOnly:
     "collationAlgorithms": [],
   }
   let r = CoreCapabilities.fromJson(j).get()
-  assertEq r.maxConcurrentRequests().toInt64, 5'i64
+  assertEq r.maxConcurrentRequests.toInt64, 5'i64
 
 testCase coreCapabilitiesDeserBothDifferentValues:
   let j = %*{
@@ -190,7 +190,7 @@ testCase coreCapabilitiesDeserBothDifferentValues:
   }
   let r = CoreCapabilities.fromJson(j).get()
   # Plural form takes precedence
-  assertEq r.maxConcurrentRequests().toInt64, 10'i64
+  assertEq r.maxConcurrentRequests.toInt64, 10'i64
 
 testCase coreCapabilitiesDeserNeitherPresent:
   let j = %*{
@@ -210,7 +210,7 @@ testCase coreCapabilitiesDeserNeitherPresent:
 
 testCase roundTripServerCapabilityCkCore:
   let original = makeCoreServerCap(realisticCoreCaps())
-  assertCapOkEq ServerCapability.fromJson(original.uri(), original.toJson()).get(),
+  assertCapOkEq ServerCapability.fromJson(original.uri, original.toJson()).get(),
     original
 
 testCase serverCapabilityDeserCkCoreValid:
@@ -226,7 +226,7 @@ testCase serverCapabilityDeserCkCoreValid:
   }
   let r = ServerCapability.fromJson("urn:ietf:params:jmap:core", j).get()
   doAssert r.kind == ckCore
-  assertEq r.uri(), "urn:ietf:params:jmap:core"
+  assertEq r.uri, "urn:ietf:params:jmap:core"
 
 testCase serverCapabilityDeserCkCoreMissingField:
   let j = %*{"maxSizeUpload": 1}
@@ -242,7 +242,7 @@ testCase serverCapabilityDeserUnknownUri:
   let data = %*{"maxFoosFinangled": 42}
   let cap = ServerCapability.fromJson("https://vendor.example/ext", data).get()
   doAssert cap.kind == ckUnknown
-  assertEq cap.uri(), "https://vendor.example/ext"
+  assertEq cap.uri, "https://vendor.example/ext"
   let raw = cap.asRawData()
   assertSome raw
   doAssert raw.get(){"maxFoosFinangled"} != nil
@@ -299,7 +299,7 @@ testCase serverCapabilityAllVariantsDeserRoundTrip:
   for (uri, expectedKind) in variants:
     let r = ServerCapability.fromJson(uri, testData).get()
     doAssert r.kind == expectedKind, "wrong kind for " & uri
-    assertEq r.uri(), uri
+    assertEq r.uri, uri
     # Verify rawData preserved (deep copy)
     let rtJson = r.toJson()
     doAssert rtJson{"vendorExtension"} != nil, "rawData lost for " & uri
@@ -349,7 +349,7 @@ testCase coreCapabilitiesDeserMaxUnsignedIntBoundary:
     "collationAlgorithms": [],
   }
   let r = CoreCapabilities.fromJson(j).get()
-  assertEq r.maxSizeUpload().toInt64, maxVal
+  assertEq r.maxSizeUpload.toInt64, maxVal
 
 testCase coreCapabilitiesCollationDuplicatesDeduplication:
   ## HashSet deduplicates collation algorithms.
@@ -364,7 +364,7 @@ testCase coreCapabilitiesCollationDuplicatesDeduplication:
     "collationAlgorithms": ["i;ascii-casemap", "i;ascii-casemap", "i;octet"],
   }
   let r = CoreCapabilities.fromJson(j).get()
-  assertEq r.collationAlgorithms().len, 2
+  assertEq r.collationAlgorithms.len, 2
 
 testCase coreCapabilitiesCollationVendorExtensionRoundTrip:
   ## Vendor extension identifiers round-trip through toJson/fromJson
@@ -372,12 +372,12 @@ testCase coreCapabilitiesCollationVendorExtensionRoundTrip:
   var j = validCoreCapsJson()
   j["collationAlgorithms"] = %*["x-foo", "i;octet"]
   let r = CoreCapabilities.fromJson(j).get()
-  assertEq r.collationAlgorithms().len, 2
-  doAssert r.collationAlgorithms().contains(CollationOctet)
-  doAssert r.collationAlgorithms().contains(parseCollationAlgorithm("x-foo").get())
+  assertEq r.collationAlgorithms.len, 2
+  doAssert r.collationAlgorithms.contains(CollationOctet)
+  doAssert r.collationAlgorithms.contains(parseCollationAlgorithm("x-foo").get())
   # Round-trip preserves wire identifier
   let rt = CoreCapabilities.fromJson(r.toJson()).get()
-  doAssert rt.collationAlgorithms().contains(parseCollationAlgorithm("x-foo").get())
+  doAssert rt.collationAlgorithms.contains(parseCollationAlgorithm("x-foo").get())
 
 testCase coreCapabilitiesCollationEmptyStringElementErr:
   ## An empty string in the collationAlgorithms array violates the wire
@@ -389,7 +389,7 @@ testCase coreCapabilitiesCollationEmptyStringElementErr:
 testCase serverCapabilityNestedRawDataRoundTrip:
   let data = %*{"foo": {"bar": [1, 2, {"baz": true}]}}
   let cap = ServerCapability.fromJson("https://vendor.example/ext", data).get()
-  let rt = ServerCapability.fromJson(cap.uri(), cap.toJson()).get()
+  let rt = ServerCapability.fromJson(cap.uri, cap.toJson()).get()
   doAssert rt == cap
 
 testCase serverCapabilityJNullDataNonDiscardArm:
@@ -437,10 +437,10 @@ testCase collationAlgorithmsLarge1000:
     algArr.add(%("alg" & $i))
   j["collationAlgorithms"] = algArr
   let r = CoreCapabilities.fromJson(j).get()
-  assertEq r.collationAlgorithms().len, 1000
+  assertEq r.collationAlgorithms.len, 1000
   # Round-trip
   let rt = CoreCapabilities.fromJson(r.toJson()).get()
-  assertEq rt.collationAlgorithms().len, 1000
+  assertEq rt.collationAlgorithms.len, 1000
 
 # =============================================================================
 # F. Property-based round-trip tests
@@ -452,7 +452,7 @@ checkProperty "CoreCapabilities round-trip":
 
 checkProperty "ServerCapability round-trip":
   let cap = rng.genServerCapability()
-  assertCapOkEq ServerCapability.fromJson(cap.uri(), cap.toJson()).get(), cap
+  assertCapOkEq ServerCapability.fromJson(cap.uri, cap.toJson()).get(), cap
 
 # =============================================================================
 # G. Equality helper verification

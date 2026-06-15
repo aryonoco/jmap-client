@@ -830,7 +830,7 @@ testCase extraFieldsIgnoredAccount:
     "vendorExtension": "test",
   }
   let r = Account.fromJson(j).get()
-  assertEq r.name, "test@example.com"
+  assertEq $r.name, "test@example.com"
 
 testCase extraFieldsIgnoredComparator:
   ## Comparator JSON with an extra unknown field must parse successfully.

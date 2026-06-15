@@ -44,11 +44,11 @@ testCase propRoundTripRequest:
 testCase propRoundTripServerCapabilityRawData:
   checkPropertyN "ServerCapability rawData preserved through round-trip", ThoroughTrials:
     let cap = rng.genServerCapability()
-    lastInput = cap.uri()
+    lastInput = cap.uri
     if cap.kind != ckCore:
       let j = cap.toJson()
-      let rt = ServerCapability.fromJson(cap.uri(), j).get()
-      doAssert capEq(rt, cap), "rawData lost for " & cap.uri()
+      let rt = ServerCapability.fromJson(cap.uri, j).get()
+      doAssert capEq(rt, cap), "rawData lost for " & cap.uri
 
 testCase propRoundTripComparator:
   checkPropertyN "Comparator round-trip preserves all fields", ThoroughTrials:
@@ -341,10 +341,10 @@ testCase propRoundTripAccount:
   ## pass (parse → emit → parse → emit must converge).
   checkPropertyN "Account round-trips through fromJson/toJson", ThoroughTrials:
     let acct = rng.genAccount()
-    lastInput = acct.name()
+    lastInput = $acct.name
     let j = acct.toJson()
     let v = Account.fromJson(j).get()
-    doAssert v.name() == acct.name(), "Account name changed"
+    doAssert v.name == acct.name, "Account name changed"
     doAssert v.isPersonal() == acct.isPersonal(), "Account isPersonal changed"
     doAssert v.isReadOnly() == acct.isReadOnly(), "Account isReadOnly changed"
     # Second pass must be JSON-stable: parsing v.toJson() yields the same v.

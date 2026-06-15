@@ -43,7 +43,7 @@ checkProperty "CoreCapabilities serde round-trip":
 
 checkProperty "ServerCapability serde round-trip":
   let original = rng.genServerCapability()
-  let rt = ServerCapability.fromJson(original.uri(), original.toJson()).get()
+  let rt = ServerCapability.fromJson(original.uri, original.toJson()).get()
   doAssert capEq(rt, original), "ServerCapability round-trip values differ"
 
 checkProperty "Account serde round-trip":

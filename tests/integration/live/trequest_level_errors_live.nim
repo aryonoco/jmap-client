@@ -119,7 +119,7 @@ testCase trequestLevelErrorsLive:
     # Sub-test 4: oversized request body — exceeds server's advertised
     # ``maxSizeRequest``.
     block limitCase:
-      let maxSize = session.coreCapabilities().maxSizeRequest.toInt64.int
+      let maxSize = session.core.maxSizeRequest.toInt64.int
       let oversize = maxSize + 1024
       let blob = "x".repeat(oversize)
       const prefix =

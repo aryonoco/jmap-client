@@ -51,17 +51,17 @@ testCase parseMailAccountCapabilitiesValid:
   let res = MailAccountCapabilities.fromJson(validMailCapJson())
   assertOk res
   let mc = res.get()
-  assertSome mc.maxMailboxesPerEmail()
-  assertEq mc.maxMailboxesPerEmail().get().toInt64, 10'i64
-  assertSome mc.maxMailboxDepth()
-  assertEq mc.maxMailboxDepth().get().toInt64, 5'i64
-  assertSome mc.maxSizeMailboxName()
-  assertEq mc.maxSizeMailboxName().get().toInt64, 200'i64
-  assertEq mc.maxSizeAttachmentsPerEmail().toInt64, 50000000'i64
-  doAssert "receivedAt" in mc.emailQuerySortOptions()
-  doAssert "from" in mc.emailQuerySortOptions()
-  assertEq mc.emailQuerySortOptions().len, 5
-  assertEq mc.mayCreateTopLevelMailbox(), true
+  assertSome mc.maxMailboxesPerEmail
+  assertEq mc.maxMailboxesPerEmail.get().toInt64, 10'i64
+  assertSome mc.maxMailboxDepth
+  assertEq mc.maxMailboxDepth.get().toInt64, 5'i64
+  assertSome mc.maxSizeMailboxName
+  assertEq mc.maxSizeMailboxName.get().toInt64, 200'i64
+  assertEq mc.maxSizeAttachmentsPerEmail.toInt64, 50000000'i64
+  doAssert "receivedAt" in mc.emailQuerySortOptions
+  doAssert "from" in mc.emailQuerySortOptions
+  assertEq mc.emailQuerySortOptions.len, 5
+  assertEq mc.mayCreateTopLevelMailbox, true
 
 # =============================================================================
 # B. MailAccountCapabilities — maxMailboxesPerEmail invariant
@@ -72,8 +72,8 @@ testCase maxMailboxesPerEmailBoundaryOk:
   j["maxMailboxesPerEmail"] = %1
   let res = MailAccountCapabilities.fromJson(j)
   assertOk res
-  assertSome res.get().maxMailboxesPerEmail()
-  assertEq res.get().maxMailboxesPerEmail().get().toInt64, 1'i64
+  assertSome res.get().maxMailboxesPerEmail
+  assertEq res.get().maxMailboxesPerEmail.get().toInt64, 1'i64
 
 testCase maxMailboxesPerEmailZero:
   var j = validMailCapJson()
@@ -85,14 +85,14 @@ testCase maxMailboxesPerEmailNull:
   j["maxMailboxesPerEmail"] = newJNull()
   let res = MailAccountCapabilities.fromJson(j)
   assertOk res
-  assertNone res.get().maxMailboxesPerEmail()
+  assertNone res.get().maxMailboxesPerEmail
 
 testCase maxMailboxesPerEmailAbsent:
   var j = validMailCapJson()
   j.delete("maxMailboxesPerEmail")
   let res = MailAccountCapabilities.fromJson(j)
   assertOk res
-  assertNone res.get().maxMailboxesPerEmail()
+  assertNone res.get().maxMailboxesPerEmail
 
 # =============================================================================
 # C. MailAccountCapabilities — maxSizeMailboxName invariant
@@ -108,8 +108,8 @@ testCase maxSizeMailboxNameBoundaryOk:
   j["maxSizeMailboxName"] = %100
   let res = MailAccountCapabilities.fromJson(j)
   assertOk res
-  assertSome res.get().maxSizeMailboxName()
-  assertEq res.get().maxSizeMailboxName().get().toInt64, 100'i64
+  assertSome res.get().maxSizeMailboxName
+  assertEq res.get().maxSizeMailboxName.get().toInt64, 100'i64
 
 testCase missingMaxSizeMailboxNameIsOptional:
   ## RFC 8621 §1.3.1 lists ``maxSizeMailboxName`` as informational, not
@@ -119,14 +119,14 @@ testCase missingMaxSizeMailboxNameIsOptional:
   j.delete("maxSizeMailboxName")
   let res = MailAccountCapabilities.fromJson(j)
   assertOk res
-  assertNone res.get().maxSizeMailboxName()
+  assertNone res.get().maxSizeMailboxName
 
 testCase maxMailboxDepthNull:
   var j = validMailCapJson()
   j["maxMailboxDepth"] = newJNull()
   let res = MailAccountCapabilities.fromJson(j)
   assertOk res
-  assertNone res.get().maxMailboxDepth()
+  assertNone res.get().maxMailboxDepth
 
 # =============================================================================
 # D. MailAccountCapabilities — emailQuerySortOptions
@@ -141,14 +141,14 @@ testCase missingEmailQuerySortOptionsDefaultsEmpty:
   j.delete("emailQuerySortOptions")
   let res = MailAccountCapabilities.fromJson(j)
   assertOk res
-  assertEq res.get().emailQuerySortOptions().len, 0
+  assertEq res.get().emailQuerySortOptions.len, 0
 
 testCase emptyEmailQuerySortOptions:
   var j = validMailCapJson()
   j["emailQuerySortOptions"] = newJArray()
   let res = MailAccountCapabilities.fromJson(j)
   assertOk res
-  assertEq res.get().emailQuerySortOptions().len, 0
+  assertEq res.get().emailQuerySortOptions.len, 0
 
 # =============================================================================
 # E. MailAccountCapabilities — non-object input rejected
@@ -165,8 +165,8 @@ testCase parseSubmissionAccountCapabilitiesValid:
   let res = SubmissionAccountCapabilities.fromJson(validSubmissionCapJson())
   assertOk res
   let sc = res.get()
-  assertEq sc.maxDelayedSend().toInt64, 300'i64
-  let extensions = sc.submissionExtensions().toOrderedTable()
+  assertEq sc.maxDelayedSend.toInt64, 300'i64
+  let extensions = sc.submissionExtensions.toOrderedTable()
   let kwDeliverby = parseRFC5321Keyword("DELIVERBY").unsafeGet()
   let kwSize = parseRFC5321Keyword("SIZE").unsafeGet()
   assertEq extensions.len, 2
@@ -178,7 +178,7 @@ testCase maxDelayedSendZero:
   j["maxDelayedSend"] = %0
   let res = SubmissionAccountCapabilities.fromJson(j)
   assertOk res
-  assertEq res.get().maxDelayedSend().toInt64, 0'i64
+  assertEq res.get().maxDelayedSend.toInt64, 0'i64
 
 testCase submissionExtensionsMultiple:
   var j = validSubmissionCapJson()
@@ -186,7 +186,7 @@ testCase submissionExtensionsMultiple:
     %*{"DELIVERBY": ["240"], "SIZE": ["50000000"], "8BITMIME": []}
   let res = SubmissionAccountCapabilities.fromJson(j)
   assertOk res
-  let extensions = res.get().submissionExtensions().toOrderedTable()
+  let extensions = res.get().submissionExtensions.toOrderedTable()
   let kwDeliverby = parseRFC5321Keyword("DELIVERBY").unsafeGet()
   let kwSize = parseRFC5321Keyword("SIZE").unsafeGet()
   let kw8bitmime = parseRFC5321Keyword("8BITMIME").unsafeGet()
@@ -232,7 +232,7 @@ testCase submissionExtensionMapRoundTripPreservesOrder:
     parseJson("""{"SIZE": ["50000000"], "8BITMIME": [], "DELIVERBY": ["240"]}""")
   let res = SubmissionAccountCapabilities.fromJson(j)
   assertOk res
-  let extensions = res.get().submissionExtensions().toOrderedTable()
+  let extensions = res.get().submissionExtensions.toOrderedTable()
   var observed: seq[string] = @[]
   for key, _ in extensions.pairs:
     observed.add($key)
@@ -247,7 +247,7 @@ testCase submissionExtensionMapCaseInsensitiveKey:
   j["submissionExtensions"] = extNode
   let res = SubmissionAccountCapabilities.fromJson(j)
   assertOk res
-  let extensions = res.get().submissionExtensions().toOrderedTable()
+  let extensions = res.get().submissionExtensions.toOrderedTable()
   assertEq extensions.len, 1
   let lookupUpper = parseRFC5321Keyword("X-FOO").unsafeGet()
   let lookupLower = parseRFC5321Keyword("x-foo").unsafeGet()
@@ -263,7 +263,7 @@ testCase submissionExtensionMapParsesLegacyWireShape:
     parseJson("""{"8BITMIME": [], "SMTPUTF8": [""], "DELIVERBY": ["240", "RT"]}""")
   let res = SubmissionAccountCapabilities.fromJson(j)
   assertOk res
-  let extensions = res.get().submissionExtensions().toOrderedTable()
+  let extensions = res.get().submissionExtensions.toOrderedTable()
   let kw8bitmime = parseRFC5321Keyword("8BITMIME").unsafeGet()
   let kwSmtpUtf8 = parseRFC5321Keyword("SMTPUTF8").unsafeGet()
   let kwDeliverby = parseRFC5321Keyword("DELIVERBY").unsafeGet()

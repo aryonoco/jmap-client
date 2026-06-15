@@ -27,27 +27,28 @@ testCase tcapturedEmailHeaderForms:
       GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
     doAssert getResp.list.len == 1
     let email = getResp.list[0]
+    doAssert email.requestedHeaders.isSome,
+      "captured Email/get must populate requestedHeaders"
+    let requestedHeaders = email.requestedHeaders.unsafeGet
 
     let listPostKey =
       parseHeaderPropertyName("header:List-Post:asURLs").expect("listPostKey")
-    doAssert listPostKey in email.requestedHeaders,
-      "header:List-Post:asURLs must be present"
-    let listPostHV = email.requestedHeaders.getOrDefault(listPostKey)
+    doAssert listPostKey in requestedHeaders, "header:List-Post:asURLs must be present"
+    let listPostHV = requestedHeaders.getOrDefault(listPostKey)
     doAssert listPostHV.form == hfUrls
     doAssert listPostHV.urls.isSome and listPostHV.urls.unsafeGet.len >= 1,
       "List-Post must carry at least one URL in the captured fixture"
 
     let dateKey = parseHeaderPropertyName("header:Date:asDate").expect("dateKey")
-    doAssert dateKey in email.requestedHeaders, "header:Date:asDate must be present"
-    let dateHV = email.requestedHeaders.getOrDefault(dateKey)
+    doAssert dateKey in requestedHeaders, "header:Date:asDate must be present"
+    let dateHV = requestedHeaders.getOrDefault(dateKey)
     doAssert dateHV.form == hfDate
     doAssert dateHV.date.isSome,
       "Date must parse to a populated date in the captured fixture"
 
     let fromKey = parseHeaderPropertyName("header:From:asAddresses").expect("fromKey")
-    doAssert fromKey in email.requestedHeaders,
-      "header:From:asAddresses must be present"
-    let fromHV = email.requestedHeaders.getOrDefault(fromKey)
+    doAssert fromKey in requestedHeaders, "header:From:asAddresses must be present"
+    let fromHV = requestedHeaders.getOrDefault(fromKey)
     doAssert fromHV.form == hfAddresses
     doAssert fromHV.addresses.len >= 1,
       "From must carry at least one address in the captured fixture"

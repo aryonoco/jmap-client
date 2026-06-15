@@ -49,7 +49,7 @@ testCase tcapturedCascadeChangesMailboxEmailThreadCoherence:
     .fromJson(resp.methodResponses[2].arguments)
     .expect("ChangesResponse[Thread].fromJson")
 
-  doAssert mailboxCr.destroyed.len >= 1,
+  doAssert mailboxCr.base.destroyed.len >= 1,
     "Mailbox/changes destroyed must include the cascaded mailbox"
   let emailDeltaTotal =
     emailCr.created.len + emailCr.updated.len + emailCr.destroyed.len

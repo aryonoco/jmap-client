@@ -3,8 +3,9 @@
 
 ## Property-based tests for the sealed Account Pattern-A type.
 ## Covers parseAccount → toJson → fromJson round-trip identity and the
-## B12 silent-drop invariant: write-implying capabilities are filtered
-## from accounts whose AccountPolicy is read-only.
+## capability-preservation invariant: every capability the server sent is
+## retained regardless of the account's read-only status (RFC 8620 §2 lists
+## accountCapabilities verbatim from the server, with no client-side filter).
 
 import std/json
 import std/random
@@ -23,16 +24,18 @@ import ../mtestblock
 testCase propAccountRoundTrip:
   checkProperty "parseAccount → toJson → fromJson preserves the account":
     let acct = rng.genAccount()
-    lastInput = acct.name()
+    lastInput = $acct.name
     # Round-trip succeeds; equality holds at the type level (==).
     let rt = Account.fromJson(acct.toJson())
     doAssert rt.isOk, "fromJson failed: " & $rt.error
 
-testCase propAccountB12SilentDropWriteImplying:
-  ## B12: read-only accounts must drop write-implying capabilities at
-  ## parseAccount construction. Construct an account with policy ∈
-  ## {apOwnedReadOnly, apSharedReadOnly} and a ckMail entry; verify the
-  ## resulting account has no ckMail entry.
+testCase propAccountCapabilitiesPreservedRegardlessOfReadOnly:
+  ## A read-only account must retain every capability the server sent.
+  ## Construct an account with each AccountPolicy and a ckMail entry;
+  ## verify the resulting account keeps the ckMail entry whether or not
+  ## the account is read-only. (The former B12 filter that dropped
+  ## write-implying capabilities from read-only accounts violated
+  ## RFC 8620 §2 and was removed.)
   let mailCaps = parseMailAccountCapabilities(
       Opt.none(UnsignedInt),
       Opt.none(UnsignedInt),
@@ -58,8 +61,8 @@ testCase propAccountB12SilentDropWriteImplying:
         @[mailEntry],
       )
       .get()
-    doAssert acct.accountCapabilities().len == 0,
-      "ckMail must be silent-dropped under " & $policy
+    doAssert acct.accountCapabilities.len == 1,
+      "ckMail must be preserved under read-only policy " & $policy
 
   for policy in [apOwned, apShared]:
     let acct = parseAccount(
@@ -69,5 +72,5 @@ testCase propAccountB12SilentDropWriteImplying:
         @[mailEntry],
       )
       .get()
-    doAssert acct.accountCapabilities().len == 1,
+    doAssert acct.accountCapabilities.len == 1,
       "ckMail must be retained under " & $policy

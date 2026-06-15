@@ -35,4 +35,4 @@ testCase jmapSessionDiscoveryLive:
     )
     assertOn target,
       session.accounts.len > 0, "session must advertise at least one account"
-    assertOn target, session.apiUrl.len > 0, "session must advertise an apiUrl"
+    assertOn target, ($session.apiUrl).len > 0, "session must advertise an apiUrl"

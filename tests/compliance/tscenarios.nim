@@ -45,7 +45,7 @@ testCase scenarioSessionToRequest:
   doAssert account.get().hasCapability(ckMail)
 
   # Verify core limits
-  let core = session.coreCapabilities()
+  let core = session.core
   doAssert core.maxCallsInRequest == parseUnsignedInt(32).get()
 
   # Construct a Request
@@ -265,7 +265,7 @@ testCase scenarioMinimalSession:
   doAssert session.accounts.len == 0
   doAssert session.primaryAccounts.len == 0
   doAssert session.username == ""
-  let core = session.coreCapabilities()
+  let core = session.core
   doAssert core.maxSizeUpload == parseUnsignedInt(0).get()
 
 testCase scenarioMultiTenantAccounts:
@@ -288,7 +288,7 @@ testCase scenarioMultiTenantAccounts:
   doAssert session.accounts.len == 5
   let acct3 = session.findAccount(makeAccountId("acct3"))
   assertSome acct3
-  doAssert acct3.get().name() == "Account 3"
+  doAssert $acct3.get().name == "Account 3"
   doAssert not acct3.get().isReadOnly()
 
   let acct5 = session.findAccount(makeAccountId("acct5"))
@@ -311,7 +311,7 @@ testCase scenarioSessionAccountCapabilityChain:
   let account = session.findAccount(acctId).get()
   let mailCap = account.findCapability(ckMail)
   assertSome mailCap
-  doAssert mailCap.get().uri() == "urn:ietf:params:jmap:mail"
+  doAssert mailCap.get().uri == "urn:ietf:params:jmap:mail"
 
 testCase scenarioResultReferenceCorrelation:
   ## ResultReference.resultOf matches a previous Invocation's MethodCallId.
@@ -482,7 +482,7 @@ testCase sessionToRequestIntegration:
   let session = parseSessionFromArgs(args)
   var capUris: seq[string] = @[]
   for cap in session.capabilities():
-    capUris.add cap.uri()
+    capUris.add cap.uri
   let req = initRequest(
     capUris,
     @[initInvocation(mnMailboxGet, newJObject(), parseMethodCallId("c0").get())],

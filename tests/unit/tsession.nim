@@ -219,7 +219,7 @@ testCase hasVariablePartialMatch:
 testCase accountFindCapabilityByKind:
   let result = findCapability(testAccount, ckMail)
   doAssert result.isSome
-  doAssert result.get().uri() == "urn:ietf:params:jmap:mail"
+  doAssert result.get().uri == "urn:ietf:params:jmap:mail"
 
 testCase accountFindCapabilityNotFound:
   doAssert findCapability(testAccount, ckBlob).isNone
@@ -227,7 +227,7 @@ testCase accountFindCapabilityNotFound:
 testCase accountFindCapabilityFirstCkUnknown:
   let result = findCapability(testAccount, ckUnknown)
   doAssert result.isSome
-  doAssert result.get().uri() == "https://vendor1.example/ext"
+  doAssert result.get().uri == "https://vendor1.example/ext"
 
 testCase accountFindCapabilityByUri:
   let result = findCapabilityByUri(testAccount, "urn:ietf:params:jmap:mail")
@@ -398,7 +398,7 @@ testCase parseSessionValid:
     )
     .get()
   doAssert s.username == "john@example.com"
-  doAssert s.apiUrl == "https://jmap.example.com/api/"
+  doAssert $s.apiUrl == "https://jmap.example.com/api/"
   doAssert s.state == goldenState
   doAssert s.capabilities.len == 5
   doAssert s.accounts.len == 2
@@ -408,13 +408,13 @@ testCase parseSessionValid:
 # =============================================================================
 
 testCase coreCapabilitiesAccess:
-  let core = coreCapabilities(goldenSession)
+  let core = goldenSession.core
   doAssert core.maxSizeUpload == zero
 
 testCase sessionFindCapabilityByKind:
   let result = findCapability(goldenSession, ckMail)
   doAssert result.isSome
-  doAssert result.get().uri() == "urn:ietf:params:jmap:mail"
+  doAssert result.get().uri == "urn:ietf:params:jmap:mail"
 
 testCase sessionFindCapabilityByKindNotFound:
   doAssert findCapability(goldenSession, ckBlob).isNone
@@ -422,7 +422,7 @@ testCase sessionFindCapabilityByKindNotFound:
 testCase sessionFindCapabilityFirstCkUnknown:
   let result = findCapability(goldenSession, ckUnknown)
   doAssert result.isSome
-  doAssert result.get().uri() == "https://example.com/apis/foobar"
+  doAssert result.get().uri == "https://example.com/apis/foobar"
 
 testCase sessionFindCapabilityByUriVendor:
   let result = findCapabilityByUri(goldenSession, "https://example.com/apis/foobar")
@@ -446,7 +446,7 @@ testCase primaryAccountBlob:
 testCase findAccountKnown:
   let result = findAccount(goldenSession, parseAccountId("A13824").get())
   doAssert result.isSome
-  doAssert result.get().name == "john@example.com"
+  doAssert $result.get().name == "john@example.com"
 
 testCase findAccountUnknown:
   doAssert findAccount(goldenSession, parseAccountId("nonexistent").get()).isNone
@@ -630,7 +630,7 @@ testCase findCapabilitySessionFoundContacts:
   ## findCapability(session, ckContacts) returns when present.
   let result = findCapability(goldenSession, ckContacts)
   assertSome result
-  doAssert result.get().uri() == "urn:ietf:params:jmap:contacts"
+  doAssert result.get().uri == "urn:ietf:params:jmap:contacts"
 
 testCase findCapabilityByUriSessionFoundCore:
   ## findCapabilityByUri(session) returns the matching capability.
@@ -666,7 +666,7 @@ testCase findAccountFoundSecond:
   ## findAccount returns the correct account for the second AccountId.
   let result = findAccount(goldenSession, parseAccountId("A97813").get())
   assertSome result
-  doAssert result.get().name() == "jane@example.com"
+  doAssert $result.get().name == "jane@example.com"
   doAssert result.get().isReadOnly() == true
 
 testCase findAccountNotFound:

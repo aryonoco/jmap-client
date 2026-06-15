@@ -99,11 +99,11 @@ testCase tmailboxChangesLive:
         "Mailbox/changes happy extract[" & $target.kind & "]"
       )
     assertOn target,
-      $cr.oldState == $baselineState, "oldState must echo the supplied baseline"
+      $cr.base.oldState == $baselineState, "oldState must echo the supplied baseline"
     assertOn target,
-      tempId in cr.destroyed,
+      tempId in cr.base.destroyed,
       "create-then-destroy id must surface in destroyed (RFC 8620 §5.2 SHOULD)"
-    assertOn target, cr.hasMoreChanges == false, "no further changes pending"
+    assertOn target, cr.base.hasMoreChanges == false, "no further changes pending"
     # cr.updatedProperties is reachable as Opt[seq[string]] — the
     # MailboxChangesResponse RFC 8621 §2.2 extension. Reading it here
     # is the compile-time guarantee under test; runtime presence is

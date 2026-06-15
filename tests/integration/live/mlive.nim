@@ -511,7 +511,7 @@ func resolveCollationAlgorithms*(session: Session): HashSet[CollationAlgorithm] 
   ## server's core capabilities. Pure — no IO. Exists as a named helper for
   ## symmetry with the seed helpers and to keep test bodies free of
   ## capability-traversal boilerplate.
-  session.coreCapabilities.collationAlgorithms
+  session.core.collationAlgorithms
 
 # ---------------------------------------------------------------------------
 # Phase E — additional Mailbox / Email helpers
@@ -1600,7 +1600,7 @@ proc postRawJmap*(
     let envR = Result[envelope.Response, JmapError].err(te)
     return (respBody: "", envelopeResult: envR)
   let req = HttpRequest(
-    url: resolveAgainstSession(target.sessionUrl, session.apiUrl),
+    url: resolveAgainstSession(target.sessionUrl, $session.apiUrl),
     httpMethod: hmPost,
     body: body,
     authorization: credential.authorizationHeaderValue,

@@ -251,10 +251,10 @@ testCase tcascadeChangesCoherenceLive:
       # Strict coherence path — runs on configured targets that
       # propagate cascade through Thread/changes.
       assertOn target,
-        cascadeId in capturedMailboxCr.destroyed,
+        cascadeId in capturedMailboxCr.base.destroyed,
         "cascade mailbox id must surface in Mailbox/changes destroyed"
       assertOn target,
-        capturedMailboxCr.hasMoreChanges == false,
+        capturedMailboxCr.base.hasMoreChanges == false,
         "Mailbox/changes hasMoreChanges must be false"
       let allEmailDelta =
         capturedEmailCr.created.toHashSet + capturedEmailCr.updated.toHashSet +

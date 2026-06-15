@@ -29,45 +29,51 @@ testCase tcapturedEmailGetHeaderFormsExtended:
       GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
     doAssert getResp.list.len == 1, "captured Email/get must carry one record"
     let email = getResp.list[0]
+    doAssert email.requestedHeaders.isSome,
+      "captured Email/get must populate requestedHeaders"
+    let requestedHeaders = email.requestedHeaders.unsafeGet
+    doAssert email.requestedHeadersAll.isSome,
+      "captured Email/get must populate requestedHeadersAll"
+    let requestedHeadersAll = email.requestedHeadersAll.unsafeGet
 
     let messageIdsKey = parseHeaderPropertyName("header:Message-ID:asMessageIds").expect(
         "parseHeaderPropertyName messageIds"
       )
-    doAssert messageIdsKey in email.requestedHeaders,
+    doAssert messageIdsKey in requestedHeaders,
       "header:Message-ID:asMessageIds must be present"
-    doAssert email.requestedHeaders.getOrDefault(messageIdsKey).form == hfMessageIds,
+    doAssert requestedHeaders.getOrDefault(messageIdsKey).form == hfMessageIds,
       "Message-ID HeaderValue must carry hfMessageIds form"
 
     let commentsTextKey = parseHeaderPropertyName("header:Comments:asText").expect(
         "parseHeaderPropertyName commentsText"
       )
-    doAssert commentsTextKey in email.requestedHeaders,
+    doAssert commentsTextKey in requestedHeaders,
       "header:Comments:asText must be present"
-    doAssert email.requestedHeaders.getOrDefault(commentsTextKey).form == hfText,
+    doAssert requestedHeaders.getOrDefault(commentsTextKey).form == hfText,
       "Comments asText HeaderValue must carry hfText form"
 
     let commentsRawKey = parseHeaderPropertyName("header:Comments:asRaw").expect(
         "parseHeaderPropertyName commentsRaw"
       )
-    doAssert commentsRawKey in email.requestedHeaders,
+    doAssert commentsRawKey in requestedHeaders,
       "header:Comments:asRaw must be present (the wire emits header:Comments — " &
         "asRaw is the default form)"
-    doAssert email.requestedHeaders.getOrDefault(commentsRawKey).form == hfRaw,
+    doAssert requestedHeaders.getOrDefault(commentsRawKey).form == hfRaw,
       "Comments asRaw HeaderValue must carry hfRaw form"
 
     let toGroupedKey = parseHeaderPropertyName("header:To:asGroupedAddresses").expect(
         "parseHeaderPropertyName toGrouped"
       )
-    doAssert toGroupedKey in email.requestedHeaders,
+    doAssert toGroupedKey in requestedHeaders,
       "header:To:asGroupedAddresses must be present"
-    doAssert email.requestedHeaders.getOrDefault(toGroupedKey).form == hfGroupedAddresses,
+    doAssert requestedHeaders.getOrDefault(toGroupedKey).form == hfGroupedAddresses,
       "To HeaderValue must carry hfGroupedAddresses form"
 
     let resentAllKey = parseHeaderPropertyName("header:Resent-To:asAddresses:all")
       .expect("parseHeaderPropertyName resentAll")
-    doAssert resentAllKey in email.requestedHeadersAll,
+    doAssert resentAllKey in requestedHeadersAll,
       "header:Resent-To:asAddresses:all must be present in requestedHeadersAll"
-    let resentAllHvs = email.requestedHeadersAll.getOrDefault(resentAllKey)
+    let resentAllHvs = requestedHeadersAll.getOrDefault(resentAllKey)
     doAssert resentAllHvs.len >= 1,
       "the :all flag must surface at least one Resent-To instance"
     for hv in resentAllHvs:
