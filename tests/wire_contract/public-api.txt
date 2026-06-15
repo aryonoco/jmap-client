@@ -612,7 +612,6 @@ enumfield mrInbox
 enumfield mrJunk
 enumfield mrOther
 enumfield mrSent
-enumfield mrSubscriptions
 enumfield mrTrash
 enumfield muSetIsSubscribed
 enumfield muSetName
@@ -632,7 +631,6 @@ const roleImportant : MailboxRole
 const roleInbox : MailboxRole
 const roleJunk : MailboxRole
 const roleSent : MailboxRole
-const roleSubscriptions : MailboxRole
 const roleTrash : MailboxRole
 func setIsSubscribed (isSubscribed: bool): MailboxUpdate
 func setName (name: string): MailboxUpdate

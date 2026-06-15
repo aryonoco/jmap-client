@@ -41,7 +41,16 @@ testCase mailboxRoleConstants: # scenario 27
   assertOkEq parseMailboxRole("important"), roleImportant
   assertOkEq parseMailboxRole("all"), roleAll
   assertOkEq parseMailboxRole("flagged"), roleFlagged
-  assertOkEq parseMailboxRole("subscriptions"), roleSubscriptions
+
+testCase parseMailboxRoleSubscriptions: # not an IANA mailbox-role attribute
+  # RFC 8621 §2 binds ``role`` to the IANA "IMAP Mailbox Name Attributes"
+  # registry; "subscriptions" is not a member, so it routes through the
+  # vendor-extension ``mrOther`` arm and round-trips losslessly.
+  let res = parseMailboxRole("subscriptions")
+  assertOk res
+  let role = res.get()
+  assertEq role.kind, mrOther
+  assertEq role.identifier, "subscriptions"
 
 # ============= B. MailboxIdSet =============
 

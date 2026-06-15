@@ -36,7 +36,6 @@ type MailboxRoleKind* = enum
   mrImportant = "important"
   mrAll = "all"
   mrFlagged = "flagged"
-  mrSubscriptions = "subscriptions"
   mrOther
 
 type MailboxRole* {.ruleOff: "objects".} = object
@@ -45,7 +44,7 @@ type MailboxRole* {.ruleOff: "objects".} = object
   ## Construction sealed: ``rawKind`` and ``rawIdentifier`` are module-private,
   ## so direct literal construction from outside this module is rejected.
   ## Use ``parseMailboxRole`` for untrusted input, or the named ``roleInbox``
-  ## / ``roleDrafts`` / ... constants for the 10 well-known values.
+  ## / ``roleDrafts`` / ... constants for the nine well-known values.
   ##
   ## Lowercase-normalised: the parser folds input to lowercase before
   ## classification and vendor-extension capture — round-trips losslessly
@@ -54,22 +53,22 @@ type MailboxRole* {.ruleOff: "objects".} = object
   of mrOther:
     rawIdentifier: string ## wire identifier for vendor extensions
   of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
-      mrFlagged, mrSubscriptions:
+      mrFlagged:
     discard
 
 func kind*(r: MailboxRole): MailboxRoleKind =
-  ## Returns the discriminator — one of the ten RFC 8621 kinds or ``mrOther``.
+  ## Returns the discriminator — one of the nine RFC 8621 kinds or ``mrOther``.
   return r.rawKind
 
 func identifier*(r: MailboxRole): string =
-  ## Returns the wire identifier string. For the ten well-known kinds, this
+  ## Returns the wire identifier string. For the nine well-known kinds, this
   ## is the enum's backing string; for ``mrOther`` it is the vendor-extension
   ## identifier captured at parse time.
   case r.rawKind
   of mrOther:
     return r.rawIdentifier
   of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
-      mrFlagged, mrSubscriptions:
+      mrFlagged:
     return $r.rawKind
 
 func `$`*(r: MailboxRole): string =
@@ -88,15 +87,15 @@ func `==`*(a, b: MailboxRole): bool =
     of mrOther:
       a.rawIdentifier == b.rawIdentifier
     of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
-        mrFlagged, mrSubscriptions:
+        mrFlagged:
       false
   of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
-      mrFlagged, mrSubscriptions:
+      mrFlagged:
     case b.rawKind
     of mrOther:
       false
     of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
-        mrFlagged, mrSubscriptions:
+        mrFlagged:
       a.rawKind == b.rawKind
 
 func hash*(r: MailboxRole): Hash =
@@ -108,7 +107,7 @@ func hash*(r: MailboxRole): Hash =
   of mrOther:
     h = h !& hash(r.rawIdentifier)
   of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
-      mrFlagged, mrSubscriptions:
+      mrFlagged:
     discard
   result = !$h
 
@@ -122,12 +121,11 @@ const
   roleImportant* = MailboxRole(rawKind: mrImportant) ## RFC 8621 well-known role.
   roleAll* = MailboxRole(rawKind: mrAll) ## RFC 8621 well-known role.
   roleFlagged* = MailboxRole(rawKind: mrFlagged) ## RFC 8621 well-known role.
-  roleSubscriptions* = MailboxRole(rawKind: mrSubscriptions) ## RFC 8621 well-known role.
 
 func parseMailboxRole*(raw: string): Result[MailboxRole, ValidationError] =
   ## Validates and constructs a ``MailboxRole``. Rejects empty input and
   ## control characters; lowercase-normalises and classifies against the
-  ## ten RFC 8621 §2 well-known roles, falling back to ``mrOther`` for
+  ## nine RFC 8621 §2 well-known roles, falling back to ``mrOther`` for
   ## vendor extensions. Lossless round-trip over the wire:
   ## ``$(parseMailboxRole(x).get) == x.toLowerAscii`` holds for every ``x``
   ## that survives detection. Single parser — no strict/lenient pair
@@ -155,8 +153,6 @@ func parseMailboxRole*(raw: string): Result[MailboxRole, ValidationError] =
     return ok(roleAll)
   of mrFlagged:
     return ok(roleFlagged)
-  of mrSubscriptions:
-    return ok(roleSubscriptions)
   of mrOther:
     return ok(MailboxRole(rawKind: mrOther, rawIdentifier: normalised))
 
