@@ -120,49 +120,6 @@ func requestError*(
     extras: extras,
   )
 
-type ClientErrorKind* = enum
-  ## Discriminator for the outer railway: transport failure or request rejection.
-  cekTransport
-  cekRequest
-
-type ClientError* = object
-  ## Outer railway error: either a transport failure or a JMAP request rejection.
-  case kind*: ClientErrorKind
-  of cekTransport:
-    transport*: TransportError
-  of cekRequest:
-    request*: RequestError
-
-func clientError*(transport: TransportError): ClientError =
-  ## Lifts a transport failure into the outer railway.
-  return ClientError(kind: cekTransport, transport: transport)
-
-func clientError*(request: RequestError): ClientError =
-  ## Lifts a request rejection into the outer railway.
-  return ClientError(kind: cekRequest, request: request)
-
-func message*(err: ClientError): string =
-  ## Human-readable message for any ClientError variant.
-  case err.kind
-  of cekTransport:
-    return err.transport.message
-  of cekRequest:
-    return err.request.message
-
-func `$`*(ce: ClientError): string =
-  ## Delegates to ``message`` for the single canonical projection.
-  ce.message
-
-func validationToClientError*(ve: ValidationError): ClientError =
-  ## Bridges the construction railway (ValidationError) to the outer railway
-  ## (ClientError). For use with ``mapErr`` when a Layer 1 validation failure
-  ## must be surfaced as a transport error.
-  return clientError(transportError(tekNetwork, ve.message))
-
-func validationToClientErrorCtx*(ve: ValidationError, context: string): ClientError =
-  ## Bridges with a context prefix prepended to the error message.
-  return clientError(transportError(tekNetwork, context & ve.message))
-
 func isTlsRelatedMsg(msg: string): bool =
   ## Heuristic: checks whether an OSError message indicates a TLS failure.
   ## OpenSSL surfaces TLS errors as OSError with keywords in the message
@@ -173,9 +130,9 @@ func isTlsRelatedMsg(msg: string): bool =
 
 func classifyTransportException*(e: ref CatchableError): TransportError =
   ## Maps ``std/httpclient`` exceptions to ``TransportError``. Pure: no
-  ## IO, no side effects. Exhaustive over known exception types. Called
-  ## by the default HTTP transport closure; ``classifyException`` lifts
-  ## the result into the outer railway for JMAP-layer callers.
+  ## IO, no side effects. Exhaustive over known exception types. Called by
+  ## the default HTTP transport closure (the leaf rail); the client lifts the
+  ## resulting ``TransportError`` onto ``JmapError.jeTransport`` at the boundary.
   if e of ref TimeoutError:
     transportError(tekTimeout, e.msg)
   elif (when defined(ssl): e of ref SslError else: false):
@@ -191,12 +148,6 @@ func classifyTransportException*(e: ref CatchableError): TransportError =
     transportError(tekNetwork, "protocol error: " & e.msg)
   else:
     transportError(tekNetwork, "unexpected error: " & e.msg)
-
-func classifyException*(e: ref CatchableError): ClientError =
-  ## Maps ``std/httpclient`` exceptions to ``ClientError(cekTransport)``.
-  ## Pure: no IO, no side effects. Lifts ``classifyTransportException``
-  ## into the outer railway.
-  clientError(classifyTransportException(e))
 
 func sizeLimitExceeded*(what: string, actual, limit: int): TransportError =
   ## Constructs a ``TransportError`` for a size-limit violation. Shared
@@ -595,56 +546,3 @@ func message*(se: SetError): string =
 func `$`*(se: SetError): string =
   ## Delegates to ``message`` for the single canonical projection.
   se.message
-
-type GetErrorKind* = enum
-  ## Discriminator for ``GetError``. Two arms cover the inner railway:
-  ## server-reported method-level failures, and client-side handle misuse.
-  gekMethod
-  gekHandleMismatch
-
-type GetError* = object
-  ## Inner-railway error returned by ``handle.get(dr)`` and
-  ## ``getBoth(handles, dr)``. Two arms (P13 named variants, no
-  ## string collapsing; P18 sum types over flag bitmaps):
-  ##
-  ## - ``gekMethod`` — server returned an ``"error"`` invocation or the
-  ##   typed parse failed at the dispatch boundary. The original
-  ##   ``MethodError`` is preserved verbatim under ``methodErr``.
-  ## - ``gekHandleMismatch`` — the handle's ``builderId`` did not match
-  ##   the ``DispatchedResponse``'s ``builderId``. The cross-builder /
-  ##   cross-client bug A6 is designed to catch.
-  case kind*: GetErrorKind
-  of gekMethod:
-    methodErr*: MethodError
-  of gekHandleMismatch:
-    expected*: BuilderId ## brand carried by the DispatchedResponse
-    actual*: BuilderId ## brand carried by the handle
-    callId*: MethodCallId ## handle's callId, for diagnostic context
-
-func getErrorMethod*(me: MethodError): GetError =
-  ## Lifts a method-level error into the inner-railway sum.
-  GetError(kind: gekMethod, methodErr: me)
-
-func getErrorHandleMismatch*(
-    expected, actual: BuilderId, callId: MethodCallId
-): GetError =
-  ## Constructs the handle-mismatch variant. Convention: ``expected``
-  ## = the brand carried by the ``DispatchedResponse`` (truth source);
-  ## ``actual`` = the brand carried by the handle being applied. The
-  ## error message reads "expected X, got Y".
-  GetError(kind: gekHandleMismatch, expected: expected, actual: actual, callId: callId)
-
-func message*(ge: GetError): string =
-  ## Human-readable diagnostic message. Exhaustive ``case`` over the
-  ## discriminator — adding a new variant forces a compile error here.
-  case ge.kind
-  of gekMethod:
-    ge.methodErr.message
-  of gekHandleMismatch:
-    "handle from a different builder (expected " & $ge.expected & "; got " & $ge.actual &
-      "; callId=" & $ge.callId & ")"
-
-func `$`*(ge: GetError): string =
-  ## String representation — delegates to ``message`` for a
-  ## human-readable diagnostic.
-  ge.message

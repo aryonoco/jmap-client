@@ -68,7 +68,7 @@ testCase temailQueryFilterSimpleLive:
     )
     let resp = client.send(b.freeze()).expect("send Email/query[" & $target.kind & "]")
     let queryResp =
-      resp.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
+      resp.get(queryHandle).expectValue("Email/query extract[" & $target.kind & "]")
     let hits = queryResp.ids.toHashSet
     assertOn target,
       matchId in hits,

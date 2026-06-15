@@ -92,12 +92,14 @@ testCase callIdAccessor:
 # ===========================================================================
 
 testCase getHappyPath:
-  ## Response with valid GetResponse JSON at c0, get with callback returns ok.
+  ## Response with valid GetResponse JSON at c0; get returns ok carrying a
+  ## ``mokValue`` outcome (the method ran and produced a typed result).
   let resp = makeTypedResponse("MockFoo/get", makeGetResponseJson(), makeMcid("c0"))
   let dr = makeDispatchedResponse(resp)
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   let result = dr.get(handle)
   assertOk result
+  doAssert result.get().kind == mokValue
 
 testCase getExtractsCorrectInvocation:
   ## Response with multiple invocations (c0, c1); handle c1 extracts the right one.
@@ -111,7 +113,9 @@ testCase getExtractsCorrectInvocation:
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c1"))
   let result = dr.get(handle)
   assertOk result
-  let gr = result.get()
+  let outcome = result.get()
+  doAssert outcome.kind == mokValue
+  let gr = outcome.value
   doAssert gr.accountId == makeAccountId("acct1")
   doAssert gr.state == makeState("s1")
 
@@ -120,31 +124,37 @@ testCase getExtractsCorrectInvocation:
 # ===========================================================================
 
 testCase getNotFound:
-  ## Call ID c99 not in response produces err(gekMethod) with metServerFail.
+  ## Call ID c99 absent from the response: no invocation to extract, so the
+  ## dispatch rides ``jeProtocol`` / ``pfMissingCall`` (the former synthetic
+  ## ``serverFail`` MethodError was a protocol fault masquerading as a method
+  ## error).
   let resp = makeTypedResponse("MockFoo/get", makeGetResponseJson(), makeMcid("c0"))
   let dr = makeDispatchedResponse(resp)
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c99"))
   let result = dr.get(handle)
   assertErr result
-  let ge = result.error()
-  doAssert ge.kind == gekMethod
-  doAssert ge.methodErr.kind == metServerFail
+  let je = result.error()
+  doAssert je.kind == jeProtocol
+  doAssert je.protocol.kind == pfMissingCall
+  doAssert je.protocol.callId == makeMcid("c99")
 
 testCase getMethodError:
-  ## Invocation name is "error" with type "unknownMethod" produces err(gekMethod)
-  ## carrying metUnknownMethod.
+  ## Invocation name is "error" with type "unknownMethod". A method-level error
+  ## is DATA now: the result is ok, carrying ``mokMethodError`` with the typed
+  ## ``MethodError`` preserved verbatim.
   let resp = makeErrorResponse("unknownMethod", makeMcid("c0"))
   let dr = makeDispatchedResponse(resp)
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   let result = dr.get(handle)
-  assertErr result
-  let ge = result.error()
-  doAssert ge.kind == gekMethod
-  doAssert ge.methodErr.kind == metUnknownMethod
-  doAssert ge.methodErr.rawType == "unknownMethod"
+  assertOk result
+  let outcome = result.get()
+  doAssert outcome.kind == mokMethodError
+  doAssert outcome.error.kind == metUnknownMethod
+  doAssert outcome.error.rawType == "unknownMethod"
 
 testCase getMalformedErrorResponse:
-  ## Error invocation with non-object arguments produces err(gekMethod) with metServerFail.
+  ## Error invocation with non-object arguments cannot parse as a MethodError,
+  ## so it is a protocol fault: ``jeProtocol`` / ``pfMalformedError``.
   let malformedInv = parseInvocation("error", newJArray(), makeMcid("c0")).get()
   let resp =
     initResponse(@[malformedInv], Opt.none(Table[CreationId, Id]), makeState("rs1"))
@@ -152,32 +162,29 @@ testCase getMalformedErrorResponse:
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   let result = dr.get(handle)
   assertErr result
-  let ge = result.error()
-  doAssert ge.kind == gekMethod
-  doAssert ge.methodErr.kind == metServerFail
+  let je = result.error()
+  doAssert je.kind == jeProtocol
+  doAssert je.protocol.kind == pfMalformedError
+  doAssert je.protocol.callId == makeMcid("c0")
 
 testCase getValidationError:
-  ## fromArgs returns err(ValidationError) which is converted to MethodError with metServerFail,
-  ## then lifted to GetError(gekMethod).
+  ## A normal invocation whose arguments fail typed decoding rides
+  ## ``jeProtocol`` / ``pfDecode`` carrying the structured ``SerdeViolation``,
+  ## localised to the call id.
   let resp = makeTypedResponse("MockFoo/get", %*{"invalid": true}, makeMcid("c0"))
   let dr = makeDispatchedResponse(resp)
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   let result = dr.get(handle)
   assertErr result
-  let ge = result.error()
-  doAssert ge.kind == gekMethod
-  let me = ge.methodErr
-  doAssert me.kind == metServerFail
-  doAssert me.extras.isSome
-  let extras = me.extras.get()
-  doAssert extras.kind == JObject
-  doAssert extras{"typeName"} != nil
-  doAssert extras{"value"} != nil
+  let je = result.error()
+  doAssert je.kind == jeProtocol
+  doAssert je.protocol.kind == pfDecode
+  doAssert je.protocol.decodeCallId == Opt.some(makeMcid("c0"))
 
 testCase getHandleMismatch:
   ## A handle issued by builder A applied to a DispatchedResponse from
-  ## builder B returns err(gekHandleMismatch) with the two brands and
-  ## the handle's callId in the diagnostic payload.
+  ## builder B returns err(jeMisuse) with the two brands and the handle's
+  ## callId in the diagnostic payload.
   let resp = makeTypedResponse("MockFoo/get", makeGetResponseJson(), makeMcid("c0"))
   let drBrand = makeBuilderId(0x1234'u64, 1'u64)
   let handleBrand = makeBuilderId(0x1234'u64, 2'u64) # same client, different serial
@@ -185,19 +192,19 @@ testCase getHandleMismatch:
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"), handleBrand)
   let result = dr.get(handle)
   assertErr result
-  let ge = result.error()
-  doAssert ge.kind == gekHandleMismatch
-  doAssert ge.expected == drBrand
-  doAssert ge.actual == handleBrand
-  doAssert ge.callId == makeMcid("c0")
+  let je = result.error()
+  doAssert je.kind == jeMisuse
+  doAssert je.misuse.expected == drBrand
+  doAssert je.misuse.actual == handleBrand
+  doAssert je.misuse.callId == makeMcid("c0")
 
 testCase getHandleMismatchCrossBuilderSameClient:
   ## A6 — cross-builder within the same JmapClient. Two newBuilder() calls
   ## mint serial=0 and serial=1 sharing the same clientBrand; a handle
   ## from the first builder applied to the second's dispatched response
-  ## returns err(gekHandleMismatch) with differing serial halves but
-  ## matching clientBrand. Mirrors the failure mode the A6 brand check
-  ## was designed to catch.
+  ## returns err(jeMisuse) with differing serial halves but matching
+  ## clientBrand. Mirrors the failure mode the A6 brand check was designed
+  ## to catch.
   const clientBrand = 0x9ABCDEF012345678'u64
   let bid0 = makeBuilderId(clientBrand, 0'u64) # first newBuilder()
   let bid1 = makeBuilderId(clientBrand, 1'u64) # second newBuilder()
@@ -208,20 +215,20 @@ testCase getHandleMismatchCrossBuilderSameClient:
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"), bid0)
   let result = dr.get(handle)
   assertErr result
-  let ge = result.error()
-  doAssert ge.kind == gekHandleMismatch
-  doAssert ge.expected.clientBrand == clientBrand
-  doAssert ge.actual.clientBrand == clientBrand
-  doAssert ge.expected.serial == 1'u64
-  doAssert ge.actual.serial == 0'u64
+  let je = result.error()
+  doAssert je.kind == jeMisuse
+  doAssert je.misuse.expected.clientBrand == clientBrand
+  doAssert je.misuse.actual.clientBrand == clientBrand
+  doAssert je.misuse.expected.serial == 1'u64
+  doAssert je.misuse.actual.serial == 0'u64
 
 testCase getHandleMismatchCrossClient:
   ## A6 — cross-client across two JmapClient instances. Each client
   ## draws its own random clientBrand at init; a handle from client A's
   ## builder applied to a DispatchedResponse from client B returns
-  ## err(gekHandleMismatch) with differing clientBrand halves. Models
-  ## the multi-account email client scenario the composite brand was
-  ## designed to catch.
+  ## err(jeMisuse) with differing clientBrand halves. Models the
+  ## multi-account email client scenario the composite brand was designed
+  ## to catch.
   let bidA = makeBuilderId(0xAAAA_AAAA_AAAA_AAAA'u64, 0'u64) # client A's first builder
   let bidB = makeBuilderId(0xBBBB_BBBB_BBBB_BBBB'u64, 0'u64) # client B's first builder
   doAssert bidA.clientBrand != bidB.clientBrand
@@ -230,10 +237,10 @@ testCase getHandleMismatchCrossClient:
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"), bidA)
   let result = dr.get(handle)
   assertErr result
-  let ge = result.error()
-  doAssert ge.kind == gekHandleMismatch
-  doAssert ge.expected.clientBrand == 0xBBBB_BBBB_BBBB_BBBB'u64
-  doAssert ge.actual.clientBrand == 0xAAAA_AAAA_AAAA_AAAA'u64
+  let je = result.error()
+  doAssert je.kind == jeMisuse
+  doAssert je.misuse.expected.clientBrand == 0xBBBB_BBBB_BBBB_BBBB'u64
+  doAssert je.misuse.actual.clientBrand == 0xAAAA_AAAA_AAAA_AAAA'u64
 
 # ===========================================================================
 # D. get[T] for Echo (JsonNode) with callback
@@ -249,7 +256,9 @@ testCase getEchoHappyPath:
   let handle = makeResponseHandle[JsonNode](makeMcid("c0"))
   let result = dr.get(handle)
   assertOk result
-  doAssert result.get(){"tag"}.getStr("") == "hello"
+  let outcome = result.get()
+  doAssert outcome.kind == mokValue
+  doAssert outcome.value{"tag"}.getStr("") == "hello"
 
 # ===========================================================================
 # G. Generic reference (escape hatch)

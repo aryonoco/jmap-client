@@ -593,7 +593,7 @@ func detectDuplicateParamKeys(items: openArray[SubmissionParam]): seq[Validation
 
 func parseSubmissionParams*(
     items: openArray[SubmissionParam]
-): Result[SubmissionParams, seq[ValidationError]] =
+): Result[SubmissionParams, NonEmptySeq[ValidationError]] =
   ## Strict client-side constructor (design §2.4 G8a): rejects duplicate
   ## keys accumulatingly — every repeated key produces exactly one
   ## ``ValidationError``. Empty input is accepted — an empty
@@ -602,7 +602,8 @@ func parseSubmissionParams*(
   ## (design §2.4 G34).
   let errs = detectDuplicateParamKeys(items)
   if errs.len > 0:
-    return err(errs)
+    # errs is non-empty here, so parseNonEmptySeq cannot Err.
+    return err(parseNonEmptySeq(errs).get())
   var t = initOrderedTable[SubmissionParamKey, SubmissionParam]()
   for item in items:
     t[paramKey(item)] = item

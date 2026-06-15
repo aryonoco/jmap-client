@@ -40,12 +40,12 @@ testCase reExportAccessibility:
   # errors
   let te = transportError(tekTimeout, "timed out")
   doAssert te.kind == tekTimeout
-  let ce = clientError(te)
-  doAssert ce.kind == cekTransport
+  let ce = jmapTransport(te)
+  doAssert ce.kind == jeTransport
   let re = requestError("urn:ietf:params:jmap:error:limit")
   doAssert re.kind == retLimit
-  let ce2 = clientError(re)
-  doAssert ce2.kind == cekRequest
+  let ce2 = jmapRequest(re)
+  doAssert ce2.kind == jeRequest
   doAssert ce2.message == "urn:ietf:params:jmap:error:limit"
   let me = methodError("serverFail")
   doAssert me.kind == metServerFail

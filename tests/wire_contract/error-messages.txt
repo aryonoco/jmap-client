@@ -80,14 +80,20 @@
 [setError("overQuota")]
   overQuota
 
-## ClientError
-[clientError(httpStatusError(503, "Service Unavailable"))]
+## JmapError
+[jmapTransport(httpStatusError(503, "Service Unavailable"))]
   HTTP 503: Service Unavailable
-[clientError(requestError("urn:ietf:params:jmap:error:limit", title = Opt.some("Limit Exceeded")))]
+[jmapRequest(requestError("urn:ietf:params:jmap:error:limit", title = Opt.some("Limit Exceeded")))]
   Limit Exceeded
-
-## GetError
-[getErrorMethod(methodError("serverFail", Opt.some("internal")))]
-  serverFail: internal
-[getErrorHandleMismatch(initBuilderId(1'u64, 1'u64), initBuilderId(1'u64, 2'u64), parseMethodCallId("c0").get())]
+[jmapValidation(validationError("AccountId", "contains control characters", ""))]
+  AccountId: contains control characters
+[jmapSession(sessionFault(sfCapabilityAbsent, ckMail))]
+  session does not advertise the urn:ietf:params:jmap:mail capability
+[jmapSession(sessionFault(sfPrimaryAccountAbsent, ckMail))]
+  no primary account for the urn:ietf:params:jmap:mail capability
+[jmapMisuse(initBuilderId(1'u64, 1'u64), initBuilderId(1'u64, 2'u64), parseMethodCallId("c0").get())]
   handle from a different builder (expected BuilderId(brand=0x0000000000000001, serial=1); got BuilderId(brand=0x0000000000000001, serial=2); callId=c0)
+[jmapProtocol(protocolMissingCall(parseMethodCallId("c0").get()))]
+  no response for call ID c0
+[jmapProtocol(protocolMalformedError(parseMethodCallId("c0").get()))]
+  malformed error response for call ID c0

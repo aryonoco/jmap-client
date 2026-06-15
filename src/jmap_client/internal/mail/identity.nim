@@ -176,7 +176,7 @@ func toSeq*(s: IdentityUpdateSet): seq[IdentityUpdate] {.inline.} =
 
 func initIdentityUpdateSet*(
     updates: openArray[IdentityUpdate]
-): Result[IdentityUpdateSet, seq[ValidationError]] =
+): Result[IdentityUpdateSet, NonEmptySeq[ValidationError]] =
   ## Accumulating smart constructor. Rejects:
   ##   * empty input — the /set builder has exactly one "no updates for
   ##     this id" representation (omit the entry from the outer table);
@@ -192,7 +192,8 @@ func initIdentityUpdateSet*(
     dupMsg = "duplicate target property",
   )
   if errs.len > 0:
-    return err(errs)
+    # errs is non-empty here, so parseNonEmptySeq cannot Err.
+    return err(parseNonEmptySeq(errs).get())
   ok(IdentityUpdateSet(rawValue: @updates))
 
 # =============================================================================
@@ -216,7 +217,7 @@ func toTable*(s: NonEmptyIdentityUpdates): Table[Id, IdentityUpdateSet] {.inline
 
 func parseNonEmptyIdentityUpdates*(
     items: openArray[(Id, IdentityUpdateSet)]
-): Result[NonEmptyIdentityUpdates, seq[ValidationError]] =
+): Result[NonEmptyIdentityUpdates, NonEmptySeq[ValidationError]] =
   ## Accumulating smart constructor. Rejects:
   ##   * empty input — the /set builder's ``update:`` field has exactly
   ##     one "no updates" representation (omit the entry via ``Opt.none``);
@@ -232,7 +233,8 @@ func parseNonEmptyIdentityUpdates*(
     dupMsg = "duplicate identity id",
   )
   if errs.len > 0:
-    return err(errs)
+    # errs is non-empty here, so parseNonEmptySeq cannot Err.
+    return err(parseNonEmptySeq(errs).get())
   var t = initTable[Id, IdentityUpdateSet](items.len)
   for (id, updateSet) in items:
     t[id] = updateSet

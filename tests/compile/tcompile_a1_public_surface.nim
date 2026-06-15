@@ -41,7 +41,7 @@ static:
   doAssert declared(sdServerDefault)
   doAssert declared(sdAscending)
   doAssert declared(sdDescending)
-  doAssert declared(ClientError)
+  doAssert declared(JmapError)
   doAssert declared(TransportError)
   doAssert declared(RequestError)
   doAssert declared(MethodError)
@@ -93,17 +93,19 @@ static:
   # A6 lifecycle: ``newBuilder`` is the blessed entry point for application
   # developers; ``freeze`` returns the sealed ``BuiltRequest`` that ``send``
   # consumes; ``DispatchedResponse`` is the sealed artifact returned by
-  # ``send``; ``GetError`` is the inner-railway error sum returned by
-  # ``get`` / ``getBoth``.
+  # ``send``. ``get`` / ``getBoth`` return ``MethodOutcome`` on the ok branch
+  # (method errors are data) over the single ``JmapError`` rail.
   doAssert declared(newBuilder)
   doAssert declared(freeze)
   doAssert declared(BuiltRequest)
   doAssert declared(BuilderId)
   doAssert declared(DispatchedResponse)
-  doAssert declared(GetError)
-  doAssert declared(GetErrorKind)
-  doAssert declared(gekMethod)
-  doAssert declared(gekHandleMismatch)
+  doAssert declared(JmapErrorKind)
+  doAssert declared(MethodOutcome)
+  doAssert declared(MethodOutcomeKind)
+  doAssert declared(SessionFault)
+  doAssert declared(Misuse)
+  doAssert declared(ProtocolFault)
   # Factories of the sealed types are hub-private (A6 P5/P8) — application
   # developers must use the lifecycle, not raw construction.
   doAssert not declared(initRequestBuilder)

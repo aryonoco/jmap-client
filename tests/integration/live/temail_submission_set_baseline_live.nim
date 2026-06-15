@@ -76,8 +76,9 @@ testCase tEmailSubmissionSetBaselineLive:
       recorder.lastResponseBody, "email-submission-set-baseline-" & $target.kind
     )
       .expect("captureIfRequested")
-    let subSetResp =
-      resp3.get(subHandle).expect("EmailSubmission/set extract[" & $target.kind & "]")
+    let subSetResp = resp3.get(subHandle).expectValue(
+        "EmailSubmission/set extract[" & $target.kind & "]"
+      )
     var submissionId: Id
     var subOk = false
     subSetResp.createResults.withValue(subCid, outcome):

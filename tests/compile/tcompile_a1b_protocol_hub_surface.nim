@@ -76,17 +76,20 @@ static:
   # builder.nim — argument helpers
   doAssert declared(directIds)
   # dispatch.nim / identifiers.nim / errors.nim — A6 surface.
-  # Note: ``getErrorMethod`` / ``getErrorHandleMismatch`` are filtered out
-  # of the hub by A12 (library-internal constructors are not part of the
-  # application-developer surface). The negative assertion lives further
-  # below; the GetError ADT and its variants remain publicly visible so
-  # callers can ``case ge.kind of gekMethod / gekHandleMismatch``.
+  # Note: the internal-only arm constructors (``jmapMisuse`` / ``jmapProtocol``
+  # / the ``MethodOutcome`` producers) are filtered out of the hub by A12; the
+  # negative assertions live further below. The single ``JmapError`` rail ADT
+  # and the ``MethodOutcome`` data type remain publicly visible so callers can
+  # ``case err.kind`` and pattern-match a method outcome.
   doAssert declared(BuilderId)
   doAssert declared(DispatchedResponse)
-  doAssert declared(GetError)
-  doAssert declared(GetErrorKind)
-  doAssert declared(gekMethod)
-  doAssert declared(gekHandleMismatch)
+  doAssert declared(JmapError)
+  doAssert declared(JmapErrorKind)
+  doAssert declared(MethodOutcome)
+  doAssert declared(MethodOutcomeKind)
+  doAssert declared(SessionFault)
+  doAssert declared(Misuse)
+  doAssert declared(ProtocolFault)
   # identifiers.nim — BuilderId accessors stay public
   doAssert declared(clientBrand)
   doAssert declared(serial)
@@ -175,9 +178,15 @@ static:
   doAssert not declared(initDispatchedResponse)
   doAssert not declared(initBuilderId)
   doAssert not declared(build) # replaced by freeze
-  # A12 — library-internal GetError producers are hub-private
-  doAssert not declared(getErrorMethod)
-  doAssert not declared(getErrorHandleMismatch)
+  # A12 — the internal-only JmapError arm constructors and the MethodOutcome
+  # producers (minted by dispatch, not by consumers) are hub-private.
+  doAssert not declared(jmapMisuse)
+  doAssert not declared(jmapProtocol)
+  doAssert not declared(protocolMissingCall)
+  doAssert not declared(protocolMalformedError)
+  doAssert not declared(protocolDecode)
+  doAssert not declared(methodValue)
+  doAssert not declared(methodFailure)
   # B9 — the generic Chained* paired-handle plumbing was deleted; RFC 8620 §3.7
   # chains are bespoke records co-located with their builders, so the hub
   # exposes exactly the two compound paired-handle context types (P9).

@@ -85,7 +85,7 @@ testCase tmailboxDestroyRemoveEmailsLive:
       recorder.lastResponseBody, "mailbox-set-destroy-with-emails-" & $target.kind
     )
       .expect("captureIfRequested")
-    let destroyAResp = respDestroyA.get(destroyAHandle).expect(
+    let destroyAResp = respDestroyA.get(destroyAHandle).expectValue(
         "Mailbox/set destroy A[" & $target.kind & "]"
       )
     var childADestroyed = false
@@ -104,7 +104,7 @@ testCase tmailboxDestroyRemoveEmailsLive:
     let respGetA = client.send(bGetA.freeze()).expect(
         "send Mailbox/get post-A[" & $target.kind & "]"
       )
-    let mbResp = respGetA.get(getAHandle).expect(
+    let mbResp = respGetA.get(getAHandle).expectValue(
         "Mailbox/get post-A extract[" & $target.kind & "]"
       )
     var sawChildA = false
@@ -122,7 +122,7 @@ testCase tmailboxDestroyRemoveEmailsLive:
     let respGetE = client.send(bGetE.freeze()).expect(
         "send Email/get cascade-check[" & $target.kind & "]"
       )
-    let getEResp = respGetE.get(getEHandle).expect(
+    let getEResp = respGetE.get(getEHandle).expectValue(
         "Email/get cascade-check extract[" & $target.kind & "]"
       )
     assertOn target,
@@ -156,7 +156,7 @@ testCase tmailboxDestroyRemoveEmailsLive:
     let respDestroyB = client.send(bDestroyB.freeze()).expect(
         "send Mailbox/set destroy B no-cascade[" & $target.kind & "]"
       )
-    let destroyBResp = respDestroyB.get(destroyBHandle).expect(
+    let destroyBResp = respDestroyB.get(destroyBHandle).expectValue(
         "Mailbox/set destroy B extract[" & $target.kind & "]"
       )
     var sawHasEmail = false
@@ -188,7 +188,7 @@ testCase tmailboxDestroyRemoveEmailsLive:
     let respCleanup = client.send(bCleanup.freeze()).expect(
         "send Mailbox/set cleanup B[" & $target.kind & "]"
       )
-    let cleanupResp = respCleanup.get(cleanupHandle).expect(
+    let cleanupResp = respCleanup.get(cleanupHandle).expectValue(
         "Mailbox/set cleanup B extract[" & $target.kind & "]"
       )
     var childBCleaned = false

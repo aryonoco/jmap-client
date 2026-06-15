@@ -81,7 +81,7 @@ testCase temailQueryChangesFilterMismatchLive:
     let resp1 =
       client.send(b1.freeze()).expect("send Email/query baseline[" & $target.kind & "]")
     let qResp1 =
-      resp1.get(h1).expect("Email/query baseline extract[" & $target.kind & "]")
+      resp1.get(h1).expectValue("Email/query baseline extract[" & $target.kind & "]")
     let queryStateA = qResp1.queryState
 
     let filterB =

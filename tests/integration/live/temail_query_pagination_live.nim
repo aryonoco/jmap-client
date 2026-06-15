@@ -107,8 +107,9 @@ testCase temailQueryPaginationLive:
       recorder.lastResponseBody, "email-query-pagination-position-" & $target.kind
     )
       .expect("captureIfRequested position")
-    let qr1 =
-      resp1.get(h1).expect("Email/query position+limit extract[" & $target.kind & "]")
+    let qr1 = resp1.get(h1).expectValue(
+        "Email/query position+limit extract[" & $target.kind & "]"
+      )
     assertOn target,
       qr1.ids.len == 2,
       "position=2,limit=2 must return exactly two ids (got " & $qr1.ids.len & ")"
@@ -134,8 +135,9 @@ testCase temailQueryPaginationLive:
     let resp2 = client.send(b2.freeze()).expect(
         "send Email/query anchor baseline[" & $target.kind & "]"
       )
-    let qr2 =
-      resp2.get(h2).expect("Email/query anchor baseline extract[" & $target.kind & "]")
+    let qr2 = resp2.get(h2).expectValue(
+        "Email/query anchor baseline extract[" & $target.kind & "]"
+      )
     let baselineIds = qr2.ids
     assertOn target,
       baselineIds.len >= 5,
@@ -202,16 +204,22 @@ testCase temailQueryPaginationLive:
     )
       .expect("captureIfRequested anchor-not-found[" & $target.kind & "]")
     let qr4Result = resp4.get(h4)
-    if qr4Result.isErr:
+    # A server method error is now data on the dispatch ok rail
+    # (``MethodOutcome.mokMethodError``); only a dispatch fault rides the rail.
+    assertOn target,
+      qr4Result.isOk, "Email/query bad-anchor must not rail-fault (dispatch error)"
+    let qr4Outcome = qr4Result.unsafeValue
+    case qr4Outcome.kind
+    of mokValue:
+      # Servers that tolerate an unknown anchor return a normal (possibly
+      # empty) result set; that is an RFC-aligned outcome too.
+      discard
+    of mokMethodError:
       # Conformant servers surface a method error. Servers that
       # reject anchors at the parser layer return ``metInvalidArguments``
       # rather than ``metAnchorNotFound``; both are RFC-aligned typed
       # error projections.
-      let getErr = qr4Result.unsafeError
-      assertOn target,
-        getErr.kind == gekMethod,
-        "anchor-not-found must surface as gekMethod, not gekHandleMismatch"
-      let methodErr = getErr.methodErr
+      let methodErr = qr4Outcome.error
       assertOn target,
         methodErr.kind in {metAnchorNotFound, metInvalidArguments, metUnknownMethod},
         "errorType must project as metAnchorNotFound, metInvalidArguments, or " &

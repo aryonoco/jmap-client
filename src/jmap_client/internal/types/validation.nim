@@ -41,6 +41,17 @@ func `$`*(ve: ValidationError): string =
   ## Delegates to ``message`` for the single canonical projection.
   ve.message
 
+func hash*(ve: ValidationError): Hash =
+  ## Combines the three string fields with the standard ``!&`` / ``!$`` mixer.
+  ## ``NonEmptySeq[ValidationError]``'s generated ``hash`` folds over the
+  ## per-element hashes, so the accumulating-error payload is only hashable
+  ## once ``ValidationError`` itself is — this closes that gap.
+  var h: Hash = 0
+  h = h !& hash(ve.typeName)
+  h = h !& hash(ve.reason)
+  h = h !& hash(ve.value)
+  !$h
+
 template defineSealedStringOps*(T: typedesc) =
   ## Sealed-object string ops: equality, stringification, hashing, length.
   ## Companion to ``defineSealedOpaqueStringOps`` (no ``len``) — choose

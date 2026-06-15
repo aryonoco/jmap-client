@@ -195,7 +195,7 @@ testCase tcombinedAdversarialRoundTripLive:
     let respClean = client.send(bClean.freeze()).expect(
         "send Email/set cleanup[" & $target.kind & "]"
       )
-    let cleanResp = respClean.get(cleanHandle).expect(
+    let cleanResp = respClean.get(cleanHandle).expectValue(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
     cleanResp.destroyResults.withValue(seedId, outcome):

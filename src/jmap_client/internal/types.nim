@@ -26,7 +26,15 @@ import ./types/credential
 import ./types/session_endpoint
 
 export results
-export validation except validationError, toValidationError
+# ``TokenViolation`` (with its members) and the ``detect*`` token validators are
+# internal construction primitives — every public smart constructor projects them
+# to ``ValidationError`` at its boundary — so they are filtered from the public
+# surface; ``ValidationError`` is the sole consumer-facing construction rail.
+export validation except
+  validationError, toValidationError, TokenViolation, tvEmpty, tvLengthOutOfRange,
+  tvControlChars, tvNonPrintableAscii, tvForbiddenChar, tvNotBase64Url,
+  tvCreationIdPrefix, detectNonEmpty, detectLenientToken, detectNonControlString,
+  detectStrictBase64UrlToken, detectStrictPrintableToken, detectNonEmptyNoPrefix
 export primitives except parseFromString
 export identifiers except initBuilderId
 export collation
@@ -47,11 +55,7 @@ export framework
 export errors except
   requestError, methodError, setError, setErrorInvalidProperties, setErrorAlreadyExists,
   setErrorBlobNotFound, setErrorInvalidEmail, setErrorTooManyRecipients,
-  setErrorInvalidRecipients, setErrorTooLarge, clientError, validationToClientError,
-  validationToClientErrorCtx, getErrorMethod, getErrorHandleMismatch
+  setErrorInvalidRecipients, setErrorTooLarge
 export field_echo
 export credential except authorizationHeaderValue
 export session_endpoint except asDirectUrl, asDiscoveryDomain
-
-type JmapResult*[T] = Result[T, ClientError]
-  ## Outer railway: transport/request failure or typed success.

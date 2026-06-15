@@ -71,7 +71,7 @@ testCase tsetErrorTypedProjectionLive:
       )
         .expect("captureIfRequested setNotFound")
       let setResp =
-        resp.get(setHandle).expect("Email/set extract[" & $target.kind & "]")
+        resp.get(setHandle).expectValue("Email/set extract[" & $target.kind & "]")
       var rejected = false
       setResp.destroyResults.withValue(syntheticId, outcome):
         assertOn target, outcome.isErr, "destroy of synthetic id must Err"
@@ -296,7 +296,7 @@ testCase tsetErrorTypedProjectionLive:
     let respClean = client.send(bClean.freeze()).expect(
         "send Email/set cleanup[" & $target.kind & "]"
       )
-    let cleanResp = respClean.get(cleanHandle).expect(
+    let cleanResp = respClean.get(cleanHandle).expectValue(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
     cleanResp.destroyResults.withValue(seedId, outcome):

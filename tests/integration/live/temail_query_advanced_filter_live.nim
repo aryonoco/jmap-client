@@ -89,7 +89,7 @@ proc seedLargeEmail(
     initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
   )
   let resp = client.send(b.freeze()).expect("send Email/set large")
-  let setResp = resp.get(setHandle).expect("Email/set large extract")
+  let setResp = resp.get(setHandle).expectValue("Email/set large extract")
   var seededId = parseIdFromServer("placeholder").get()
   var found = false
   setResp.createResults.withValue(cid, outcome):
@@ -115,7 +115,7 @@ proc assertInMailbox(
     initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
   )
   let resp = client.send(b.freeze()).expect("send Email/query inMailbox")
-  let qr = resp.get(h).expect("Email/query inMailbox extract")
+  let qr = resp.get(h).expectValue("Email/query inMailbox extract")
   var foundArchive = false
   for id in qr.ids:
     if id == archiveSeed:
@@ -147,8 +147,14 @@ proc assertInMailboxOtherThanMinSize(
   )
   let resp = client.send(b.freeze()).expect("send Email/query minSize")
   let qrExtract = resp.get(h)
-  if qrExtract.isOk:
-    let qr = qrExtract.unsafeValue
+  # A server method error is now data on the dispatch ok rail
+  # (``MethodOutcome.mokMethodError``); only a dispatch fault rides the rail,
+  # which is fatal here.
+  doAssert qrExtract.isOk, "Email/query must not rail-fault (dispatch error)"
+  let qrOutcome = qrExtract.unsafeValue
+  case qrOutcome.kind
+  of mokValue:
+    let qr = qrOutcome.value
     var foundLarge = false
     for id in qr.ids:
       if id == largeId:
@@ -157,13 +163,9 @@ proc assertInMailboxOtherThanMinSize(
         doAssert id != smallId,
           "minSize=1000 must not surface small emails (got " & $id & ")"
     doAssert foundLarge, "large 4 KB email must surface under minSize=1000 filter"
-  else:
-    # Cat-B error arm — server rejected the nested FilterOperator
-    # shape.
-    let getErr = qrExtract.unsafeError
-    doAssert getErr.kind == gekMethod,
-      "filter rejection must surface as gekMethod, not gekHandleMismatch"
-    let methodErr = getErr.methodErr
+  of mokMethodError:
+    # Cat-B error arm — server rejected the nested FilterOperator shape.
+    let methodErr = qrOutcome.error
     doAssert methodErr.kind in
       {metInvalidArguments, metUnsupportedFilter, metUnknownMethod},
       "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
@@ -205,7 +207,7 @@ proc assertHasAttachment(
     recorder.lastResponseBody, "email-query-advanced-filter-" & targetSuffix
   )
     .expect("captureIfRequested")
-  let qr = resp.get(h).expect("Email/query hasAttachment extract")
+  let qr = resp.get(h).expectValue("Email/query hasAttachment extract")
   var foundAttach = false
   for id in qr.ids:
     if id == attachId:

@@ -9,6 +9,7 @@ import std/strutils
 import jmap_client/internal/types/primitives
 import jmap_client/internal/types/errors
 import jmap_client/internal/types/validation
+import jmap_client/internal/protocol/jmap_error
 
 import ../massertions
 import ../mtestblock
@@ -151,47 +152,47 @@ testCase requestErrorKnownRawTypePreserved:
   doAssert e.kind == retNotJson
   doAssert e.rawType == "urn:ietf:params:jmap:error:notJSON"
 
-# --- ClientError constructors + message accessor ---
+# --- JmapError transport/request arms + message accessor ---
 
 testCase clientErrorTransport:
-  let ce = clientError(transportError(tekNetwork, "refused"))
-  doAssert ce.kind == cekTransport
+  let ce = jmapTransport(transportError(tekNetwork, "refused"))
+  doAssert ce.kind == jeTransport
 
 testCase clientErrorRequest:
-  let ce = clientError(requestError("urn:ietf:params:jmap:error:notJSON"))
-  doAssert ce.kind == cekRequest
+  let ce = jmapRequest(requestError("urn:ietf:params:jmap:error:notJSON"))
+  doAssert ce.kind == jeRequest
 
 testCase messageTransport:
-  let ce = clientError(transportError(tekTimeout, "timed out"))
-  doAssert errors.message(ce) == "timed out"
+  let ce = jmapTransport(transportError(tekTimeout, "timed out"))
+  doAssert message(ce) == "timed out"
 
 testCase messageRequestWithDetail:
-  let ce = clientError(
+  let ce = jmapRequest(
     requestError(
       "urn:ietf:params:jmap:error:limit", detail = Opt.some("Too many calls")
     )
   )
-  doAssert errors.message(ce) == "Too many calls"
+  doAssert message(ce) == "Too many calls"
 
 testCase messageRequestDetailPreferredOverTitle:
-  let ce = clientError(
+  let ce = jmapRequest(
     requestError(
       "urn:ietf:params:jmap:error:limit",
       title = Opt.some("Limit Exceeded"),
       detail = Opt.some("Too many calls"),
     )
   )
-  doAssert errors.message(ce) == "Too many calls"
+  doAssert message(ce) == "Too many calls"
 
 testCase messageRequestWithTitleOnly:
-  let ce = clientError(
+  let ce = jmapRequest(
     requestError("urn:ietf:params:jmap:error:limit", title = Opt.some("Limit Exceeded"))
   )
-  doAssert errors.message(ce) == "Limit Exceeded"
+  doAssert message(ce) == "Limit Exceeded"
 
 testCase messageRequestFallbackToRawType:
-  let ce = clientError(requestError("urn:ietf:params:jmap:error:limit"))
-  doAssert errors.message(ce) == "urn:ietf:params:jmap:error:limit"
+  let ce = jmapRequest(requestError("urn:ietf:params:jmap:error:limit"))
+  doAssert message(ce) == "urn:ietf:params:jmap:error:limit"
 
 # --- MethodError constructor ---
 
@@ -435,7 +436,7 @@ testCase setErrorAllVariantsThroughGenericConstructor:
     let se = setError(rawType, Opt.none(string), Opt.none(JsonNode))
     doAssert se.rawType == rawType
 
-# --- ClientError message cascade ---
+# --- JmapError request-arm message cascade ---
 
 testCase clientErrorMessageCascadeDetail:
   # When detail is present, message returns detail
@@ -447,8 +448,8 @@ testCase clientErrorMessageCascadeDetail:
     Opt.some("maxCallsInRequest"),
     Opt.none(JsonNode),
   )
-  let ce = clientError(re)
-  assertEq errors.message(ce), "Too many requests"
+  let ce = jmapRequest(re)
+  assertEq message(ce), "Too many requests"
 
 testCase clientErrorMessageCascadeTitle:
   # When detail is absent, message returns title
@@ -460,8 +461,8 @@ testCase clientErrorMessageCascadeTitle:
     Opt.none(string),
     Opt.none(JsonNode),
   )
-  let ce = clientError(re)
-  assertEq errors.message(ce), "Rate Limited"
+  let ce = jmapRequest(re)
+  assertEq message(ce), "Rate Limited"
 
 testCase clientErrorMessageCascadeRawType:
   # When both detail and title absent, message returns rawType
@@ -473,8 +474,8 @@ testCase clientErrorMessageCascadeRawType:
     Opt.none(string),
     Opt.none(JsonNode),
   )
-  let ce = clientError(re)
-  assertEq errors.message(ce), "urn:ietf:params:jmap:error:limit"
+  let ce = jmapRequest(re)
+  assertEq message(ce), "urn:ietf:params:jmap:error:limit"
 
 # --- SetError variant constructor edge cases ---
 
@@ -538,7 +539,7 @@ testCase requestErrorLimitFieldNonLimitType:
 testCase clientErrorMessageAllNone:
   ## When all optional fields are None, message falls back to rawType.
   let re = requestError("urn:ietf:params:jmap:error:notJSON")
-  let ce = clientError(re)
+  let ce = jmapRequest(re)
   assertEq message(ce), "urn:ietf:params:jmap:error:notJSON"
 
 testCase httpStatusErrorLargeStatus:
@@ -551,18 +552,18 @@ testCase httpStatusErrorLargeStatus:
 # --- Phase 2: Error constructor zero-coverage gaps ---
 
 testCase clientErrorFromTransport:
-  ## clientError(transport) lifts a transport error into ClientError.
+  ## jmapTransport(te) lifts a transport error onto the JmapError rail.
   let te = transportError(tekNetwork, "connection refused")
-  let ce = clientError(te)
-  doAssert ce.kind == cekTransport
+  let ce = jmapTransport(te)
+  doAssert ce.kind == jeTransport
   doAssert ce.transport.kind == tekNetwork
   doAssert ce.transport.message == "connection refused"
 
 testCase clientErrorFromRequest:
-  ## clientError(request) lifts a request error into ClientError.
+  ## jmapRequest(re) lifts a request error onto the JmapError rail.
   let re = requestError("urn:ietf:params:jmap:error:notJSON")
-  let ce = clientError(re)
-  doAssert ce.kind == cekRequest
+  let ce = jmapRequest(re)
+  doAssert ce.kind == jeRequest
   doAssert ce.request.kind == retNotJson
 
 testCase transportErrorAllKindsNetwork:
@@ -603,32 +604,32 @@ testCase httpStatusErrorFieldAccess:
   assertEq e.message, "HTTP 429: Too Many Requests"
 
 testCase messageClientErrorTransportPath:
-  ## message(ClientError) for cekTransport returns transport.msg.
-  let ce = clientError(transportError(tekTls, "expired certificate"))
+  ## message(ClientError) for jeTransport returns transport.msg.
+  let ce = jmapTransport(transportError(tekTls, "expired certificate"))
   assertEq message(ce), "expired certificate"
 
 testCase messageClientErrorRequestWithDetail:
-  ## message(ClientError) for cekRequest prefers detail over title.
+  ## message(ClientError) for jeRequest prefers detail over title.
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
     title = Opt.some("Limit"),
     detail = Opt.some("Too many objects in request"),
   )
-  let ce = clientError(re)
+  let ce = jmapRequest(re)
   assertEq message(ce), "Too many objects in request"
 
 testCase messageClientErrorRequestWithTitleOnly:
-  ## message(ClientError) for cekRequest uses title when detail is absent.
+  ## message(ClientError) for jeRequest uses title when detail is absent.
   let re = requestError(
     "urn:ietf:params:jmap:error:notRequest", title = Opt.some("Not a JMAP Request")
   )
-  let ce = clientError(re)
+  let ce = jmapRequest(re)
   assertEq message(ce), "Not a JMAP Request"
 
 testCase messageClientErrorRequestRawTypeFallback:
-  ## message(ClientError) for cekRequest falls back to rawType.
+  ## message(ClientError) for jeRequest falls back to rawType.
   let re = requestError("urn:ietf:params:jmap:error:unknownCapability")
-  let ce = clientError(re)
+  let ce = jmapRequest(re)
   assertEq message(ce), "urn:ietf:params:jmap:error:unknownCapability"
 
 # --- Phase 3: SetError empty rawType ---

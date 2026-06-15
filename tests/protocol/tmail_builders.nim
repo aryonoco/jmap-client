@@ -636,14 +636,21 @@ testCase getBothCopyAndDestroyHappyPath:
   let results = makeDispatchedResponse(resp).getBoth(handles)
   assertOk results
   let r = results.get()
-  assertEq r.primary.accountId, makeAccountId("dst")
-  assertEq r.implicit.accountId, makeAccountId("dst")
+  doAssert r.primary.kind == mokValue
+  let implicitOutcome = r.implicit.valueOr:
+    doAssert false, "compound implicit must be present when the primary succeeds"
+    return
+  doAssert implicitOutcome.kind == mokValue
+  assertEq r.primary.value.accountId, makeAccountId("dst")
+  assertEq implicitOutcome.value.accountId, makeAccountId("dst")
 
-testCase getBothShortCircuitOnCopyError:
-  ## M.2: copy-side ``MethodError`` short-circuits ``getBoth`` before
-  ## destroy is consulted — the typed variant survives round-trip for
-  ## every ``MethodErrorKind`` variant applicable to Email/copy per
-  ## RFC 8621 §4.7. Mirrors the ``tconvenience.nim:154`` precedent.
+testCase getBothCopyMethodErrorRidesData:
+  ## M.2: a copy-side ``MethodError`` is DATA now — it rides the primary
+  ## ``MethodOutcome.mokMethodError`` (the typed variant survives round-trip
+  ## for every ``MethodErrorKind`` applicable to Email/copy per RFC 8621 §4.7)
+  ## rather than short-circuiting ``getBoth`` onto the rail. Because the
+  ## primary method-errored, RFC 8620 §5.4 emits no implicit call, so
+  ## ``getBoth`` leaves the implicit ``none``.
   const applicable = {
     metStateMismatch, metFromAccountNotFound, metFromAccountNotSupportedByMethod,
     metServerFail, metForbidden, metAccountNotFound, metAccountReadOnly,
@@ -658,14 +665,17 @@ testCase getBothShortCircuitOnCopyError:
     let resp =
       initResponse(@[errInv, setInv], Opt.none(Table[CreationId, Id]), makeState("rs1"))
     let results = makeDispatchedResponse(resp).getBoth(handles)
-    doAssert results.isErr, "variant " & $variant & " should short-circuit"
-    assertEq results.error.methodErr.kind, variant
+    assertOk results
+    let r = results.get()
+    doAssert r.primary.kind == mokMethodError, "variant " & $variant & " must be data"
+    assertEq r.primary.error.kind, variant
+    doAssert r.implicit.isNone
 
-testCase getBothShortCircuitOnDestroyMissing:
-  ## M.3: well-formed copy + NO Email/set invocation at the shared cid
-  ## → ``getBoth`` returns a ``serverFail`` ``MethodError`` with the
-  ## "no Email/set response for call ID ..." description per the shipped
-  ## dispatch semantics at ``dispatch.nim:161-167``.
+testCase getBothDestroyMissingRidesProtocolRail:
+  ## M.3: well-formed copy + NO Email/set invocation at the shared cid. The
+  ## implicit ``NameBoundHandle`` finds no matching invocation, which is a
+  ## dispatch fault — ``jeProtocol`` / ``pfMissingCall`` localised to the cid
+  ## — and rides the rail (the only thing that does, now).
   let cid = makeMcid("c0")
   let handles = makeEmailCopyHandles(cid)
   let copyResp = makeEmailCopyResponse()
@@ -676,18 +686,17 @@ testCase getBothShortCircuitOnDestroyMissing:
   )
   let results = makeDispatchedResponse(resp).getBoth(handles)
   doAssert results.isErr
-  assertEq results.error.methodErr.rawType, "serverFail"
-  assertSomeEq results.error.methodErr.description,
-    "no Email/set response for call ID c0"
+  doAssert results.error.kind == jeProtocol
+  doAssert results.error.protocol.kind == pfMissingCall
+  doAssert results.error.protocol.callId == cid
 
-testCase getBothShortCircuitOnDestroyError:
-  ## M.4: well-formed copy + an "error" invocation at the shared cid
-  ## (wire name ``"error"``, not ``"Email/set"``) → the name-filtered
-  ## dispatch of ``NameBoundHandle`` rejects "error" invocations, so
-  ## ``getBoth`` surfaces the missing-response ``serverFail`` rather
-  ## than the injected error type. Pins ``dispatch.nim:158-184`` name-
-  ## filter semantics: a destroy failure is invisible at the destroy
-  ## slot because the server's error wire tag is always ``"error"``.
+testCase getBothDestroyErrorTagRidesProtocolRail:
+  ## M.4: well-formed copy + an "error" invocation at the shared cid (wire
+  ## name ``"error"``, not ``"Email/set"``). The implicit ``NameBoundHandle``
+  ## filters on the method name, so the "error" tag does not match Email/set;
+  ## the implicit slot is therefore a missing call — ``jeProtocol`` /
+  ## ``pfMissingCall`` on the rail. A destroy failure is invisible at the
+  ## destroy slot because the server's error wire tag is always ``"error"``.
   let cid = makeMcid("c0")
   let handles = makeEmailCopyHandles(cid)
   let copyResp = makeEmailCopyResponse()
@@ -699,9 +708,9 @@ testCase getBothShortCircuitOnDestroyError:
   )
   let results = makeDispatchedResponse(resp).getBoth(handles)
   doAssert results.isErr
-  assertEq results.error.methodErr.rawType, "serverFail"
-  assertSomeEq results.error.methodErr.description,
-    "no Email/set response for call ID c0"
+  doAssert results.error.kind == jeProtocol
+  doAssert results.error.protocol.kind == pfMissingCall
+  doAssert results.error.protocol.callId == cid
 
 # ===========================================================================
 # N. addMailboxSet typed-update migration (Design §3.3)
@@ -803,20 +812,23 @@ testCase getBothBothSucceed:
   let results = makeDispatchedResponse(resp).getBoth(handles)
   assertOk results
   let r = results.get()
-  assertLen r.primary.createResults, 1
-  doAssert r.primary.createResults[makeCreationId("s1")].isOk
-  assertSomeEq r.implicit.newState, makeState("em1")
+  doAssert r.primary.kind == mokValue
+  let implicitOutcome = r.implicit.valueOr:
+    doAssert false, "compound implicit must be present when the primary succeeds"
+    return
+  doAssert implicitOutcome.kind == mokValue
+  assertLen r.primary.value.createResults, 1
+  doAssert r.primary.value.createResults[makeCreationId("s1")].isOk
+  assertSomeEq implicitOutcome.value.newState, makeState("em1")
 
-testCase getBothInnerMethodError:
+testCase getBothInnerErrorTagRidesProtocolRail:
   ## O.3 — G2 §8.6 row 2: well-formed submission + an ``"error"``-tagged
   ## invocation at the shared call-id. The ``NameBoundHandle.methodName``
   ## filter on ``handles.implicit`` rejects the error invocation (wire tag
-  ## ``"error"`` != ``"Email/set"``), so ``getBoth`` surfaces the same
-  ## ``serverFail`` / "no Email/set response for call ID ..." shape as
-  ## O.4 — client-side masking identical to §M.4's destroy-slot precedent.
-  ## Pins that an arbitrary ``MethodErrorKind`` at the inner slot never
-  ## leaks through dispatch; the visible error-type fold lives at the
-  ## outer slot (see O.7) and in Step 16's ``tmail_method_errors.nim``.
+  ## ``"error"`` != ``"Email/set"``), so the inner slot is a missing call —
+  ## ``jeProtocol`` / ``pfMissingCall`` on the rail (the only thing that
+  ## rails now). An arbitrary inner method error never leaks a valid-looking
+  ## inner payload to the caller.
   let cid = makeMcid("c0")
   let handles = makeEmailSubmissionHandles(cid, cid)
   let subJson = %*{"accountId": "a1", "newState": "sub1"}
@@ -827,17 +839,16 @@ testCase getBothInnerMethodError:
     makeState("rs1"),
   )
   let results = makeDispatchedResponse(resp).getBoth(handles)
-  assertErr results
-  assertEq results.error.methodErr.rawType, "serverFail"
-  assertSomeEq results.error.methodErr.description,
-    "no Email/set response for call ID c0"
+  doAssert results.isErr
+  doAssert results.error.kind == jeProtocol
+  doAssert results.error.protocol.kind == pfMissingCall
+  doAssert results.error.protocol.callId == cid
 
-testCase getBothInnerAbsent:
+testCase getBothInnerAbsentRidesProtocolRail:
   ## O.4 — G2 §8.6 row 3: well-formed submission, NO ``Email/set``
-  ## invocation in ``methodResponses`` at all → ``getBoth`` surfaces a
-  ## ``serverFail`` ``MethodError`` whose description pins the
-  ## filter-name via the template at ``dispatch.nim:167-172``
-  ## (``"no " & $filterName & " response for call ID " & $targetId``).
+  ## invocation in ``methodResponses`` at all → the implicit handle finds
+  ## no matching invocation, a dispatch fault: ``jeProtocol`` /
+  ## ``pfMissingCall`` localised to the call id.
   let cid = makeMcid("c0")
   let handles = makeEmailSubmissionHandles(cid, cid)
   let subJson = %*{"accountId": "a1", "newState": "sub1"}
@@ -847,21 +858,21 @@ testCase getBothInnerAbsent:
     makeState("rs1"),
   )
   let results = makeDispatchedResponse(resp).getBoth(handles)
-  assertErr results
-  assertEq results.error.methodErr.rawType, "serverFail"
-  assertSomeEq results.error.methodErr.description,
-    "no Email/set response for call ID c0"
+  doAssert results.isErr
+  doAssert results.error.kind == jeProtocol
+  doAssert results.error.protocol.kind == pfMissingCall
+  doAssert results.error.protocol.callId == cid
 
 testCase getBothInnerMcIdMismatch:
   ## O.5 — G2 §8.6 row 4: outer submission at ``c0`` well-formed + a
   ## well-formed ``Email/set`` at ``c1`` (the wrong call-id). The
   ## ``NameBoundHandle.callId`` filter rejects the ``c1`` invocation
-  ## because it doesn't match ``handles.implicit.callId == c0``, so
-  ## ``getBoth`` surfaces the identical ``serverFail`` / "no Email/set
-  ## response for call ID c0" shape as O.3 and O.4. Pins that client-
-  ## side dispatch never conflates a sibling-id invocation with the
-  ## expected inner: a routing glitch cannot leak a valid-looking
-  ## inner payload to the caller.
+  ## because it doesn't match ``handles.implicit.callId == c0``, so the inner
+  ## slot is a missing call — the identical ``jeProtocol`` / ``pfMissingCall``
+  ## (localised to ``c0``) shape as O.3 and O.4. Pins that client-side
+  ## dispatch never conflates a sibling-id invocation with the expected
+  ## inner: a routing glitch cannot leak a valid-looking inner payload to the
+  ## caller.
   let outerCid = makeMcid("c0")
   let innerCid = makeMcid("c1")
   let handles = makeEmailSubmissionHandles(outerCid, outerCid)
@@ -878,10 +889,10 @@ testCase getBothInnerMcIdMismatch:
     makeState("rs1"),
   )
   let results = makeDispatchedResponse(resp).getBoth(handles)
-  assertErr results
-  assertEq results.error.methodErr.rawType, "serverFail"
-  assertSomeEq results.error.methodErr.description,
-    "no Email/set response for call ID c0"
+  doAssert results.isErr
+  doAssert results.error.kind == jeProtocol
+  doAssert results.error.protocol.kind == pfMissingCall
+  doAssert results.error.protocol.callId == outerCid
 
 testCase getBothOuterNotCreatedSole:
   ## O.6 — G2 §8.6 row 5: outer submission with one ``notCreated``
@@ -925,29 +936,35 @@ testCase getBothOuterNotCreatedSole:
   let results = makeDispatchedResponse(resp).getBoth(handles)
   assertOk results
   let r = results.get()
-  assertLen r.primary.createResults, 1
-  doAssert r.primary.createResults[makeCreationId("s1")].isErr
-  assertLen r.implicit.createResults, 0
+  doAssert r.primary.kind == mokValue
+  let implicitOutcome = r.implicit.valueOr:
+    doAssert false, "compound implicit must be present when the primary succeeds"
+    return
+  doAssert implicitOutcome.kind == mokValue
+  assertLen r.primary.value.createResults, 1
+  doAssert r.primary.value.createResults[makeCreationId("s1")].isErr
+  assertLen implicitOutcome.value.createResults, 0
 
-testCase getBothOuterIfInStateMismatch:
-  ## O.7 — G2 §8.6 row 6: outer invocation is an ``"error"``-tagged
-  ## invocation with ``"stateMismatch"`` at the shared call-id; no
-  ## inner invocation at all (the outer ``ifInState`` check failed
-  ## before the server ran the implicit ``Email/set``). The plain
-  ## ``ResponseHandle`` on ``handles.primary`` routes through
-  ## ``extractInvocation`` (``dispatch.nim:118-142``), which DOES
-  ## surface method errors by name-tag — so ``?resp.get(
-  ## handles.primary)`` short-circuits with ``Err(metStateMismatch)``
-  ## before ``handles.implicit`` is consulted. The inner's absence is
-  ## therefore irrelevant, which is exactly what this block pins:
-  ## ``getBoth`` is total over the order of failures.
+testCase getBothOuterMethodErrorRidesData:
+  ## O.7 — G2 §8.6 row 6: the outer ``EmailSubmission/set`` invocation is an
+  ## ``"error"``-tagged invocation with ``"stateMismatch"`` at the shared
+  ## call-id (the ``ifInState`` check failed). A method error is DATA now: the
+  ## primary ``ResponseHandle`` matches the error invocation at the cid and
+  ## yields ``mokMethodError(metStateMismatch)`` on the ok branch. Because the
+  ## primary method-errored, RFC 8620 §5.4 emits no implicit call, so
+  ## ``getBoth`` leaves the implicit ``none``.
   let cid = makeMcid("c0")
   let handles = makeEmailSubmissionHandles(cid, cid)
   let errInv = makeErrorInvocation(cid, "stateMismatch")
-  let resp = initResponse(@[errInv], Opt.none(Table[CreationId, Id]), makeState("rs1"))
+  let setInv = initInvocation(mnEmailSet, makeEmailSetResponse().toJson(), cid)
+  let resp =
+    initResponse(@[errInv, setInv], Opt.none(Table[CreationId, Id]), makeState("rs1"))
   let results = makeDispatchedResponse(resp).getBoth(handles)
-  assertErr results
-  assertEq results.error.methodErr.kind, metStateMismatch
+  assertOk results
+  let r = results.get()
+  doAssert r.primary.kind == mokMethodError
+  assertEq r.primary.error.kind, metStateMismatch
+  doAssert r.implicit.isNone
 
 # ===========================================================================
 # P. addEmailSubmissionGet wire shape (RFC 8621 §7.1)

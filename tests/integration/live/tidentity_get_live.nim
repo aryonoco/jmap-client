@@ -53,28 +53,29 @@ testCase tidentityGetLive:
     let (b2, getHandle) = addIdentityGet(b1, submissionAccountId)
     let resp = client.send(b2.freeze()).expect("send[" & $target.kind & "]")
 
-    let setExtract = resp.get(setHandle)
+    let setOutcome =
+      resp.get(setHandle).expect("Identity/set dispatch[" & $target.kind & "]")
     # Cat-B (Phase L §0): Cyrus 3.12.2 has no ``Identity/set`` and
     # returns ``metUnknownMethod``; Stalwart and James implement it.
     # The Identity/get arm runs on every target (Identity/get is
     # implemented everywhere — Cyrus exposes config-derived
-    # identities).
-    if setExtract.isOk:
-      let setResp = setExtract.unsafeValue
+    # identities). A server method error is now DATA on the ok rail.
+    case setOutcome.kind
+    of mokValue:
+      let setResp = setOutcome.value
       assertOn target,
         setResp.createResults.len == 1, "set must report one create result"
       let createResult = setResp.createResults[cid]
       assertOn target, createResult.isOk, "Identity/set must succeed for seeded address"
-    else:
-      let getErr = setExtract.unsafeError
-      doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
-      let methodErr = getErr.methodErr
+    of mokMethodError:
+      let methodErr = setOutcome.error
       assertOn target,
         methodErr.kind == metUnknownMethod,
         "Identity/set must surface as metUnknownMethod when unimplemented (got " &
           methodErr.rawType & ")"
 
-    let gr = resp.get(getHandle).expect("Identity/get extract[" & $target.kind & "]")
+    let gr =
+      resp.get(getHandle).expectValue("Identity/get extract[" & $target.kind & "]")
     assertOn target, gr.list.len >= 1, "alice must own at least one identity"
     # ``email`` is RFC 8621 §6.1 ``String`` — Cyrus emits empty for
     # config-derived identities; Stalwart/James populate. Identity/get
@@ -86,6 +87,6 @@ testCase tidentityGetLive:
         ident.id.len > 0, "every identity must carry a server-assigned id"
       if ident.email == "alice@example.com":
         sawAliceEmail = true
-    if setExtract.isOk:
+    if setOutcome.kind == mokValue:
       assertOn target,
         sawAliceEmail, "alice's seeded address must appear among her identities"

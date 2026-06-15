@@ -92,8 +92,9 @@ testCase temailGetHeaderFormsLive:
     )
     let seedResp =
       client.send(bSeed.freeze()).expect("send Email/set seed[" & $target.kind & "]")
-    let seedSet =
-      seedResp.get(seedHandle).expect("Email/set seed extract[" & $target.kind & "]")
+    let seedSet = seedResp.get(seedHandle).expectValue(
+        "Email/set seed extract[" & $target.kind & "]"
+      )
     var seededId: Id
     var found = false
     seedSet.createResults.withValue(cid, outcome):
@@ -126,8 +127,9 @@ testCase temailGetHeaderFormsLive:
       )
     captureIfRequested(recorder.lastResponseBody, "email-header-forms-" & $target.kind)
       .expect("captureIfRequested")
-    let getResp =
-      resp.get(getHandle).expect("Email/get header forms extract[" & $target.kind & "]")
+    let getResp = resp.get(getHandle).expectValue(
+        "Email/get header forms extract[" & $target.kind & "]"
+      )
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
     let email = getResp.list[0]

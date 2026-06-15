@@ -145,8 +145,9 @@ testCase tcascadeChangesCoherenceLive:
       let resp = client.send(b.freeze()).expect(
           "send Email/get threadId resolve[" & $target.kind & "]"
         )
-      let getResp =
-        resp.get(getHandle).expect("Email/get threadId extract[" & $target.kind & "]")
+      let getResp = resp.get(getHandle).expectValue(
+          "Email/get threadId extract[" & $target.kind & "]"
+        )
       assertOn target,
         getResp.list.len == 1,
         "Email/get must return exactly one record for the seeded id (got " &
@@ -170,7 +171,7 @@ testCase tcascadeChangesCoherenceLive:
     let respCascade = client.send(bCascade.freeze()).expect(
         "send Mailbox/set cascade destroy[" & $target.kind & "]"
       )
-    let cascadeResp = respCascade.get(cascadeHandle).expect(
+    let cascadeResp = respCascade.get(cascadeHandle).expectValue(
         "Mailbox/set cascade destroy extract[" & $target.kind & "]"
       )
     var cascadeOk = false
@@ -204,19 +205,28 @@ testCase tcascadeChangesCoherenceLive:
       # Cat-B: any of the three /changes extracts may surface a typed
       # error (e.g. Cyrus 3.12.2's ``cannotCalculateChanges`` when the
       # server's state-history window has rolled past the captured
-      # baseline). The wire-shape parsing has already happened on the
-      # transport leg; an extract-level error is a positive client-
-      # library typed-error projection. Skip this iteration; the
-      # outer loop's best-effort convergence check still runs.
+      # baseline), now carried as ``MethodOutcome.mokMethodError`` data; a
+      # rail error is a dispatch fault. The wire-shape parsing has already
+      # happened on the transport leg; an extract-level error is a positive
+      # client-library typed-error projection. Skip this iteration unless
+      # every leg carried a value; the outer loop's best-effort convergence
+      # check still runs.
       let mailboxExtract = resp.get(mailboxH)
       let emailExtract = resp.get(emailH)
       let threadExtract = resp.get(threadH)
       if mailboxExtract.isErr or emailExtract.isErr or threadExtract.isErr:
         sleep(200)
         continue
-      let mailboxCr = mailboxExtract.unsafeValue
-      let emailCr = emailExtract.unsafeValue
-      let threadCr = threadExtract.unsafeValue
+      let mailboxOutcome = mailboxExtract.unsafeValue
+      let emailOutcome = emailExtract.unsafeValue
+      let threadOutcome = threadExtract.unsafeValue
+      if mailboxOutcome.kind != mokValue or emailOutcome.kind != mokValue or
+          threadOutcome.kind != mokValue:
+        sleep(200)
+        continue
+      let mailboxCr = mailboxOutcome.value
+      let emailCr = emailOutcome.value
+      let threadCr = threadOutcome.value
       let allEmailDelta =
         emailCr.created.toHashSet + emailCr.updated.toHashSet +
         emailCr.destroyed.toHashSet

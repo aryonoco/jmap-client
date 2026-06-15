@@ -135,12 +135,13 @@ testCase tidentityChangesLive:
       recorder.lastResponseBody, "identity-changes-bogus-state-" & $target.kind
     )
       .expect("captureIfRequested")
-    let sadExtract = respSad.get(sadHandle)
+    let sadOutcome = respSad.get(sadHandle).expect(
+        "Identity/changes bogus dispatch[" & $target.kind & "]"
+      )
     assertOn target,
-      sadExtract.isErr, "bogus sinceState must surface as a method-level error"
-    let getErr = sadExtract.error
-    doAssert getErr.kind == gekMethod, "expected gekMethod"
-    let methodErr = getErr.methodErr
+      sadOutcome.kind == mokMethodError,
+      "bogus sinceState must surface as a method-level error"
+    let methodErr = sadOutcome.error
     assertOn target,
       methodErr.kind in
         {metCannotCalculateChanges, metInvalidArguments, metUnknownMethod},

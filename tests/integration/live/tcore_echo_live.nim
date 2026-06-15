@@ -35,6 +35,6 @@ testCase tcoreEchoLive:
     # ``protocol/methods.nim``; the standard ``get`` returns the
     # arguments unchanged.
     let echoArgs =
-      resp.get(echoHandle).expect("Core/echo extract[" & $target.kind & "]")
+      resp.get(echoHandle).expectValue("Core/echo extract[" & $target.kind & "]")
     assertOn target, echoArgs == args, "echo args must round-trip unchanged"
     assertOn target, ($resp.sessionState).len > 0, "response must carry sessionState"

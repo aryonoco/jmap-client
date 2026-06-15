@@ -6,16 +6,15 @@
 ## ID to its expected response type at compile time and carries a
 ## ``BuilderId`` that brands it to the issuing ``RequestBuilder``. ``get[T]``
 ## extracts typed responses from a sealed ``DispatchedResponse`` returned by
-## ``JmapClient.send``; mismatched brands return ``err(gekHandleMismatch)``,
-## server errors return ``err(gekMethod)``. Serde failures map losslessly
-## through ``serdeToMethodError``.
+## ``JmapClient.send``.
 ##
-## **Two-level railway composition.** Layer 4's ``send`` returns
-## ``JmapResult[DispatchedResponse]`` (outer railway: transport / request
-## envelope). ``get[T]`` and ``getBoth`` return ``Result[T, GetError]``
-## (inner railway: per-extraction errors). The two railways require
-## different recovery actions — transport failures retry, method errors
-## propagate, handle mismatches are programming bugs.
+## **One rail, method errors as data.** ``send`` returns
+## ``JmapResult[DispatchedResponse]``; ``get[T]`` / ``getBoth`` return
+## ``Result[MethodOutcome[T], JmapError]`` — the same rail. A handle issued by
+## a different builder is ``jeMisuse``; a missing / malformed / undecodable
+## response is ``jeProtocol``. A server-reported method-level error is NOT a
+## rail error: it rides the ok branch as ``MethodOutcome.mokMethodError`` so a
+## batch's successful siblings survive (RFC 8620 §3.6.2).
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
@@ -27,10 +26,10 @@ import std/tables
 import ../types
 import ../types/errors
 import ../serialisation/serde
-import ../serialisation/serde_diagnostics
 import ../serialisation/serde_errors
 import ../types/envelope
 import ./methods
+import ./jmap_error
 
 # =============================================================================
 # ResponseHandle[T] — sealed, brand-carrying (Pattern A)
@@ -160,27 +159,6 @@ func hash*[T](h: NameBoundHandle[T]): Hash =
   !$(hash(h.rawCallId) !& hash(h.rawMethodName) !& hash(h.rawBuilderId))
 
 # =============================================================================
-# Railway bridge: serde (SerdeViolation) → per-invocation (MethodError)
-# =============================================================================
-
-func serdeToMethodError(
-    rootType: string
-): proc(sv: SerdeViolation): MethodError {.noSideEffect, raises: [].} =
-  ## Returns a closure that translates a ``SerdeViolation`` into a
-  ## ``MethodError`` via the canonical ``toValidationError`` translator
-  ## (with ``rootType``), then packs the resulting shape into a
-  ## ``serverFail`` method error. Preserves ``typeName`` and ``value`` in
-  ## ``extras`` so no diagnostic information is lost.
-  return proc(sv: SerdeViolation): MethodError {.noSideEffect, raises: [].} =
-    let ve = toValidationError(sv, rootType)
-    let extras = %*{"typeName": ve.typeName, "value": ve.value}
-    methodError(
-      rawType = "serverFail",
-      description = Opt.some(ve.message),
-      extras = Opt.some(extras),
-    )
-
-# =============================================================================
 # Internal helpers
 # =============================================================================
 
@@ -190,32 +168,6 @@ func findInvocation(resp: Response, targetId: MethodCallId): Opt[Invocation] =
     if inv.methodCallId == targetId:
       return Opt.some(inv)
   return Opt.none(Invocation)
-
-func extractInvocation(
-    resp: Response, targetId: MethodCallId
-): Result[Invocation, MethodError] =
-  ## Finds and validates an invocation: returns the invocation for normal
-  ## responses, or an appropriate MethodError for missing/error responses.
-  let matchOpt = findInvocation(resp, targetId)
-  if matchOpt.isNone:
-    return err(
-      methodError(
-        rawType = "serverFail",
-        description = Opt.some("no response for call ID " & $targetId),
-      )
-    )
-  let inv = matchOpt.get()
-  if inv.rawName == "error":
-    let meResult = MethodError.fromJson(inv.arguments)
-    if meResult.isOk:
-      return err(meResult.get())
-    return err(
-      methodError(
-        rawType = "serverFail",
-        description = Opt.some("malformed error response for call ID " & $targetId),
-      )
-    )
-  return ok(inv)
 
 # =============================================================================
 # Name-filtered dispatch helpers (private)
@@ -232,33 +184,29 @@ func findInvocationByName(
       return Opt.some(inv)
   return Opt.none(Invocation)
 
-func extractInvocationByName(
-    resp: Response, targetId: MethodCallId, filterName: MethodName
-): Result[Invocation, MethodError] =
-  ## Name-filtered counterpart to ``extractInvocation``. Returns the first
-  ## invocation matching both call-id and method-name, or an appropriate
-  ## MethodError for missing/error responses.
-  let matchOpt = findInvocationByName(resp, targetId, filterName)
-  if matchOpt.isNone:
-    return err(
-      methodError(
-        rawType = "serverFail",
-        description =
-          Opt.some("no " & $filterName & " response for call ID " & $targetId),
-      )
-    )
-  let inv = matchOpt.get()
+func classifyInvocation[T](
+    found: Opt[Invocation], callId: MethodCallId, parseProc: ParseProc[T]
+): Result[MethodOutcome[T], JmapError] =
+  ## Classifies a located invocation into the rail/data split (the brand check
+  ## is the caller's job):
+  ##   * no invocation for the call id          → err(jeProtocol pfMissingCall)
+  ##   * an "error" invocation that parses       → ok(mokMethodError) — the
+  ##     server ran the method and reported a domain error, which is DATA
+  ##   * an "error" invocation that does not     → err(jeProtocol pfMalformedError)
+  ##   * a normal invocation that decodes        → ok(mokValue)
+  ##   * a normal invocation that fails to decode → err(jeProtocol pfDecode)
+  ## The former synthetic ``serverFail`` MethodErrors for missing / malformed
+  ## responses were library/protocol faults masquerading as server method
+  ## errors; they now ride the rail honestly.
+  let inv = found.valueOr:
+    return err(jmapProtocol(protocolMissingCall(callId)))
   if inv.rawName == "error":
-    let meResult = MethodError.fromJson(inv.arguments)
-    if meResult.isOk:
-      return err(meResult.get())
-    return err(
-      methodError(
-        rawType = "serverFail",
-        description = Opt.some("malformed error response for call ID " & $targetId),
-      )
-    )
-  return ok(inv)
+    let me = MethodError.fromJson(inv.arguments).valueOr:
+      return err(jmapProtocol(protocolMalformedError(callId)))
+    return ok(methodFailure[T](me))
+  let value = parseProc(inv.arguments).valueOr:
+    return err(jmapProtocol(protocolDecode(callId, error)))
+  ok(methodValue[T](value))
 
 # =============================================================================
 # DispatchedResponse — sealed dispatch artifact
@@ -309,57 +257,42 @@ func createdIds*(dr: DispatchedResponse): Opt[Table[CreationId, Id]] =
 # get[T] — default extraction via mixin fromJson
 # =============================================================================
 
-func get*[T](dr: DispatchedResponse, handle: ResponseHandle[T]): Result[T, GetError] =
-  ## Extracts a typed response from the dispatched response by invoking
-  ## the resolver closure stored on the handle. The closure was bound
-  ## at builder time (see ``initResponseHandle``) so this site does no
-  ## mixin lookup — the entire ``T.fromJson`` chain is fully resolved.
-  ##
-  ## Algorithm:
-  ## 1. Compare ``handle.builderId`` to ``dr.builderId`` — mismatch
-  ##    returns ``err(gekHandleMismatch)``.
-  ## 2. Scan methodResponses for invocation matching handle's call ID.
-  ## 3. Not found → ``err(gekMethod)`` wrapping ``serverFail``.
-  ## 4. If name == "error" → parse as MethodError, return
-  ##    ``err(gekMethod)``.
-  ## 5. Otherwise → invoke ``handle.rawParseProc(arguments)``.
-  ##    ``ok`` → ``ok``. ``err(SerdeViolation)`` → convert to
-  ##    ``GetError`` via ``serdeToMethodError($T)`` then
-  ##    ``getErrorMethod``.
+func get*[T](
+    dr: DispatchedResponse, handle: ResponseHandle[T]
+): Result[MethodOutcome[T], JmapError] =
+  ## Extracts a typed response from the dispatched response by invoking the
+  ## resolver closure stored on the handle (bound at builder time — no mixin at
+  ## this site). A handle issued by a different builder is ``jeMisuse``; the
+  ## invocation is then classified into the rail/data split by
+  ## ``classifyInvocation`` (see there): a server method error rides the ok
+  ## branch as data, a missing/malformed/undecodable response rides ``jeProtocol``.
   if handle.rawBuilderId != dr.rawBuilderId:
-    return err(
-      getErrorHandleMismatch(
-        expected = dr.rawBuilderId,
-        actual = handle.rawBuilderId,
-        callId = handle.rawCallId,
-      )
-    )
-  let inv = extractInvocation(dr.rawResponse, handle.rawCallId).valueOr:
-    return err(getErrorMethod(error))
-  handle.rawParseProc(inv.arguments).mapErr(serdeToMethodError($T)).mapErr(
-    getErrorMethod
+    return err(jmapMisuse(dr.rawBuilderId, handle.rawBuilderId, handle.rawCallId))
+  classifyInvocation[T](
+    findInvocation(dr.rawResponse, handle.rawCallId),
+    handle.rawCallId,
+    handle.rawParseProc,
   )
 
 # =============================================================================
 # get[T] — NameBoundHandle overload
 # =============================================================================
 
-func get*[T](dr: DispatchedResponse, h: NameBoundHandle[T]): Result[T, GetError] =
-  ## Extract a typed response using a ``NameBoundHandle``. The
-  ## method-name filter lives in the handle itself — no filter
-  ## argument at the call site. Used by compound overloads where a
-  ## sibling invocation shares the call-id (RFC 8620 §5.4). Brand
-  ## check applies same as the ``ResponseHandle`` overloads. Uses the
-  ## resolver closure stored on the handle (no mixin at this site).
+func get*[T](
+    dr: DispatchedResponse, h: NameBoundHandle[T]
+): Result[MethodOutcome[T], JmapError] =
+  ## Extract a typed response using a ``NameBoundHandle``. The method-name
+  ## filter lives in the handle itself — no filter argument at the call site.
+  ## Used by compound overloads where a sibling invocation shares the call-id
+  ## (RFC 8620 §5.4). Same brand check and rail/data classification as the
+  ## ``ResponseHandle`` overload.
   if h.rawBuilderId != dr.rawBuilderId:
-    return err(
-      getErrorHandleMismatch(
-        expected = dr.rawBuilderId, actual = h.rawBuilderId, callId = h.rawCallId
-      )
-    )
-  let inv = extractInvocationByName(dr.rawResponse, h.rawCallId, h.rawMethodName).valueOr:
-    return err(getErrorMethod(error))
-  h.rawParseProc(inv.arguments).mapErr(serdeToMethodError($T)).mapErr(getErrorMethod)
+    return err(jmapMisuse(dr.rawBuilderId, h.rawBuilderId, h.rawCallId))
+  classifyInvocation[T](
+    findInvocationByName(dr.rawResponse, h.rawCallId, h.rawMethodName),
+    h.rawCallId,
+    h.rawParseProc,
+  )
 
 # =============================================================================
 # Compound method dispatch (RFC 8620 §5.4)
@@ -375,24 +308,40 @@ type CompoundHandles*[A, B] {.ruleOff: "objects".} = object
   implicit*: NameBoundHandle[B]
 
 type CompoundResults*[A, B] {.ruleOff: "objects".} = object
-  ## Paired extraction target for ``getBoth(CompoundHandles[A, B])``.
-  primary*: A
-  implicit*: B
+  ## Paired extraction target for ``getBoth(CompoundHandles[A, B])``. The
+  ## ``primary`` outcome carries the declared method's result as data (a server
+  ## method error rides it as ``mokMethodError``, not the rail — §3.6.2). The
+  ## ``implicit`` outcome is ``Opt``: RFC 8620 §5.4 emits the implicit call only
+  ## when the primary method *succeeds*, so it is absent (``none``) exactly when
+  ## ``primary`` is a method error, and present (``some``) — itself a
+  ## ``MethodOutcome`` — when the primary ran. ``getBoth`` is the sole producer
+  ## and never emits a contradictory pair (a value primary with no implicit, or
+  ## an errored primary with one); the ``Opt`` is kept rather than collapsed into
+  ## the discriminator because its *payload* — the implicit response — is not
+  ## derivable from ``primary``. Branch on either ``primary.kind`` or
+  ## ``implicit``; they agree.
+  primary*: MethodOutcome[A]
+  implicit*: Opt[MethodOutcome[B]]
 
 func getBoth*[A, B](
     dr: DispatchedResponse, handles: CompoundHandles[A, B]
-): Result[CompoundResults[A, B], GetError] =
-  ## Extract both responses from a §5.4 implicit-call compound. The
-  ## ``primary`` handle dispatches through the default ``get[T]``
-  ## overload; ``implicit`` dispatches through the ``NameBoundHandle``
-  ## overload, which applies the method-name filter from the handle.
-  ## Both calls share the same brand-check semantics — the inner
-  ## handles must have been issued by the builder that produced
-  ## ``dr``. Resolution uses the handles' stored parser closures (no
-  ## mixin at this site).
+): Result[CompoundResults[A, B], JmapError] =
+  ## Extract both responses from a §5.4 implicit-call compound. The ``primary``
+  ## handle dispatches through the default ``get[T]`` overload; both share the
+  ## brand-check semantics (the inner handles must have been issued by the
+  ## builder that produced ``dr``). Because §5.4 emits the implicit call only on
+  ## the primary's success, the implicit is extracted only when ``primary`` is a
+  ## value — a primary method error means the server never ran it, so forcing an
+  ## extraction would (correctly) surface ``jeProtocol`` for a response that is
+  ## absent by design and discard the primary's method error. Only genuine
+  ## dispatch faults ride the rail.
   let primary = ?dr.get(handles.primary)
-  let implicit = ?dr.get(handles.implicit)
-  ok(CompoundResults[A, B](primary: primary, implicit: implicit))
+  case primary.kind
+  of mokMethodError:
+    ok(CompoundResults[A, B](primary: primary, implicit: Opt.none(MethodOutcome[B])))
+  of mokValue:
+    let implicit = ?dr.get(handles.implicit)
+    ok(CompoundResults[A, B](primary: primary, implicit: Opt.some(implicit)))
 
 template registerCompoundMethod*(Primary, Implicit: typedesc) =
   ## Compile-checks that ``Primary`` parametrises ``ResponseHandle``

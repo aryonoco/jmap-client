@@ -33,6 +33,8 @@ import std/tables
 
 import results
 
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
 import jmap_client/internal/mail/body
 import jmap_client/internal/mail/email_blueprint
 import jmap_client/internal/mail/headers
@@ -140,12 +142,17 @@ testCase propErrorAccumulation: # 88
       extraHeaders = trig.extraHeaders,
     )
     doAssert res.isErr, "trigger did not fire on Err rail"
-    var seen: set[EmailBlueprintConstraint] = {}
-    for e in res.unsafeError.items:
-      seen.incl e.constraint
-    let missing = trig.expected - seen
-    doAssert missing == {},
-      "expected variants " & $trig.expected & " missing " & $missing
+    # The typed constraint arms are internalised; each triggered constraint is
+    # evidenced by its canonical reason marker appearing on the flattened
+    # ``NonEmptySeq[ValidationError]`` rail.
+    for marker in trig.expected:
+      var found = false
+      for e in res.unsafeError.items:
+        if marker in e.reason:
+          found = true
+          break
+      doAssert found,
+        "expected reason marker '" & marker & "' missing from " & $res.unsafeError
 
 testCase propToJsonShapeInvariants: # 89
   checkProperty "toJson emits only known keys and respects body XOR":
@@ -338,7 +345,7 @@ testCase propAdversarialTotality: # 95
 testCase propMessagePurity: # 96
   checkProperty "message(e) is byte-identical across two invocations":
     let e = rng.genEmailBlueprintError(trial)
-    lastInput = "constraint=" & $e.constraint
+    lastInput = "valErr=" & e.typeName
     let m1 = message(e)
     let m2 = message(e)
     doAssert m1 == m2, "message() is not a pure function: two invocations diverged"
@@ -412,7 +419,7 @@ testCase propMessageBoundedLength: # 97b
   ## when every payload slot is a 64 KiB adversarial string.
   checkProperty "message(e) output stays under the 8 KiB budget":
     let e = rng.genEmailBlueprintError(trial)
-    lastInput = "constraint=" & $e.constraint
+    lastInput = "valErr=" & e.typeName
     let m = message(e)
     doAssert m.len <= 8 * 1024, "message() exceeded 8 KiB budget: " & $m.len & " bytes"
 

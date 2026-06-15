@@ -107,7 +107,7 @@ testCase temailImportAlreadyExistsLive:
     let respFirst = client.send(bFirst.freeze()).expect(
         "send Email/import first[" & $target.kind & "]"
       )
-    let firstResp = respFirst.get(firstHandle).expect(
+    let firstResp = respFirst.get(firstHandle).expectValue(
         "Email/import first extract[" & $target.kind & "]"
       )
     var firstImportedId: Id
@@ -150,7 +150,7 @@ testCase temailImportAlreadyExistsLive:
       recorder.lastResponseBody, "email-import-no-dedup-" & $target.kind
     )
       .expect("captureIfRequested")
-    let secondResp = respSecond.get(secondHandle).expect(
+    let secondResp = respSecond.get(secondHandle).expectValue(
         "Email/import second extract[" & $target.kind & "]"
       )
     var secondImportedId: Id
@@ -182,7 +182,7 @@ testCase temailImportAlreadyExistsLive:
     let respClean = client.send(bClean.freeze()).expect(
         "send Email/set cleanup[" & $target.kind & "]"
       )
-    let cleanResp = respClean.get(cleanHandle).expect(
+    let cleanResp = respClean.get(cleanHandle).expectValue(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
     for cleanupId in [sourceId, firstImportedId, secondImportedId]:

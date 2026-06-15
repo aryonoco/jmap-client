@@ -89,9 +89,9 @@ testCase tresultReferenceDeepPathsLive:
           "send Email/query → Email/get[" & $target.kind & "]"
         )
       let queryResp =
-        resp.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
+        resp.get(queryHandle).expectValue("Email/query extract[" & $target.kind & "]")
       let getResp =
-        resp.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
+        resp.get(getHandle).expectValue("Email/get extract[" & $target.kind & "]")
       assertOn target,
         queryResp.ids.len >= 3,
         "Email/query must surface at least the seeded ids, got " & $queryResp.ids.len
@@ -135,11 +135,11 @@ testCase tresultReferenceDeepPathsLive:
       )
         .expect("captureIfRequested deep ref")
       let queryResp =
-        resp.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
+        resp.get(queryHandle).expectValue("Email/query extract[" & $target.kind & "]")
       let getResp =
-        resp.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
+        resp.get(getHandle).expectValue("Email/get extract[" & $target.kind & "]")
       let threadResp =
-        resp.get(threadHandle).expect("Thread/get extract[" & $target.kind & "]")
+        resp.get(threadHandle).expectValue("Thread/get extract[" & $target.kind & "]")
       assertOn target,
         queryResp.ids.len >= 3,
         "Email/query must surface seeded emails, got " & $queryResp.ids.len
@@ -227,7 +227,7 @@ testCase tresultReferenceDeepPathsLive:
     let respClean = client.send(bClean.freeze()).expect(
         "send Email/set cleanup[" & $target.kind & "]"
       )
-    let cleanResp = respClean.get(cleanHandle).expect(
+    let cleanResp = respClean.get(cleanHandle).expectValue(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
     for id in seedIds:

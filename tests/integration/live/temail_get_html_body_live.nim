@@ -67,8 +67,9 @@ testCase temailGetHtmlBodyLive:
       recorder.lastResponseBody, "email-multipart-alternative-" & $target.kind
     )
       .expect("captureIfRequested")
-    let getResp =
-      resp.get(getHandle).expect("Email/get html body extract[" & $target.kind & "]")
+    let getResp = resp.get(getHandle).expectValue(
+        "Email/get html body extract[" & $target.kind & "]"
+      )
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
     let email = getResp.list[0]

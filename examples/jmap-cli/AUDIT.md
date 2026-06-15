@@ -344,3 +344,53 @@ combinators (only `addEmailChangesToGet` was exercised). Of the 8 public
 convenience combinators, 2 were driven (`addEmailQueryThenGet`,
 `addEmailChangesToGet`). Blob upload/download and Push are deferred
 project-wide and are correctly absent.
+
+## S1 resolution — one error rail (`JmapError`)
+
+Sub-project **S1** collapsed the five fragmented call-path rails into a single
+`JmapError` sum and re-benched this CLI against it. The error-rail findings
+above are **resolved**; their *non*-rail aspects (constructor-count ceremony,
+read-model unevenness, missing one-shots) are out of S1's scope and stay open
+for S2–S4. Mapping (finding → fix):
+
+- **"NO hub-public `ClientError` constructor … forced to invent a CLI-local
+  error type (`string`)"** (session:connect) → RESOLVED. The hub now exports
+  per-arm minting constructors (`jmapValidation` / `jmapTransport` /
+  `jmapRequest` / `jmapSession`), the `toJmapError` lifts, and the `lift`
+  helper, so a consumer returns its own failures on the library rail. The CLI's
+  `Result[T, string]` rail and hand-rolled `joinErrs` are deleted.
+- **"`?` cannot bridge `ValidationError` → `ClientError` … every constructor
+  call needs an explicit `.valueOr: return err(...)`"** (session:connect) →
+  RESOLVED. A construction call folds onto the rail with one explicit
+  `?parseX(...).lift`; the `build → send → get` pipeline threads on a bare `?`
+  (`?client.send(...)`, `?dr.get(h)`), one uniform style end to end.
+- **"two error rails per dispatch — `send` is `ClientError`, `dr.get`/`getBoth`
+  is `GetError`"** (*all commands*, email query, search, convenience) →
+  RESOLVED. `send`, `fetchSession`, `get`, `getBoth`, `getAll` and the L4
+  constructors all return `Result[_, JmapError]`. A server method-level error
+  is no longer a rail error at all: it is data on the ok branch via
+  `MethodOutcome[T]` (`mokValue` / `mokMethodError`), so a batch's successful
+  siblings survive (RFC 8620 §3.6.2). Only dispatch faults (`jeMisuse` /
+  `jeProtocol`) ride the rail.
+- **"accumulating `seq[ValidationError]` rail … `mapIt(it.message).join` instead
+  of the single `.message`"** (email flag, write commands) → RESOLVED. The 14
+  accumulating validators return `NonEmptySeq[ValidationError]`, and
+  `JmapError.message` (the `jeValidation` arm) joins every violation, so the
+  consumer renders one `err.message` like every other rail value.
+- **"blueprint error-rail — `parseEmailBlueprint` returns an opaque
+  `EmailBlueprintErrors` accumulator"** (email send) → RESOLVED.
+  `EmailBlueprintErrors` is retired; `parseEmailBlueprint` returns
+  `NonEmptySeq[ValidationError]` (the typed body-part location is preserved in
+  each violation's reason), folding into `jeValidation` like every other
+  construction failure — the "three error-rail shapes in one command" become one.
+- **"`primaryAccount(ckMail)` returns `Opt[AccountId]` forcing an unwrap"**
+  (session:capability) → PARTIALLY RESOLVED. `requirePrimaryAccount(session,
+  ckMail)` now resolves the capability/account on the rail (`jeSession`), so the
+  preflight composes under `?`. The mail-specific *shorthand*
+  (`requireMail` / `mailAccountId`) is S3.
+
+Still open after S1 (tracked to their sub-projects): the sealing-chain
+constructor ceremony and the missing `connect()` / bare-get / `sendPlainText`
+one-shots (S4); the `FieldEcho` reader and `SetError` `Result`-of-`Opt`
+read-model and the same-field `FieldEcho`-vs-`Opt` split (S2/S3). The headline
+error-rail friction the bench reported across *every* command is gone.

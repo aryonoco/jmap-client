@@ -8,17 +8,21 @@
 import jmap_client
 import ./cli_session
 
-proc run*(args: seq[string]): int =
-  let ctx = connect().valueOr:
-    stderr.writeLine error
-    return 1
+proc listIdentities(): JmapResult[int] =
+  let ctx = ?connect()
   let (b, handle) = ctx.client.newBuilder().addIdentityGet(ctx.mailAccount)
-  let dr = ctx.client.send(b.freeze()).valueOr:
-    stderr.writeLine "send failed: " & error.message
+  let dr = ?ctx.client.send(b.freeze())
+  let outcome = ?dr.get(handle)
+  case outcome.kind
+  of mokMethodError:
+    stderr.writeLine "Identity/get: " & outcome.error.message
+    ok(1)
+  of mokValue:
+    for ident in outcome.value.list:
+      echo $ident.id, "  ", ident.name, "  <", ident.email, ">"
+    ok(0)
+
+proc run*(args: seq[string]): int =
+  listIdentities().valueOr:
+    stderr.writeLine error.message
     return 1
-  let resp = dr.get(handle).valueOr:
-    stderr.writeLine "Identity/get failed: " & error.message
-    return 1
-  for ident in resp.list:
-    echo $ident.id, "  ", ident.name, "  <", ident.email, ">"
-  return 0

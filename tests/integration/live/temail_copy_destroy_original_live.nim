@@ -91,13 +91,21 @@ testCase temailCopyDestroyOriginalLive:
       .expect("captureIfRequested")
 
     # --- 4. Assert compound rejection at method level --------------------
-    let bothResult = respCopy.getBoth(handles)
+    # The compound copy fails at the method level, so the server never emits
+    # the implicit Email/set destroy (RFC 8620 §5.4 fires it only
+    # ``onSuccess``). ``getBoth`` would therefore rail-fault on the absent
+    # implicit response; extract the primary directly, where the rejection
+    # surfaces as a ``MethodOutcome.mokMethodError`` (data).
+    let primaryResult = respCopy.get(handles.primary)
     assertOn target,
-      bothResult.isErr,
-      "compound same-account Email/copy + destroy must surface a typed error"
-    let getErr = bothResult.error
-    doAssert getErr.kind == gekMethod, "expected gekMethod"
-    let methodErr = getErr.methodErr
+      primaryResult.isOk,
+      "dispatch must succeed on the rail; the same-account copy rejection is a " &
+        "server method error carried as data"
+    let primaryOutcome = primaryResult.unsafeValue
+    assertOn target,
+      primaryOutcome.kind == mokMethodError,
+      "compound same-account Email/copy + destroy must surface a typed method error"
+    let methodErr = primaryOutcome.error
     assertOn target,
       methodErr.kind in {metInvalidArguments, metUnknownMethod},
       "method error must project as metInvalidArguments or metUnknownMethod (got rawType=" &
@@ -112,7 +120,7 @@ testCase temailCopyDestroyOriginalLive:
     let respClean = client.send(bClean.freeze()).expect(
         "send Email/set cleanup[" & $target.kind & "]"
       )
-    let cleanResp = respClean.get(cleanHandle).expect(
+    let cleanResp = respClean.get(cleanHandle).expectValue(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
     var sourceDestroyed = false

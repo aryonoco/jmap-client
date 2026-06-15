@@ -132,7 +132,7 @@ func asCanceled*(s: AnyEmailSubmission): Opt[EmailSubmission[usCanceled]] =
 # EmailSubmissionBlueprint — creation model (RFC 8621 §7.5)
 #
 # Shape: Pattern A sealing (raw* private fields + same-name UFCS accessors)
-# combined with Result[T, seq[ValidationError]] error rail.
+# combined with Result[T, NonEmptySeq[ValidationError]] error rail.
 # -----------------------------------------------------------------------------
 
 type EmailSubmissionBlueprint* {.ruleOff: "objects".} = object
@@ -152,9 +152,11 @@ type EmailSubmissionBlueprint* {.ruleOff: "objects".} = object
 
 func parseEmailSubmissionBlueprint*(
     identityId: Id, emailId: Id, envelope: Opt[Envelope] = Opt.none(Envelope)
-): Result[EmailSubmissionBlueprint, seq[ValidationError]] =
-  ## Accumulating-error smart constructor. Returns ``Result[T, seq[...]]``.
-  ##
+): Result[EmailSubmissionBlueprint, NonEmptySeq[ValidationError]] =
+  ## Accumulating-error smart constructor. The three fields are already
+  ## fully validated by their own L1 types, so no violation can arise here;
+  ## the accumulating error rail is retained for signature symmetry with the
+  ## sibling blueprint constructors and forwards compatibility.
   ok(
     EmailSubmissionBlueprint(
       rawIdentityId: identityId, rawEmailId: emailId, rawEnvelope: envelope
@@ -240,7 +242,7 @@ func toTable*(
 
 func parseNonEmptyEmailSubmissionUpdates*(
     items: openArray[(Id, EmailSubmissionUpdate)]
-): Result[NonEmptyEmailSubmissionUpdates, seq[ValidationError]] =
+): Result[NonEmptyEmailSubmissionUpdates, NonEmptySeq[ValidationError]] =
   ## Accumulating smart constructor.
   ## Rejects:
   ##   * empty input — the ``/set`` builder's ``update:`` field has
@@ -259,7 +261,8 @@ func parseNonEmptyEmailSubmissionUpdates*(
     dupMsg = "duplicate submission id",
   )
   if errs.len > 0:
-    return err(errs)
+    # errs is non-empty here, so parseNonEmptySeq cannot Err.
+    return err(parseNonEmptySeq(errs).get())
   var t = initTable[Id, EmailSubmissionUpdate](items.len)
   for (id, update) in items:
     t[id] = update
@@ -629,7 +632,7 @@ func toSeq*(s: NonEmptyOnSuccessDestroyEmail): seq[IdOrCreationRef] {.inline.} =
 
 func parseNonEmptyOnSuccessUpdateEmail*(
     items: openArray[(IdOrCreationRef, EmailUpdateSet)]
-): Result[NonEmptyOnSuccessUpdateEmail, seq[ValidationError]] =
+): Result[NonEmptyOnSuccessUpdateEmail, NonEmptySeq[ValidationError]] =
   ## Accumulating smart constructor. Rejects empty input (``Opt.none`` is
   ## the single "no extras" representation) and duplicate
   ## ``IdOrCreationRef`` keys (silent last-wins at Table construction
@@ -642,7 +645,8 @@ func parseNonEmptyOnSuccessUpdateEmail*(
     dupMsg = "duplicate id or creation reference",
   )
   if errs.len > 0:
-    return err(errs)
+    # errs is non-empty here, so parseNonEmptySeq cannot Err.
+    return err(parseNonEmptySeq(errs).get())
   var t = initTable[IdOrCreationRef, EmailUpdateSet](items.len)
   for (k, v) in items:
     t[k] = v
@@ -650,7 +654,7 @@ func parseNonEmptyOnSuccessUpdateEmail*(
 
 func parseNonEmptyOnSuccessDestroyEmail*(
     items: openArray[IdOrCreationRef]
-): Result[NonEmptyOnSuccessDestroyEmail, seq[ValidationError]] =
+): Result[NonEmptyOnSuccessDestroyEmail, NonEmptySeq[ValidationError]] =
   ## Accumulating smart constructor. Rejects empty input and duplicate
   ## ``IdOrCreationRef`` elements.
   let errs = validateUniqueByIt(
@@ -661,7 +665,8 @@ func parseNonEmptyOnSuccessDestroyEmail*(
     dupMsg = "duplicate id or creation reference",
   )
   if errs.len > 0:
-    return err(errs)
+    # errs is non-empty here, so parseNonEmptySeq cannot Err.
+    return err(parseNonEmptySeq(errs).get())
   ok(NonEmptyOnSuccessDestroyEmail(rawValue: @items))
 
 # -----------------------------------------------------------------------------

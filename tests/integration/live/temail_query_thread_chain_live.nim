@@ -62,12 +62,20 @@ proc projectChainResults(all: EmailQueryThreadResults): ChainProjection =
   ## Skips entries whose ``id`` is missing or unparseable, and
   ## Thread records that fail to parse — the convergence loop then
   ## decides whether the projection is complete.
+  # Each leg of the getAll struct is now a ``MethodOutcome``; the chain's
+  # success path requires the two consumed legs to carry values rather than
+  # server method errors (the pre-refactor ``getAll(...).expect`` collapsed a
+  # method error onto the rail and panicked here).
+  doAssert all.display.kind == mokValue,
+    "display Email/get leg must return a value, not a method error"
+  doAssert all.threads.kind == mokValue,
+    "threads Thread/get leg must return a value, not a method error"
   var displayIds = initHashSet[Id]()
-  for email in all.display.list:
+  for email in all.display.value.list:
     for id in email.id:
       displayIds.incl(id)
   var threadEmailIds = initHashSet[Id]()
-  for thr in all.threads.list:
+  for thr in all.threads.value.list:
     for eid in thr.emailIds:
       threadEmailIds.incl(eid)
   ChainProjection(displayIds: displayIds, threadEmailIds: threadEmailIds)

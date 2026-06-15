@@ -33,39 +33,41 @@ func decodeTextBody(email: Email): string =
       email.bodyValues.withValue(part.partId, bv):
         result.add bv.value
 
-proc run*(args: seq[string]): int =
-  if args.len < 1:
-    stderr.writeLine "usage: jmap-cli email read <emailId>"
-    return 2
+proc readEmail(emailIdArg: string): JmapResult[int] =
   # The id originates server-side (copied from `email query`), so use the
-  # lenient receive-side parser; the strict/lenient choice is the consumer's.
-  let emailId = parseIdFromServer(args[0]).valueOr:
-    stderr.writeLine "bad email id: " & error.message
-    return 2
-  let ctx = connect().valueOr:
-    stderr.writeLine error
-    return 1
-
+  # lenient receive-side parser; one `.lift` folds it onto the rail.
+  let emailId = ?parseIdFromServer(emailIdArg).lift
+  let ctx = ?connect()
   let (b, handle) = ctx.client.newBuilder().addEmailGet(
       ctx.mailAccount,
       ids = Opt.some(direct(@[emailId])), # NOT Opt.some(directIds(...)) — double Opt
       bodyFetchOptions = textBodyFetchOptions(),
     )
-  let dr = ctx.client.send(b.freeze()).valueOr:
-    stderr.writeLine "send failed: " & error.message
+  let dr = ?ctx.client.send(b.freeze())
+  let outcome = ?dr.get(handle)
+  case outcome.kind
+  of mokMethodError:
+    stderr.writeLine "Email/get: " & outcome.error.message
+    ok(1)
+  of mokValue:
+    let resp = outcome.value
+    if resp.list.len == 0:
+      stderr.writeLine "email not found"
+      return ok(1)
+    let e = resp.list[0] # full Email
+    echo "Subject: ", e.subject.valueOr("(no subject)") # Opt[string]
+    for addrs in e.fromAddr: # Opt[seq[EmailAddress]]
+      if addrs.len > 0:
+        echo "From: ", addrs[0].email
+    echo "Preview: ", e.preview # plain string on the full Email
+    echo "----"
+    echo decodeTextBody(e)
+    ok(0)
+
+proc run*(args: seq[string]): int =
+  if args.len < 1:
+    stderr.writeLine "usage: jmap-cli email read <emailId>"
+    return 2
+  readEmail(args[0]).valueOr:
+    stderr.writeLine error.message
     return 1
-  let resp = dr.get(handle).valueOr:
-    stderr.writeLine "Email/get failed: " & error.message
-    return 1
-  if resp.list.len == 0:
-    stderr.writeLine "email not found"
-    return 1
-  let e = resp.list[0] # full Email
-  echo "Subject: ", e.subject.valueOr("(no subject)") # Opt[string]
-  for addrs in e.fromAddr: # Opt[seq[EmailAddress]]
-    if addrs.len > 0:
-      echo "From: ", addrs[0].email
-  echo "Preview: ", e.preview # plain string on the full Email
-  echo "----"
-  echo decodeTextBody(e)
-  return 0

@@ -72,19 +72,20 @@ testCase tpatchObjectDeepPathsLive:
       let resp = client.send(b.freeze()).expect(
           "send Identity/set typed flat patch[" & $target.kind & "]"
         )
-      let setExtract = resp.get(setHandle)
+      let setOutcome = resp.get(setHandle).expect(
+          "Identity/set typed flat patch dispatch[" & $target.kind & "]"
+        )
       var identityUpdateOk = false
-      if setExtract.isOk:
-        let setResp = setExtract.unsafeValue
+      case setOutcome.kind
+      of mokValue:
+        let setResp = setOutcome.value
         setResp.updateResults.withValue(identityId, outcome):
           if outcome.isOk:
             identityUpdateOk = true
         do:
           assertOn target, false, "Identity/set must report an outcome"
-      else:
-        let getErr = setExtract.unsafeError
-        doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
-        let methodErr = getErr.methodErr
+      of mokMethodError:
+        let methodErr = setOutcome.error
         assertOn target,
           methodErr.kind == metUnknownMethod,
           "Identity/set must surface as metUnknownMethod when unimplemented (got " &
@@ -102,7 +103,7 @@ testCase tpatchObjectDeepPathsLive:
             "send Identity/get readback[" & $target.kind & "]"
           )
         let getResp =
-          resp2.get(getHandle).expect("Identity/get extract[" & $target.kind & "]")
+          resp2.get(getHandle).expectValue("Identity/get extract[" & $target.kind & "]")
         assertOn target, getResp.list.len == 1
         let ident = getResp.list[0]
         assertOn target,
@@ -138,7 +139,7 @@ testCase tpatchObjectDeepPathsLive:
           "send Mailbox/set typed flat patch[" & $target.kind & "]"
         )
       let setResp =
-        resp.get(setHandle).expect("Mailbox/set extract[" & $target.kind & "]")
+        resp.get(setHandle).expectValue("Mailbox/set extract[" & $target.kind & "]")
       setResp.updateResults.withValue(childId, outcome):
         assertOn target,
           outcome.isOk,
@@ -154,7 +155,7 @@ testCase tpatchObjectDeepPathsLive:
           "send Mailbox/get readback[" & $target.kind & "]"
         )
       let getResp =
-        resp2.get(getHandle).expect("Mailbox/get extract[" & $target.kind & "]")
+        resp2.get(getHandle).expectValue("Mailbox/get extract[" & $target.kind & "]")
       assertOn target, getResp.list.len == 1
       let mb = getResp.list[0]
       assertOn target,
@@ -169,7 +170,7 @@ testCase tpatchObjectDeepPathsLive:
       let respDestroy = client.send(bDestroy.freeze()).expect(
           "send Mailbox/set destroy[" & $target.kind & "]"
         )
-      let destroyResp = respDestroy.get(destroyHandle).expect(
+      let destroyResp = respDestroy.get(destroyHandle).expectValue(
           "Mailbox/set extract[" & $target.kind & "]"
         )
       destroyResp.destroyResults.withValue(childId, outcome):
@@ -266,7 +267,7 @@ testCase tpatchObjectDeepPathsLive:
       let respClean = client.send(bClean.freeze()).expect(
           "send Email/set cleanup[" & $target.kind & "]"
         )
-      let cleanResp = respClean.get(cleanHandle).expect(
+      let cleanResp = respClean.get(cleanHandle).expectValue(
           "Email/set cleanup extract[" & $target.kind & "]"
         )
       cleanResp.destroyResults.withValue(seedId, outcome):

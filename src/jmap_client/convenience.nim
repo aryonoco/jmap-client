@@ -58,19 +58,23 @@ type MailboxChangesGetHandles* = object
 # =============================================================================
 
 type QueryGetResults*[T] = object
-  ## Paired extraction results from a query-then-get pipeline.
-  query*: QueryResponse[T]
-  get*: GetResponse[T]
+  ## Paired extraction results from a query-then-get pipeline. Each field is a
+  ## ``MethodOutcome`` — a server method error rides the field as data, not the
+  ## rail (RFC 8620 §3.6.2), so one method erroring does not discard the other.
+  query*: MethodOutcome[QueryResponse[T]]
+  get*: MethodOutcome[GetResponse[T]]
 
 type ChangesGetResults*[T] = object
-  ## Paired extraction results from a changes-then-get pipeline.
-  changes*: ChangesResponse[T]
-  get*: GetResponse[T]
+  ## Paired extraction results from a changes-then-get pipeline. Each field is a
+  ## ``MethodOutcome`` (see ``QueryGetResults``).
+  changes*: MethodOutcome[ChangesResponse[T]]
+  get*: MethodOutcome[GetResponse[T]]
 
 type MailboxChangesGetResults* = object
-  ## Paired extraction target for ``getBoth(MailboxChangesGetHandles)``.
-  changes*: MailboxChangesResponse
-  get*: GetResponse[Mailbox]
+  ## Paired extraction target for ``getBoth(MailboxChangesGetHandles)``. Each
+  ## field is a ``MethodOutcome`` (see ``QueryGetResults``).
+  changes*: MethodOutcome[MailboxChangesResponse]
+  get*: MethodOutcome[GetResponse[Mailbox]]
 
 # =============================================================================
 # Query-then-get combinators
@@ -228,30 +232,30 @@ func addMailboxChangesToGet*(
 
 func getBoth*[T](
     dr: DispatchedResponse, handles: QueryGetHandles[T]
-): Result[QueryGetResults[T], GetError] =
-  ## Extracts both query and get responses, failing on the first error.
-  ## Composes naturally with the ``?`` operator:
-  ## ``let results = ?dr.getBoth(handles)``. Resolution uses each
-  ## handle's stored parser closure (no mixin at this site).
+): Result[QueryGetResults[T], JmapError] =
+  ## Extracts both query and get responses. Composes with the ``?`` operator:
+  ## ``let results = ?dr.getBoth(handles)``. The rail carries only dispatch
+  ## faults (misuse / protocol); a server method error rides each field as a
+  ## ``MethodOutcome``. Resolution uses each handle's stored parser closure.
   let qr = ?dr.get(handles.query)
   let gr = ?dr.get(handles.get)
   ok(QueryGetResults[T](query: qr, get: gr))
 
 func getBoth*[T](
     dr: DispatchedResponse, handles: ChangesGetHandles[T]
-): Result[ChangesGetResults[T], GetError] =
-  ## Extracts both changes and get responses, failing on the first error.
-  ## Resolution uses each handle's stored parser closure (no mixin at
-  ## this site).
+): Result[ChangesGetResults[T], JmapError] =
+  ## Extracts both changes and get responses (method errors as data per field;
+  ## the rail carries only dispatch faults). Resolution uses each handle's
+  ## stored parser closure.
   let cr = ?dr.get(handles.changes)
   let gr = ?dr.get(handles.get)
   ok(ChangesGetResults[T](changes: cr, get: gr))
 
 func getBoth*(
     dr: DispatchedResponse, handles: MailboxChangesGetHandles
-): Result[MailboxChangesGetResults, GetError] =
-  ## Extracts both the Mailbox/changes and Mailbox/get responses,
-  ## failing on the first error.
+): Result[MailboxChangesGetResults, JmapError] =
+  ## Extracts both the Mailbox/changes and Mailbox/get responses (method errors
+  ## as data per field; the rail carries only dispatch faults).
   let cr = ?dr.get(handles.changes)
   let gr = ?dr.get(handles.get)
   ok(MailboxChangesGetResults(changes: cr, get: gr))

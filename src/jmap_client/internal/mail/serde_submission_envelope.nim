@@ -54,15 +54,16 @@ func parseSignedDecimal(raw: string, typeName: string): Result[int64, Validation
     return err(validationError(typeName, "not a valid decimal", raw))
 
 func wrapFirstInner[T](
-    r: Result[T, seq[ValidationError]], path: JsonPath
+    r: Result[T, NonEmptySeq[ValidationError]], path: JsonPath
 ): Result[T, SerdeViolation] =
   ## Bridge ``parseSubmissionParams``' accumulating error rail into the
-  ## serde railway. The first violation is preserved verbatim;
-  ## ``parseSubmissionParams`` only fails when ``errs.len >= 1``.
+  ## serde railway. The first violation is preserved verbatim; the
+  ## ``NonEmptySeq`` invariant guarantees ``head`` exists whenever the rail
+  ## carries an error.
   if r.isOk:
     return ok(r.get())
   let errs = r.error
-  return err(SerdeViolation(kind: svkFieldParserFailed, path: path, inner: errs[0]))
+  return err(SerdeViolation(kind: svkFieldParserFailed, path: path, inner: errs.head))
 
 func notifyFlagsToWire(flags: set[DsnNotifyFlag]): string =
   ## Joins the NOTIFY flag set to the RFC 3461 §4.1 wire form.

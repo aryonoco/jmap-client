@@ -133,8 +133,8 @@ testCase scenarioResponseCorrelation:
 testCase scenarioTransportFailureCascade:
   ## Track 1: Transport failure -> ClientError -> message().
   let te = transportError(tekNetwork, "connection refused")
-  let ce = clientError(te)
-  doAssert ce.kind == cekTransport
+  let ce = jmapTransport(te)
+  doAssert ce.kind == jeTransport
   doAssert ce.message == "connection refused"
 
   # ClientError message accessible directly
@@ -147,8 +147,8 @@ testCase scenarioRequestRejectionCascade:
     detail = Opt.some("Too many method calls"),
     limit = Opt.some("maxCallsInRequest"),
   )
-  let ce = clientError(re)
-  doAssert ce.kind == cekRequest
+  let ce = jmapRequest(re)
+  doAssert ce.kind == jeRequest
   doAssert ce.request.detail.get() == "Too many method calls"
 
 testCase scenarioMessageCascadePriority:
@@ -159,16 +159,16 @@ testCase scenarioMessageCascadePriority:
     title = Opt.some("Not JSON"),
     detail = Opt.some("Body is not valid JSON"),
   )
-  doAssert errors.message(clientError(re1)) == "Body is not valid JSON"
+  doAssert message(jmapRequest(re1)) == "Body is not valid JSON"
 
   # detail absent, title present
   let re2 =
     requestError("urn:ietf:params:jmap:error:notJSON", title = Opt.some("Not JSON"))
-  doAssert errors.message(clientError(re2)) == "Not JSON"
+  doAssert message(jmapRequest(re2)) == "Not JSON"
 
   # both absent, falls back to rawType
   let re3 = requestError("urn:ietf:params:jmap:error:notJSON")
-  doAssert errors.message(clientError(re3)) == "urn:ietf:params:jmap:error:notJSON"
+  doAssert message(jmapRequest(re3)) == "urn:ietf:params:jmap:error:notJSON"
 
 testCase scenarioMethodErrorInResponse:
   ## Track 2: Method error within a successful response.
@@ -203,21 +203,21 @@ testCase scenarioSetErrorVariants:
 testCase scenarioTlsError:
   ## Transport TLS failure path.
   let te = transportError(tekTls, "certificate verification failed")
-  let ce = clientError(te)
-  doAssert ce.kind == cekTransport
+  let ce = jmapTransport(te)
+  doAssert ce.kind == jeTransport
   doAssert ce.transport.kind == tekTls
 
 testCase scenarioTimeoutError:
   ## Transport timeout failure path.
   let te = transportError(tekTimeout, "request timed out after 30s")
-  let ce = clientError(te)
+  let ce = jmapTransport(te)
   doAssert ce.message == "request timed out after 30s"
 
 testCase scenarioHttpStatusError:
   ## Transport HTTP status error with status code.
   let te = httpStatusError(503, "Service Unavailable")
-  let ce = clientError(te)
-  doAssert ce.kind == cekTransport
+  let ce = jmapTransport(te)
+  doAssert ce.kind == jeTransport
   doAssert ce.transport.kind == tekHttpStatus
   doAssert ce.transport.httpStatus == 503
 
@@ -463,7 +463,7 @@ testCase filterWithAccountIdType:
 testCase errorCascadeAllNoneFields:
   ## Transport error -> ClientError -> message extraction with no optional fields.
   let te = transportError(tekNetwork, "connection refused")
-  let ce = clientError(te)
+  let ce = jmapTransport(te)
   doAssert message(ce) == "connection refused"
 
 testCase errorCascadeDetailPriority:
@@ -473,7 +473,7 @@ testCase errorCascadeDetailPriority:
     title = Opt.some("Rate Limited"),
     detail = Opt.some("Too many requests per second"),
   )
-  let ce = clientError(re)
+  let ce = jmapRequest(re)
   doAssert message(ce) == "Too many requests per second"
 
 testCase sessionToRequestIntegration:

@@ -98,7 +98,7 @@ proc seedSizedEmail(
     initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
   )
   let resp = client.send(b.freeze()).expect("send Email/set sized")
-  let setResp = resp.get(setHandle).expect("Email/set sized extract")
+  let setResp = resp.get(setHandle).expectValue("Email/set sized extract")
   var seededId = parseIdFromServer("placeholder").get()
   var found = false
   setResp.createResults.withValue(cid, outcome):
@@ -145,7 +145,7 @@ proc assertSizeAscending(
     sort = Opt.some(comparator),
   )
   let resp = client.send(b.freeze()).expect("send Email/query size asc")
-  let qr = resp.get(h).expect("Email/query size asc extract")
+  let qr = resp.get(h).expectValue("Email/query size asc extract")
   let positions = positionsOf(qr, @[smallId, mediumId, largeId])
   for i, pos in positions:
     doAssert pos >= 0,
@@ -169,7 +169,7 @@ proc assertSubjectDescending(
     sort = Opt.some(comparator),
   )
   let resp = client.send(b.freeze()).expect("send Email/query subject desc")
-  let qr = resp.get(h).expect("Email/query subject desc extract")
+  let qr = resp.get(h).expectValue("Email/query subject desc extract")
   # smallId carries "alpha", mediumId carries "bravo", largeId carries "charlie"
   let positions = positionsOf(qr, @[smallId, mediumId, largeId])
   for i, pos in positions:
@@ -189,7 +189,7 @@ proc flagMediumEmail(client: JmapClient, mailAccountId: AccountId, mediumId: Id)
     initRequestBuilder(makeBuilderId()), mailAccountId, update = Opt.some(updates)
   )
   let resp = client.send(b.freeze()).expect("send Email/set markFlagged")
-  discard resp.get(h).expect("Email/set markFlagged extract")
+  discard resp.get(h).expectValue("Email/set markFlagged extract")
 
 proc assertKeywordSortAscending(
     target: LiveTestTarget,

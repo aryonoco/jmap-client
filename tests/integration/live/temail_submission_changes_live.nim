@@ -69,24 +69,25 @@ testCase tEmailSubmissionChangesLive:
     let resp1 = client.send(b1b.freeze()).expect(
         "send baseline EmailSubmission/get+query[" & $target.kind & "]"
       )
-    let baseGetExtract = resp1.get(baseGetHandle)
-    let baseQueryExtract = resp1.get(baseQueryHandle)
-    if baseGetExtract.isErr or baseQueryExtract.isErr:
-      # Cat-B error arm — server lacks EmailSubmission/get or /query.
-      # The typed-error projection has fired on the extract Result.
-      # Under A6 the inner railway is ``GetError`` — extract via the
-      # ``gekMethod`` arm; ``gekHandleMismatch`` is a programming bug
-      # and should not be observable here.
+    let baseGetOutcome = resp1.get(baseGetHandle).expect(
+        "EmailSubmission/get dispatch[" & $target.kind & "]"
+      )
+    let baseQueryOutcome = resp1.get(baseQueryHandle).expect(
+        "EmailSubmission/query dispatch[" & $target.kind & "]"
+      )
+    if baseGetOutcome.kind == mokMethodError or baseQueryOutcome.kind == mokMethodError:
+      # Cat-B error arm — server lacks EmailSubmission/get or /query. A
+      # server method error is now DATA on the ok rail
+      # (``mokMethodError``); a rail ``JmapError`` would be a dispatch
+      # bug and is unwrapped fatally by the ``.expect`` above.
       let baseGetErr =
-        if baseGetExtract.isErr:
-          let ge = baseGetExtract.unsafeError
-          if ge.kind == gekMethod: ge.methodErr.kind else: metUnknown
+        if baseGetOutcome.kind == mokMethodError:
+          baseGetOutcome.error.kind
         else:
           metUnknown
       let baseQueryErr =
-        if baseQueryExtract.isErr:
-          let ge = baseQueryExtract.unsafeError
-          if ge.kind == gekMethod: ge.methodErr.kind else: metUnknown
+        if baseQueryOutcome.kind == mokMethodError:
+          baseQueryOutcome.error.kind
         else:
           metUnknown
       assertOn target,
@@ -94,8 +95,8 @@ testCase tEmailSubmissionChangesLive:
           baseQueryErr in {metUnknownMethod, metUnknown},
         "baseline EmailSubmission/get and /query must succeed or surface unknownMethod"
       continue
-    let baseGetResp = baseGetExtract.unsafeValue
-    let baseQueryResp = baseQueryExtract.unsafeValue
+    let baseGetResp = baseGetOutcome.value
+    let baseQueryResp = baseQueryOutcome.value
     let baselineState = baseGetResp.state
     let baselineQueryState = baseQueryResp.queryState
     assertOn target,
@@ -124,13 +125,14 @@ testCase tEmailSubmissionChangesLive:
       )
       .expect("buildEnvelopeWithHoldFor[" & $target.kind & "]")
 
-    proc submitOne(subject, label, draftLabel: string): Result[Id, GetError] =
+    proc submitOne(subject, label, draftLabel: string): Result[Id, string] =
       ## Closure: seed-and-submit one email per (subject, label) pair so
       ## the surrounding test body can drive a corpus of submissions
-      ## without repeating the seed-to-final boilerplate. Returns the
-      ## ``MethodError`` when ``EmailSubmission/set`` errors so callers
-      ## can branch via ``assertSuccessOrTypedError``. Submissions are
-      ## HOLDFOR-pended; cleanup cancels + destroys them.
+      ## without repeating the seed-to-final boilerplate. Returns ``err``
+      ## with a narrative when ``EmailSubmission/set`` surfaces a method
+      ## error or rejects the create, so callers can skip the dependent
+      ## assertions. Submissions are HOLDFOR-pended; cleanup cancels +
+      ## destroys them.
       let draftId = seedDraftEmail(
           client, mailAccountId, draftsId, aliceAddr, bobAddr, subject,
           "Phase F Step 36 capstone seed.", draftLabel,
@@ -149,10 +151,11 @@ testCase tEmailSubmissionChangesLive:
         create = Opt.some(subTbl),
       )
       let resp = client.send(b.freeze()).expect("send EmailSubmission/set " & label)
-      let setExtract = resp.get(setHandle)
-      if setExtract.isErr:
-        return err(setExtract.unsafeError)
-      let setResp = setExtract.unsafeValue
+      let setOutcome =
+        resp.get(setHandle).expect("EmailSubmission/set dispatch " & label)
+      if setOutcome.kind == mokMethodError:
+        return err("EmailSubmission/set method error: " & setOutcome.error.rawType)
+      let setResp = setOutcome.value
       var submissionId = parseIdFromServer("placeholder").get()
       var subOk = false
       setResp.createResults.withValue(cid, outcome):
@@ -162,7 +165,7 @@ testCase tEmailSubmissionChangesLive:
       do:
         discard
       if not subOk:
-        return err(getErrorMethod(methodError("setError")))
+        return err("EmailSubmission/set create rejected for " & label)
       ok(submissionId)
 
     let sub1Res = submitOne("phase-f step-36 a", "subA", "draft36A")
@@ -206,12 +209,13 @@ testCase tEmailSubmissionChangesLive:
       assertOn target,
         cr.destroyed.len == 0, "no destroys issued — destroyed must be empty"
 
-    let badRes = resp2.get(badHandle)
+    let badOutcome = resp2.get(badHandle).expect(
+        "EmailSubmission/changes sad dispatch[" & $target.kind & "]"
+      )
     assertOn target,
-      badRes.isErr, "bogus sinceState must surface as a method-level error"
-    let getErr = badRes.error
-    doAssert getErr.kind == gekMethod, "expected gekMethod"
-    let methodErr = getErr.methodErr
+      badOutcome.kind == mokMethodError,
+      "bogus sinceState must surface as a method-level error"
+    let methodErr = badOutcome.error
     assertOn target,
       methodErr.kind in
         {metCannotCalculateChanges, metInvalidArguments, metUnknownMethod},

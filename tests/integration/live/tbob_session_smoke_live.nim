@@ -53,7 +53,7 @@ testCase tBobSessionSmokeLive:
       addMailboxGet(initRequestBuilder(makeBuilderId()), bobMailAccountId)
     let resp =
       bobClient.send(b1.freeze()).expect("send Mailbox/get[" & $target.kind & "]")
-    let gr = resp.get(mbHandle).expect("Mailbox/get extract[" & $target.kind & "]")
+    let gr = resp.get(mbHandle).expectValue("Mailbox/get extract[" & $target.kind & "]")
     assertOn target,
       gr.list.len >= 1,
       "bob's account must have at least one mailbox (got " & $gr.list.len & ")"

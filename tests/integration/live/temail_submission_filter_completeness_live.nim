@@ -94,8 +94,9 @@ testCase temailSubmissionFilterCompletenessLive:
     let respSub = client.send(bSub.freeze()).expect(
         "send EmailSubmission/get firstSub[" & $target.kind & "]"
       )
-    let getSub =
-      respSub.get(subHandle).expect("EmailSubmission/get extract[" & $target.kind & "]")
+    let getSub = respSub.get(subHandle).expectValue(
+        "EmailSubmission/get extract[" & $target.kind & "]"
+      )
     assertOn target, getSub.list.len == 1
     let anySub = getSub.list[0]
     # The HOLDFOR=300 seed retains the submission as ``pending`` so
@@ -117,7 +118,7 @@ testCase temailSubmissionFilterCompletenessLive:
         "send Email/get for threadId[" & $target.kind & "]"
       )
     let getEmail =
-      respEmail.get(emailHandle).expect("Email/get extract[" & $target.kind & "]")
+      respEmail.get(emailHandle).expectValue("Email/get extract[" & $target.kind & "]")
     assertOn target, getEmail.list.len == 1
     let firstEmail = getEmail.list[0]
     assertOn target, firstEmail.threadId.isSome
@@ -142,7 +143,7 @@ testCase temailSubmissionFilterCompletenessLive:
       let resp = client.send(b.freeze()).expect(
           "send EmailSubmission/query threadIds[" & $target.kind & "]"
         )
-      discard resp.get(qHandle).expect("threadIds extract[" & $target.kind & "]")
+      discard resp.get(qHandle).expectValue("threadIds extract[" & $target.kind & "]")
 
     # Sub-test 2: emailIds filter.
     block emailIdsCase:
@@ -163,7 +164,7 @@ testCase temailSubmissionFilterCompletenessLive:
       let resp = client.send(b.freeze()).expect(
           "send EmailSubmission/query emailIds[" & $target.kind & "]"
         )
-      discard resp.get(qHandle).expect("emailIds extract[" & $target.kind & "]")
+      discard resp.get(qHandle).expectValue("emailIds extract[" & $target.kind & "]")
 
     # Sub-test 3: undoStatus filter — usFinal.
     block undoStatusCase:
@@ -177,7 +178,7 @@ testCase temailSubmissionFilterCompletenessLive:
       let resp = client.send(b.freeze()).expect(
           "send EmailSubmission/query undoStatus[" & $target.kind & "]"
         )
-      discard resp.get(qHandle).expect("undoStatus extract[" & $target.kind & "]")
+      discard resp.get(qHandle).expectValue("undoStatus extract[" & $target.kind & "]")
 
     # Sub-test 4: before / after filters — pair of UTC thresholds.
     block beforeAfterCase:
@@ -201,7 +202,8 @@ testCase temailSubmissionFilterCompletenessLive:
       let resp = client.send(b.freeze()).expect(
           "send EmailSubmission/query before/after[" & $target.kind & "]"
         )
-      let qResp = resp.get(qHandle).expect("before/after extract[" & $target.kind & "]")
+      let qResp =
+        resp.get(qHandle).expectValue("before/after extract[" & $target.kind & "]")
       assertOn target,
         qResp.ids.len >= 2,
         "corpus submissions must surface within 1990–2099 window; got " &
@@ -221,7 +223,8 @@ testCase temailSubmissionFilterCompletenessLive:
       let resp = client.send(b.freeze()).expect(
           "send EmailSubmission/query sort emailId[" & $target.kind & "]"
         )
-      discard resp.get(qHandle).expect("sort emailId extract[" & $target.kind & "]")
+      discard
+        resp.get(qHandle).expectValue("sort emailId extract[" & $target.kind & "]")
 
     # Sub-test 6: sort by threadId ascending.  Capture the wire
     # shape after this — covers both the comparator on threadId
@@ -245,7 +248,8 @@ testCase temailSubmissionFilterCompletenessLive:
         "email-submission-filter-completeness-" & $target.kind,
       )
         .expect("captureIfRequested filter completeness")
-      discard resp.get(qHandle).expect("sort threadId extract[" & $target.kind & "]")
+      discard
+        resp.get(qHandle).expectValue("sort threadId extract[" & $target.kind & "]")
 
     # Cleanup: destroy the HOLDFOR-pended submissions so they never
     # deliver to bob's inbox.

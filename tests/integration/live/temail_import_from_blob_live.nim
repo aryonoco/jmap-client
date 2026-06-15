@@ -87,8 +87,9 @@ testCase temailImportFromBlobLive:
       recorder.lastResponseBody, "email-import-from-blob-" & $target.kind
     )
       .expect("captureIfRequested")
-    let importResp =
-      respImport.get(importHandle).expect("Email/import extract[" & $target.kind & "]")
+    let importResp = respImport.get(importHandle).expectValue(
+        "Email/import extract[" & $target.kind & "]"
+      )
     var importedId: Id
     var importOk = false
     importResp.createResults.withValue(importCid, outcome):
@@ -115,8 +116,9 @@ testCase temailImportFromBlobLive:
     )
     let respGet =
       client.send(bGet.freeze()).expect("send Email/get imported[" & $target.kind & "]")
-    let getResp =
-      respGet.get(getHandle).expect("Email/get imported extract[" & $target.kind & "]")
+    let getResp = respGet.get(getHandle).expectValue(
+        "Email/get imported extract[" & $target.kind & "]"
+      )
     assertOn target,
       getResp.list.len == 1, "imported email must be retrievable via Email/get"
 
@@ -129,7 +131,7 @@ testCase temailImportFromBlobLive:
     let respClean = client.send(bClean.freeze()).expect(
         "send Email/set cleanup[" & $target.kind & "]"
       )
-    let cleanResp = respClean.get(cleanHandle).expect(
+    let cleanResp = respClean.get(cleanHandle).expectValue(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
     var seedDestroyed = false

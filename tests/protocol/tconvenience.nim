@@ -120,8 +120,10 @@ testCase getBothQueryGetSuccess:
   let results = dr.getBoth(handles)
   assertOk results
   let r = results.get()
-  doAssert r.query.accountId == makeAccountId("a1")
-  doAssert r.get.accountId == makeAccountId("a1")
+  doAssert r.query.kind == mokValue
+  doAssert r.get.kind == mokValue
+  doAssert r.query.value.accountId == makeAccountId("a1")
+  doAssert r.get.value.accountId == makeAccountId("a1")
 
 testCase getBothChangesGetSuccess:
   ## getBoth over ChangesGetHandles[Email] extracts both responses.
@@ -141,7 +143,9 @@ testCase getBothChangesGetSuccess:
   let dr = makeDispatchedResponse(resp, bid)
   let results = dr.getBoth(handles)
   assertOk results
-  doAssert results.get().changes.accountId == makeAccountId("a1")
+  let r = results.get()
+  doAssert r.changes.kind == mokValue
+  doAssert r.changes.value.accountId == makeAccountId("a1")
 
 testCase getBothMailboxChangesGetSuccess:
   ## getBoth over MailboxChangesGetHandles extracts both responses.
@@ -163,11 +167,15 @@ testCase getBothMailboxChangesGetSuccess:
   let dr = makeDispatchedResponse(resp, bid)
   let results = dr.getBoth(handles)
   assertOk results
-  doAssert results.get().get.accountId == makeAccountId("a1")
+  let r = results.get()
+  doAssert r.get.kind == mokValue
+  doAssert r.get.value.accountId == makeAccountId("a1")
 
-testCase getBothShortCircuitsOnFirstError:
-  ## getBoth fails on the first error — a query MethodError means the get
-  ## response is never extracted.
+testCase getBothMethodErrorRidesDataNotRail:
+  ## A server method error on the query side rides ``MethodOutcome.mokMethodError``
+  ## (data), NOT the rail — so getBoth still extracts the sibling get response
+  ## rather than short-circuiting (RFC 8620 §3.6.2: a method erroring must not
+  ## discard its successful siblings).
   let b0 = initRequestBuilder(makeBuilderId())
   let bid = b0.builderId
   let (_, handles) = addEmailQueryThenGet(b0, makeAccountId("a1"))
@@ -180,4 +188,9 @@ testCase getBothShortCircuitsOnFirstError:
     makeState("rs1"),
   )
   let dr = makeDispatchedResponse(resp, bid)
-  doAssert dr.getBoth(handles).isErr
+  let results = dr.getBoth(handles)
+  assertOk results
+  let r = results.get()
+  doAssert r.query.kind == mokMethodError
+  doAssert r.query.error.kind == metServerFail
+  doAssert r.get.kind == mokValue

@@ -64,8 +64,9 @@ testCase temailGetTextBodyLive:
     )
     let resp =
       client.send(b.freeze()).expect("send Email/get text body[" & $target.kind & "]")
-    let getResp =
-      resp.get(getHandle).expect("Email/get text body extract[" & $target.kind & "]")
+    let getResp = resp.get(getHandle).expectValue(
+        "Email/get text body extract[" & $target.kind & "]"
+      )
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
     let email = getResp.list[0]

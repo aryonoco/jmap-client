@@ -60,7 +60,7 @@ testCase tnotfoundRailGetLive:
       captureIfRequested(recorder.lastResponseBody, "notfound-rail-get-" & $target.kind)
         .expect("captureIfRequested notFound rail")
       let getResp =
-        resp.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
+        resp.get(getHandle).expectValue("Email/get extract[" & $target.kind & "]")
       assertOn target,
         getResp.list.len == 1,
         "Email/get must return exactly one record (the real id), got " &
@@ -86,7 +86,7 @@ testCase tnotfoundRailGetLive:
       let respClean = client.send(bClean.freeze()).expect(
           "send Email/set cleanup[" & $target.kind & "]"
         )
-      let cleanResp = respClean.get(cleanHandle).expect(
+      let cleanResp = respClean.get(cleanHandle).expectValue(
           "Email/set cleanup extract[" & $target.kind & "]"
         )
       cleanResp.destroyResults.withValue(realEmailId, outcome):
@@ -106,7 +106,7 @@ testCase tnotfoundRailGetLive:
           "send Mailbox/get synthetic[" & $target.kind & "]"
         )
       let getResp =
-        resp.get(getHandle).expect("Mailbox/get extract[" & $target.kind & "]")
+        resp.get(getHandle).expectValue("Mailbox/get extract[" & $target.kind & "]")
       assertOn target,
         getResp.list.len == 0,
         "Mailbox/get must return no records for a synthetic id, got " & $getResp.list.len
@@ -130,7 +130,7 @@ testCase tnotfoundRailGetLive:
           "send Identity/get synthetic[" & $target.kind & "]"
         )
       let getResp =
-        resp.get(getHandle).expect("Identity/get extract[" & $target.kind & "]")
+        resp.get(getHandle).expectValue("Identity/get extract[" & $target.kind & "]")
       assertOn target,
         getResp.list.len == 0,
         "Identity/get must return no records for a synthetic id, got " &
@@ -155,7 +155,7 @@ testCase tnotfoundRailGetLive:
           "send Thread/get synthetic[" & $target.kind & "]"
         )
       let getResp =
-        resp.get(getHandle).expect("Thread/get extract[" & $target.kind & "]")
+        resp.get(getHandle).expectValue("Thread/get extract[" & $target.kind & "]")
       assertOn target,
         getResp.list.len == 0,
         "Thread/get must return no records for a synthetic id, got " & $getResp.list.len

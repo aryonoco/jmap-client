@@ -17,70 +17,81 @@ import
   jmap_client/convenience # opt-in; addEmailChangesToGet + getBoth(ChangesGetHandles)
 import ./cli_session
 
-proc currentEmailState(ctx: CliContext): Result[JmapState, string] =
+proc reportCurrentState(ctx: CliContext): JmapResult[int] =
   ## Email/changes diffs against the Email OBJECT state (GetResponse.state),
   ## not the query state, so the cursor is read from an Email/get. An empty
   ## ids list returns the state with no records to ship.
   let (b, h) = ctx.client.newBuilder().addEmailGet(
       ctx.mailAccount, ids = Opt.some(direct(newSeq[Id]()))
     )
-  let dr = ctx.client.send(b.freeze()).valueOr:
-    return err("send failed: " & error.message)
-  let resp = dr.get(h).valueOr:
-    return err("Email/get failed: " & error.message)
-  ok(resp.state)
-
-proc run*(args: seq[string]): int =
-  let ctx = connect().valueOr:
-    stderr.writeLine error
-    return 1
-
-  if args.len < 1:
-    # No cursor supplied: report the current state for the caller to persist.
-    let st = currentEmailState(ctx).valueOr:
-      stderr.writeLine error
-      return 1
+  let dr = ?ctx.client.send(b.freeze())
+  let outcome = ?dr.get(h)
+  case outcome.kind
+  of mokMethodError:
+    stderr.writeLine "Email/get: " & outcome.error.message
+    ok(1)
+  of mokValue:
+    let st = outcome.value.state
     echo "current Email state: ", $st
     echo "re-run after a change:  jmap-cli email sync ", $st
-    return 0
+    ok(0)
 
-  # parseJmapState reconstructs the cursor from the CLI string — the same
-  # state value a previous run printed. (Hub-public; even in the snapshot.)
-  let sinceState = parseJmapState(args[0]).valueOr:
-    stderr.writeLine "bad state: " & error.message
-    return 2
+proc syncSince(ctx: CliContext, sinceArg: string): JmapResult[int] =
+  # parseJmapState reconstructs the cursor from the CLI string — the same state
+  # value a previous run printed — and `.lift`s any rejection onto the rail.
+  let sinceState = ?parseJmapState(sinceArg).lift
 
   let (b, handles) =
     ctx.client.newBuilder().addEmailChangesToGet(ctx.mailAccount, sinceState)
-  let dr = ctx.client.send(b.freeze()).valueOr:
-    stderr.writeLine "send failed: " & error.message
-    return 1
-  let res = dr.getBoth(handles).valueOr: # ChangesGetResults[Email]{changes, get}
-    stderr.writeLine "changes extraction failed: " & error.message
-    return 1
+  let dr = ?ctx.client.send(b.freeze())
+  # ChangesGetResults[Email]{changes, get}: the rail carries only dispatch
+  # faults; each side is a MethodOutcome handled per branch.
+  let res = ?dr.getBoth(handles)
+  case res.changes.kind
+  of mokMethodError:
+    stderr.writeLine "Email/changes: " & res.changes.error.message
+    ok(1)
+  of mokValue:
+    let ch = res.changes.value
+    echo "created=",
+      $ch.created.len,
+      " updated=",
+      $ch.updated.len,
+      " destroyed=",
+      $ch.destroyed.len,
+      " hasMore=",
+      $ch.hasMoreChanges
+    echo "state: ", $ch.oldState, " -> ", $ch.newState
+    # The *ChangesToGet convenience back-references ONLY /created into the get,
+    # so the get side holds the created records' bodies; updated/destroyed are
+    # reported as ids only. A method error on the body fetch is non-fatal — the
+    # primary changes delta still stands.
+    case res.get.kind
+    of mokMethodError:
+      stderr.writeLine "Email/get (created bodies): " & res.get.error.message
+    of mokValue:
+      for e in res.get.value.list: # full Email records — created only
+        let idStr =
+          if e.id.isSome:
+            $e.id.get()
+          else:
+            "?"
+        echo "  created ", idStr, "  ", e.subject.valueOr("(no subject)")
+    for id in ch.updated:
+      echo "  updated ", $id
+    for id in ch.destroyed:
+      echo "  destroyed ", $id
+    ok(0)
 
-  echo "created=",
-    $res.changes.created.len,
-    " updated=",
-    $res.changes.updated.len,
-    " destroyed=",
-    $res.changes.destroyed.len,
-    " hasMore=",
-    $res.changes.hasMoreChanges
-  echo "state: ", $res.changes.oldState, " -> ", $res.changes.newState
-  # The *ChangesToGet convenience back-references ONLY /created into the get,
-  # so res.get.list holds the created records' bodies; updated/destroyed are
-  # reported as ids only (fetching their bodies needs the manual
-  # addEmailChanges + addPartialEmailGet with rpUpdated).
-  for e in res.get.list: # full Email records — created only
-    let idStr =
-      if e.id.isSome:
-        $e.id.get()
-      else:
-        "?"
-    echo "  created ", idStr, "  ", e.subject.valueOr("(no subject)")
-  for id in res.changes.updated:
-    echo "  updated ", $id
-  for id in res.changes.destroyed:
-    echo "  destroyed ", $id
-  return 0
+proc syncImpl(args: seq[string]): JmapResult[int] =
+  let ctx = ?connect()
+  if args.len < 1:
+    # No cursor supplied: report the current state for the caller to persist.
+    reportCurrentState(ctx)
+  else:
+    syncSince(ctx, args[0])
+
+proc run*(args: seq[string]): int =
+  syncImpl(args).valueOr:
+    stderr.writeLine error.message
+    return 1

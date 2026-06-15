@@ -69,7 +69,7 @@ testCase tthreadKeywordFilterAndUpToIdLive:
         "send Email/set markFlagged[" & $target.kind & "]"
       )
     let setResp =
-      respFlag.get(flagHandle).expect("Email/set extract[" & $target.kind & "]")
+      respFlag.get(flagHandle).expectValue("Email/set extract[" & $target.kind & "]")
     setResp.updateResults.withValue(seedIds[0], outcome):
       assertOn target, outcome.isOk, "flag update must succeed"
     do:
@@ -82,7 +82,7 @@ testCase tthreadKeywordFilterAndUpToIdLive:
         "send Email/query baseline[" & $target.kind & "]"
       )
     let qrBase =
-      respBase.get(baseHandle).expect("baseline extract[" & $target.kind & "]")
+      respBase.get(baseHandle).expectValue("baseline extract[" & $target.kind & "]")
     let baselineState = qrBase.queryState
 
     let flaggedKw =
@@ -171,7 +171,7 @@ testCase tthreadKeywordFilterAndUpToIdLive:
     let respClean = client.send(bClean.freeze()).expect(
         "send Email/set cleanup[" & $target.kind & "]"
       )
-    let cleanResp = respClean.get(cleanHandle).expect(
+    let cleanResp = respClean.get(cleanHandle).expectValue(
         "Email/set cleanup extract[" & $target.kind & "]"
       )
     for id in seedIds:

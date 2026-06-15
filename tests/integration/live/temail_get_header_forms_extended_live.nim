@@ -109,7 +109,7 @@ testCase temailGetHeaderFormsExtendedLive:
       recorder.lastResponseBody, "email-get-header-forms-extended-" & $target.kind
     )
       .expect("captureIfRequested")
-    let getResp = resp.get(getHandle).expect(
+    let getResp = resp.get(getHandle).expectValue(
         "Email/get extended header forms extract[" & $target.kind & "]"
       )
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"

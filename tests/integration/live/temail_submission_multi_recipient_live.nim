@@ -85,8 +85,9 @@ testCase tEmailSubmissionMultiRecipientLive:
     )
     let resp3 =
       client.send(b3.freeze()).expect("send EmailSubmission/set[" & $target.kind & "]")
-    let subSetResp =
-      resp3.get(subHandle).expect("EmailSubmission/set extract[" & $target.kind & "]")
+    let subSetResp = resp3.get(subHandle).expectValue(
+        "EmailSubmission/set extract[" & $target.kind & "]"
+      )
     var submissionId: Id
     subSetResp.createResults.withValue(subCid, outcome):
       assertOn target,
@@ -119,8 +120,9 @@ testCase tEmailSubmissionMultiRecipientLive:
         "email-submission-multi-recipient-delivery-" & $target.kind,
       )
         .expect("captureIfRequested[" & $target.kind & "]")
-      let getResp =
-        resp4.get(getHandle).expect("EmailSubmission/get extract[" & $target.kind & "]")
+      let getResp = resp4.get(getHandle).expectValue(
+          "EmailSubmission/get extract[" & $target.kind & "]"
+        )
       assertOn target,
         getResp.list.len == 1,
         "EmailSubmission/get must return exactly one entry (got " & $getResp.list.len &

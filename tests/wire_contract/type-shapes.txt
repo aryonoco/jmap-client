@@ -152,8 +152,8 @@
   get*: ResponseHandle[GetResponse[T]]
 
 ## ChangesGetResults [jmap_client/convenience]
-  changes*: ChangesResponse[T]
-  get*: GetResponse[T]
+  changes*: MethodOutcome[ChangesResponse[T]]
+  get*: MethodOutcome[GetResponse[T]]
 
 ## ChangesRequest [jmap_client/internal/protocol/methods]
   accountId*: AccountId
@@ -168,17 +168,6 @@
   created*: seq[Id]
   updated*: seq[Id]
   destroyed*: seq[Id]
-
-## ClientError [jmap_client/internal/types/errors]
-  case kind*: ClientErrorKind
-  of cekTransport:
-    transport*: TransportError
-  of cekRequest:
-    request*: RequestError
-
-## ClientErrorKind [jmap_client/internal/types/errors]
-  cekTransport
-  cekRequest
 
 ## CloseProc [jmap_client/internal/transport]
   proc () {.closure, raises: [].}
@@ -204,8 +193,8 @@
   implicit*: NameBoundHandle[B]
 
 ## CompoundResults [jmap_client/internal/protocol/dispatch]
-  primary*: A
-  implicit*: B
+  primary*: MethodOutcome[A]
+  implicit*: Opt[MethodOutcome[B]]
 
 ## ContentDisposition [jmap_client/internal/mail/body]
   case rawKind: ContentDispositionKind
@@ -348,37 +337,6 @@
     textBody*: Opt[BlueprintBodyPart]
     htmlBody*: Opt[BlueprintBodyPart]
     attachments*: seq[BlueprintBodyPart]
-
-## EmailBlueprintConstraint [jmap_client/internal/mail/email_blueprint]
-  ebcEmailTopLevelHeaderDuplicate
-  ebcBodyStructureHeaderDuplicate
-  ebcBodyPartHeaderDuplicate
-  ebcTextBodyNotTextPlain
-  ebcHtmlBodyNotTextHtml
-  ebcAllowedFormRejected
-  ebcBodyPartDepthExceeded
-
-## EmailBlueprintError [jmap_client/internal/mail/email_blueprint]
-  case constraint*: EmailBlueprintConstraint
-  of ebcEmailTopLevelHeaderDuplicate:
-    dupName*: string
-  of ebcBodyStructureHeaderDuplicate:
-    bodyStructureDupName*: string
-  of ebcBodyPartHeaderDuplicate:
-    where*: BodyPartLocation
-    bodyPartDupName*: string
-  of ebcTextBodyNotTextPlain:
-    actualTextType*: string
-  of ebcHtmlBodyNotTextHtml:
-    actualHtmlType*: string
-  of ebcAllowedFormRejected:
-    rejectedName*: string
-    rejectedForm*: HeaderForm
-  of ebcBodyPartDepthExceeded:
-    observedDepth*: int
-    depthLocation*: BodyPartLocation
-
-## EmailBlueprintErrors [jmap_client/internal/mail/email_blueprint]
 
 ## EmailBodyFetchOptions [jmap_client/internal/mail/email]
   bodyProperties*: Opt[NonEmptySeq[EmailBodyProperty]]
@@ -553,8 +511,8 @@
   snippetsH*: ResponseHandle[SearchSnippetGetResponse]
 
 ## EmailQuerySnippetResults [jmap_client/internal/mail/mail_methods]
-  query*: QueryResponse[Email]
-  snippets*: SearchSnippetGetResponse
+  query*: MethodOutcome[QueryResponse[Email]]
+  snippets*: MethodOutcome[SearchSnippetGetResponse]
 
 ## EmailQueryThreadChain [jmap_client/internal/mail/mail_builders]
   queryH*: ResponseHandle[QueryResponse[Email]]
@@ -563,10 +521,10 @@
   displayH*: ResponseHandle[GetResponse[PartialEmail]]
 
 ## EmailQueryThreadResults [jmap_client/internal/mail/mail_builders]
-  query*: QueryResponse[Email]
-  threadIdFetch*: GetResponse[PartialEmail]
-  threads*: GetResponse[Thread]
-  display*: GetResponse[PartialEmail]
+  query*: MethodOutcome[QueryResponse[Email]]
+  threadIdFetch*: MethodOutcome[GetResponse[PartialEmail]]
+  threads*: MethodOutcome[GetResponse[Thread]]
+  display*: MethodOutcome[GetResponse[PartialEmail]]
 
 ## EmailSubmission [jmap_client/internal/mail/email_submission]
   id*: Id
@@ -697,19 +655,6 @@
   foAnd = "AND"
   foOr = "OR"
   foNot = "NOT"
-
-## GetError [jmap_client/internal/types/errors]
-  case kind*: GetErrorKind
-  of gekMethod:
-    methodErr*: MethodError
-  of gekHandleMismatch:
-    expected*: BuilderId
-    actual*: BuilderId
-    callId*: MethodCallId
-
-## GetErrorKind [jmap_client/internal/types/errors]
-  gekMethod
-  gekHandleMismatch
 
 ## GetRequest [jmap_client/internal/protocol/methods]
   accountId*: AccountId
@@ -851,10 +796,33 @@
 
 ## JmapClient [jmap_client/internal/client]
 
+## JmapError [jmap_client/internal/protocol/jmap_error]
+  case kind*: JmapErrorKind
+  of jeValidation:
+    validation*: NonEmptySeq[ValidationError]
+  of jeTransport:
+    transport*: TransportError
+  of jeRequest:
+    request*: RequestError
+  of jeSession:
+    session*: SessionFault
+  of jeMisuse:
+    misuse*: Misuse
+  of jeProtocol:
+    protocol*: ProtocolFault
+
+## JmapErrorKind [jmap_client/internal/protocol/jmap_error]
+  jeValidation
+  jeTransport
+  jeRequest
+  jeSession
+  jeMisuse
+  jeProtocol
+
 ## JmapInt [jmap_client/internal/types/primitives]
 
-## JmapResult [jmap_client/internal/types]
-  Result[T, ClientError]
+## JmapResult [jmap_client/internal/protocol/jmap_error]
+  Result[T, JmapError]
 
 ## JmapState [jmap_client/internal/types/identifiers]
 
@@ -887,8 +855,8 @@
   get*: ResponseHandle[GetResponse[Mailbox]]
 
 ## MailboxChangesGetResults [jmap_client/convenience]
-  changes*: MailboxChangesResponse
-  get*: GetResponse[Mailbox]
+  changes*: MethodOutcome[MailboxChangesResponse]
+  get*: MethodOutcome[GetResponse[Mailbox]]
 
 ## MailboxChangesResponse [jmap_client/internal/mail/mailbox_changes_response]
   base*: ChangesResponse[Mailbox]
@@ -1062,6 +1030,22 @@
 
 ## MethodNameLiteral [jmap_client/internal/types/methods_enum]
 
+## MethodOutcome [jmap_client/internal/protocol/jmap_error]
+  case kind*: MethodOutcomeKind
+  of mokValue:
+    value*: T
+  of mokMethodError:
+    error*: MethodError
+
+## MethodOutcomeKind [jmap_client/internal/protocol/jmap_error]
+  mokValue
+  mokMethodError
+
+## Misuse [jmap_client/internal/protocol/jmap_error]
+  expected*: BuilderId
+  actual*: BuilderId
+  callId*: MethodCallId
+
 ## MtPriority [jmap_client/internal/mail/submission_param]
 
 ## NameBoundHandle [jmap_client/internal/protocol/dispatch]
@@ -1222,6 +1206,19 @@
 
 ## PropertyName [jmap_client/internal/types/framework]
 
+## ProtocolFault [jmap_client/internal/protocol/jmap_error]
+  case kind*: ProtocolFaultKind
+  of pfMissingCall, pfMalformedError:
+    callId*: MethodCallId
+  of pfDecode:
+    decodeCallId*: Opt[MethodCallId]
+    violation*: SerdeViolation
+
+## ProtocolFaultKind [jmap_client/internal/protocol/jmap_error]
+  pfMissingCall
+  pfMalformedError
+  pfDecode
+
 ## PushChannel [jmap_client/internal/push]
 
 ## QueryChangesResponse [jmap_client/internal/protocol/methods]
@@ -1237,8 +1234,8 @@
   get*: ResponseHandle[GetResponse[T]]
 
 ## QueryGetResults [jmap_client/convenience]
-  query*: QueryResponse[T]
-  get*: GetResponse[T]
+  query*: MethodOutcome[QueryResponse[T]]
+  get*: MethodOutcome[GetResponse[T]]
 
 ## QueryParams [jmap_client/internal/types/framework]
   position*: JmapInt
@@ -1348,6 +1345,14 @@
   sekDirectUrl
   sekDiscoveryDomain
 
+## SessionFault [jmap_client/internal/protocol/jmap_error]
+  kind*: SessionFaultKind
+  capability*: CapabilityKind
+
+## SessionFaultKind [jmap_client/internal/protocol/jmap_error]
+  sfCapabilityAbsent
+  sfPrimaryAccountAbsent
+
 ## SetError [jmap_client/internal/types/errors]
   rawType*: string
   description*: Opt[string]
@@ -1409,23 +1414,6 @@
   createResults*: Table[CreationId, Result[T, SetError]]
   updateResults*: Table[Id, Result[Opt[U], SetError]]
   destroyResults*: Table[Id, Result[void, SetError]]
-
-## SmtpReplyViolation [jmap_client/internal/mail/submission_status]
-  srEmpty
-  srControlChars
-  srLineTooShort
-  srBadReplyCodeDigit1
-  srBadReplyCodeDigit2
-  srBadReplyCodeDigit3
-  srBadSeparator
-  srMultilineCodeMismatch
-  srMultilineContinuation
-  srMultilineFinalHyphen
-  srEnhancedMalformedTriple
-  srEnhancedClassInvalid
-  srEnhancedSubjectOverflow
-  srEnhancedDetailOverflow
-  srEnhancedMultilineMismatch
 
 ## SortDirection [jmap_client/internal/types/framework]
   sdServerDefault
@@ -1500,15 +1488,6 @@
   tgkId = "id"
   tgkEmailIds = "emailIds"
   tgkOther
-
-## TokenViolation [jmap_client/internal/types/validation]
-  tvEmpty
-  tvLengthOutOfRange
-  tvControlChars
-  tvNonPrintableAscii
-  tvForbiddenChar
-  tvNotBase64Url
-  tvCreationIdPrefix
 
 ## Transport [jmap_client/internal/transport]
 

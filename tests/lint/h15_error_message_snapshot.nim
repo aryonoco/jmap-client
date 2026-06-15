@@ -4,7 +4,7 @@
 ## H15 error-message snapshot lock lint.
 ##
 ## Verifies that the canonical ``message()`` projection over the
-## 38 representative error values matches the locked snapshot
+## 42 representative error values matches the locked snapshot
 ## committed at ``tests/wire_contract/error-messages.txt`` exactly.
 ##
 ## Bidirectional:
@@ -23,14 +23,16 @@ import std/[os, strutils, tables]
 import jmap_client
 import jmap_client/internal/types/validation
 import jmap_client/internal/types/errors
+import jmap_client/internal/types/capabilities
 import jmap_client/internal/types/identifiers
+import jmap_client/internal/protocol/jmap_error
 
 const
   RepoRoot = currentSourcePath().parentDir.parentDir.parentDir
   SnapshotRel = "tests/wire_contract/error-messages.txt"
 
 proc samples(): seq[(string, string)] =
-  ## Inline declaration of the 38 (label, projected message) pairs in the
+  ## Inline declaration of the 42 (label, projected message) pairs in the
   ## same order as ``scripts/freeze_error_messages.nim``. Keeping the two
   ## listings byte-aligned is the source-of-truth contract; the lint
   ## fails loudly when they drift.
@@ -248,14 +250,14 @@ proc samples(): seq[(string, string)] =
   result.add(("setError(\"overQuota\")", setError("overQuota").message))
   result.add(
     (
-      "clientError(httpStatusError(503, \"Service Unavailable\"))",
-      clientError(httpStatusError(503, "Service Unavailable")).message,
+      "jmapTransport(httpStatusError(503, \"Service Unavailable\"))",
+      jmapTransport(httpStatusError(503, "Service Unavailable")).message,
     )
   )
   result.add(
     (
-      "clientError(requestError(\"urn:ietf:params:jmap:error:limit\", title = Opt.some(\"Limit Exceeded\")))",
-      clientError(
+      "jmapRequest(requestError(\"urn:ietf:params:jmap:error:limit\", title = Opt.some(\"Limit Exceeded\")))",
+      jmapRequest(
         requestError(
           "urn:ietf:params:jmap:error:limit", title = Opt.some("Limit Exceeded")
         )
@@ -264,18 +266,42 @@ proc samples(): seq[(string, string)] =
   )
   result.add(
     (
-      "getErrorMethod(methodError(\"serverFail\", Opt.some(\"internal\")))",
-      getErrorMethod(methodError("serverFail", Opt.some("internal"))).message,
+      "jmapValidation(validationError(\"AccountId\", \"contains control characters\", \"\"))",
+      jmapValidation(validationError("AccountId", "contains control characters", "")).message,
     )
   )
   result.add(
     (
-      "getErrorHandleMismatch(initBuilderId(1'u64, 1'u64), initBuilderId(1'u64, 2'u64), parseMethodCallId(\"c0\").get())",
-      getErrorHandleMismatch(
+      "jmapSession(sessionFault(sfCapabilityAbsent, ckMail))",
+      jmapSession(sessionFault(sfCapabilityAbsent, ckMail)).message,
+    )
+  )
+  result.add(
+    (
+      "jmapSession(sessionFault(sfPrimaryAccountAbsent, ckMail))",
+      jmapSession(sessionFault(sfPrimaryAccountAbsent, ckMail)).message,
+    )
+  )
+  result.add(
+    (
+      "jmapMisuse(initBuilderId(1'u64, 1'u64), initBuilderId(1'u64, 2'u64), parseMethodCallId(\"c0\").get())",
+      jmapMisuse(
         initBuilderId(1'u64, 1'u64),
         initBuilderId(1'u64, 2'u64),
         parseMethodCallId("c0").get(),
       ).message,
+    )
+  )
+  result.add(
+    (
+      "jmapProtocol(protocolMissingCall(parseMethodCallId(\"c0\").get()))",
+      jmapProtocol(protocolMissingCall(parseMethodCallId("c0").get())).message,
+    )
+  )
+  result.add(
+    (
+      "jmapProtocol(protocolMalformedError(parseMethodCallId(\"c0\").get()))",
+      jmapProtocol(protocolMalformedError(parseMethodCallId("c0").get())).message,
     )
   )
 

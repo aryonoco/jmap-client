@@ -43,7 +43,8 @@ testCase tmailboxSetCrudLive:
       addMailboxGet(initRequestBuilder(makeBuilderId()), mailAccountId)
     let resp1 =
       client.send(b1.freeze()).expect("send Mailbox/get[" & $target.kind & "]")
-    let mbResp = resp1.get(mbHandle).expect("Mailbox/get extract[" & $target.kind & "]")
+    let mbResp =
+      resp1.get(mbHandle).expectValue("Mailbox/get extract[" & $target.kind & "]")
     var inboxId = Opt.none(Id)
     for mb in mbResp.list:
       for role in mb.role:
@@ -67,8 +68,9 @@ testCase tmailboxSetCrudLive:
     )
     let resp2 =
       client.send(b2.freeze()).expect("send Mailbox/set parent[" & $target.kind & "]")
-    let setResp1 =
-      resp2.get(setHandle1).expect("Mailbox/set parent extract[" & $target.kind & "]")
+    let setResp1 = resp2.get(setHandle1).expectValue(
+        "Mailbox/set parent extract[" & $target.kind & "]"
+      )
     var parentId: Id
     var parentOk = false
     setResp1.createResults.withValue(parentCid, outcome):
@@ -94,8 +96,9 @@ testCase tmailboxSetCrudLive:
     )
     let resp3 =
       client.send(b3.freeze()).expect("send Mailbox/set child[" & $target.kind & "]")
-    let setResp2 =
-      resp3.get(setHandle2).expect("Mailbox/set child extract[" & $target.kind & "]")
+    let setResp2 = resp3.get(setHandle2).expectValue(
+        "Mailbox/set child extract[" & $target.kind & "]"
+      )
     var childId: Id
     var childOk = false
     setResp2.createResults.withValue(childCid, outcome):
@@ -120,7 +123,7 @@ testCase tmailboxSetCrudLive:
       recorder.lastResponseBody, "mailbox-set-has-child-" & $target.kind
     )
       .expect("captureIfRequested")
-    let setResp3 = resp4.get(setHandle3).expect(
+    let setResp3 = resp4.get(setHandle3).expectValue(
         "Mailbox/set destroy parent extract[" & $target.kind & "]"
       )
     var sawHasChild = false
@@ -153,7 +156,7 @@ testCase tmailboxSetCrudLive:
     let resp5 = client.send(b5.freeze()).expect(
         "send Mailbox/set rename child[" & $target.kind & "]"
       )
-    let setResp4 = resp5.get(setHandle4).expect(
+    let setResp4 = resp5.get(setHandle4).expectValue(
         "Mailbox/set rename child extract[" & $target.kind & "]"
       )
     var renamed = false
@@ -181,7 +184,7 @@ testCase tmailboxSetCrudLive:
     let resp6a = client.send(b6a.freeze()).expect(
         "send Mailbox/set destroy child[" & $target.kind & "]"
       )
-    let setResp6a = resp6a.get(setHandleChild).expect(
+    let setResp6a = resp6a.get(setHandleChild).expectValue(
         "Mailbox/set destroy child extract[" & $target.kind & "]"
       )
     var childDestroyed = false
@@ -199,7 +202,7 @@ testCase tmailboxSetCrudLive:
     let resp6b = client.send(b6b.freeze()).expect(
         "send Mailbox/set destroy parent[" & $target.kind & "]"
       )
-    let setResp6b = resp6b.get(setHandleParent).expect(
+    let setResp6b = resp6b.get(setHandleParent).expectValue(
         "Mailbox/set destroy parent extract[" & $target.kind & "]"
       )
     var parentDestroyed = false

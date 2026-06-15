@@ -742,7 +742,7 @@ func toTable*(
 
 func initNonEmptyEmailImportMap*(
     items: openArray[(CreationId, EmailImportItem)]
-): Result[NonEmptyEmailImportMap, seq[ValidationError]] =
+): Result[NonEmptyEmailImportMap, NonEmptySeq[ValidationError]] =
   ## Accumulating smart constructor mirroring ``initMailboxUpdateSet``
   ## (mailbox.nim) and ``initVacationResponseUpdateSet`` (vacation.nim).
   ## Rejects empty input — ``addEmailImport``'s ``emails`` parameter is
@@ -760,7 +760,8 @@ func initNonEmptyEmailImportMap*(
     dupMsg = "duplicate CreationId",
   )
   if errs.len > 0:
-    return err(errs)
+    # errs is non-empty here, so parseNonEmptySeq cannot Err.
+    return err(parseNonEmptySeq(errs).get())
   var t = initTable[CreationId, EmailImportItem](items.len)
   for (cid, item) in items:
     t[cid] = item

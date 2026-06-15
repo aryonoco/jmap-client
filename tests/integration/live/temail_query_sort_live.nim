@@ -90,7 +90,7 @@ testCase temailQuerySortLive:
     let respA =
       client.send(ba.freeze()).expect("send Email/query asc[" & $target.kind & "]")
     let ascResp =
-      respA.get(ascHandle).expect("Email/query asc extract[" & $target.kind & "]")
+      respA.get(ascHandle).expectValue("Email/query asc extract[" & $target.kind & "]")
     var ascSeeded: seq[Id] = @[]
     for id in ascResp.ids:
       if id in corpus:
@@ -114,8 +114,9 @@ testCase temailQuerySortLive:
     )
     let respD =
       client.send(bd.freeze()).expect("send Email/query desc[" & $target.kind & "]")
-    let descResp =
-      respD.get(descHandle).expect("Email/query desc extract[" & $target.kind & "]")
+    let descResp = respD.get(descHandle).expectValue(
+        "Email/query desc extract[" & $target.kind & "]"
+      )
     var descSeeded: seq[Id] = @[]
     for id in descResp.ids:
       if id in corpus:
@@ -151,7 +152,7 @@ testCase temailQuerySortLive:
       let respC = client.send(bc.freeze()).expect(
           "send Email/query collation[" & $target.kind & "]"
         )
-      let collResp = respC.get(collHandle).expect(
+      let collResp = respC.get(collHandle).expectValue(
           "Email/query collation extract[" & $target.kind & "]"
         )
       var collSeeded: seq[Id] = @[]

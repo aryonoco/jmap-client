@@ -92,40 +92,53 @@ testCase tEmailSubmissionOnSuccessDestroyLive:
       recorder.lastResponseBody, "email-submission-on-success-destroy-" & $target.kind
     )
       .expect("captureIfRequested")
-    let pairExtract = resp3.getBoth(handles)
+    let pair = resp3.getBoth(handles).expect(
+        "EmailSubmission/set+Email/set destroy dispatch[" & $target.kind & "]"
+      )
     # Cat-B: Cyrus 3.12.2 rejects ``onSuccessDestroyEmail`` with
     # ``invalidArguments``. Stalwart and James implement the
     # compound submit-and-destroy. The success arm verifies the
     # round-trip; the error arm verifies the typed-error projection.
+    # A server method error rides ``pair.primary`` as data
+    # (``mokMethodError``); a rail ``JmapError`` from ``getBoth`` would
+    # be a cross-builder ``jeMisuse`` programming bug, unwrapped fatally
+    # by the ``.expect`` above.
     var submissionId: Id
     var compoundOk = false
-    if pairExtract.isOk:
-      let pair = pairExtract.unsafeValue
-      pair.primary.createResults.withValue(subCid, outcome):
-        if outcome.isOk:
-          submissionId = outcome.unsafeValue.id
-          compoundOk = true
-      do:
-        assertOn target, false, "EmailSubmission/set must report a create outcome"
-      pair.implicit.destroyResults.withValue(draftId, outcome):
-        assertOn target,
-          outcome.isOk,
-          "implicit Email/set destroy must succeed: " & outcome.error.rawType
-      do:
-        assertOn target,
-          false, "implicit Email/set must report a destroy outcome for draftId"
-    else:
-      let getErr = pairExtract.unsafeError
-      assertOn target,
-        getErr.kind == gekMethod,
-        "compound destroy must surface as gekMethod, not gekHandleMismatch"
-      let methodErr = getErr.methodErr
+    case pair.primary.kind
+    of mokMethodError:
+      let methodErr = pair.primary.error
       assertOn target,
         methodErr.kind in {metInvalidArguments, metUnknownMethod},
         "compound EmailSubmission/set + onSuccessDestroyEmail must surface " &
           "metInvalidArguments or metUnknownMethod when unimplemented (got " &
           methodErr.rawType & ")"
       continue
+    of mokValue:
+      let primaryResp = pair.primary.value
+      primaryResp.createResults.withValue(subCid, outcome):
+        if outcome.isOk:
+          submissionId = outcome.unsafeValue.id
+          compoundOk = true
+      do:
+        assertOn target, false, "EmailSubmission/set must report a create outcome"
+      # §5.4: the implicit Email/set is emitted only on the submission's
+      # success, so it is present (some) here on the primary mokValue arm.
+      let implicitOutcome = pair.implicit.valueOr:
+        assertOn target,
+          false, "implicit Email/set destroy must be present on a successful submission"
+        continue
+      assertOn target,
+        implicitOutcome.kind == mokValue,
+        "implicit Email/set destroy must return a value, not a method error"
+      let implicitResp = implicitOutcome.value
+      implicitResp.destroyResults.withValue(draftId, outcome):
+        assertOn target,
+          outcome.isOk,
+          "implicit Email/set destroy must succeed: " & outcome.error.rawType
+      do:
+        assertOn target,
+          false, "implicit Email/set must report a destroy outcome for draftId"
     if not compoundOk:
       continue
 
@@ -171,7 +184,7 @@ testCase tEmailSubmissionOnSuccessDestroyLive:
     let resp4 = client.send(b4.freeze()).expect(
         "send Email/get post-destroy[" & $target.kind & "]"
       )
-    let getResp = resp4.get(emailGetHandle).expect(
+    let getResp = resp4.get(emailGetHandle).expectValue(
         "Email/get post-destroy extract[" & $target.kind & "]"
       )
     assertOn target,

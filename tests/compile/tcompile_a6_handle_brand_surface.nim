@@ -26,10 +26,13 @@ static:
   doAssert declared(BuilderId)
   doAssert declared(BuiltRequest)
   doAssert declared(DispatchedResponse)
-  doAssert declared(GetError)
-  doAssert declared(GetErrorKind)
-  doAssert declared(gekMethod)
-  doAssert declared(gekHandleMismatch)
+  # A6 brand mismatch is the ``jeMisuse`` arm of the single ``JmapError`` rail
+  # carrying a ``Misuse`` payload; ``get`` yields a ``MethodOutcome`` on ok.
+  doAssert declared(JmapError)
+  doAssert declared(JmapErrorKind)
+  doAssert declared(jeMisuse)
+  doAssert declared(Misuse)
+  doAssert declared(MethodOutcome)
   doAssert declared(newBuilder)
   doAssert declared(freeze)
   doAssert declared(clientBrand)
@@ -50,9 +53,9 @@ static:
   doAssert not declared(response)
   doAssert not declared(request)
   doAssert not declared(builderId)
-  # A12 — library-internal GetError producers are hub-private
-  doAssert not declared(getErrorMethod)
-  doAssert not declared(getErrorHandleMismatch)
+  # A12 — the library-internal misuse producer is hub-private (consumers
+  # receive a ``Misuse`` value, they do not mint it).
+  doAssert not declared(jmapMisuse)
 
 # Runtime anchor pins the import against UnusedImport warnings.
 doAssert $mnCoreEcho == "Core/echo"

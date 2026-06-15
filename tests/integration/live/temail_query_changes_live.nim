@@ -69,7 +69,7 @@ testCase temailQueryChangesLive:
       addEmailQuery(initRequestBuilder(makeBuilderId()), mailAccountId)
     let resp1 =
       client.send(b1.freeze()).expect("send Email/query baseline[" & $target.kind & "]")
-    let queryResp = resp1.get(queryHandle).expect(
+    let queryResp = resp1.get(queryHandle).expectValue(
         "Email/query baseline extract[" & $target.kind & "]"
       )
     let queryState1 = queryResp.queryState

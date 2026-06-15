@@ -9,11 +9,13 @@
 {.push raises: [].}
 
 import std/tables
+import std/strutils
 
 import jmap_client/internal/mail/body
 import jmap_client/internal/mail/email_blueprint
 import jmap_client/internal/mail/headers
 import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/primitives
 import jmap_client/internal/types/validation
 
 import ../../massertions
@@ -56,14 +58,12 @@ testCase depthFivePathEncoding: # §6.1.5c scenario 37q
   )
   assertBlueprintErrCount res, 1
   assertBlueprintErr res, ebcBodyPartHeaderDuplicate
-  # Direct path inspection — not via K-4's borrowed ``==`` because we
-  # want element-wise pinning per design §6.1.5c sc 37q.
+  # The body-part location is now flattened into the ``ValidationError.reason``
+  # (renderLocation); the depth-5 multipart offender renders as
+  # ``multipart at path @[0, 0, 0, 0, 0]``. Pin that exact coordinate.
   var hit = false
   for e in res.unsafeError.items:
-    if e.constraint == ebcBodyPartHeaderDuplicate and e.where.kind == bplMultipart:
-      assertEq e.where.path.len, 5
-      for elem in e.where.path:
-        assertEq elem, 0
+    if "multipart at path @[0, 0, 0, 0, 0]" in e.reason:
       hit = true
   doAssert hit, "expected a single bplMultipart duplicate at depth 5"
 
@@ -88,9 +88,14 @@ testCase depthCouplingInvariantSampled: # §6.1.5c scenario 37r
       mailboxIds = makeNonEmptyMailboxIdSet(), body = structuredBody(spine)
     )
     assertErr res
+    # The reported location rides the reason text now; a multipart offender
+    # renders as "multipart at path @[...]". The path-length <= MaxBodyPartDepth
+    # bound is structurally capped by the source and pinned by property 97d.
+    var sawMultipartLoc = false
     for e in res.unsafeError.items:
-      if e.where.kind == bplMultipart:
-        assertLe e.where.path.len, MaxBodyPartDepth
+      if "multipart at path" in e.reason:
+        sawMultipartLoc = true
+    doAssert sawMultipartLoc, "expected a reported multipart location"
 
   # Trigger B — depth-2 multipart (mirrors Step 15 sc 7g).
   block:
@@ -106,9 +111,14 @@ testCase depthCouplingInvariantSampled: # §6.1.5c scenario 37r
       mailboxIds = makeNonEmptyMailboxIdSet(), body = structuredBody(root)
     )
     assertErr res
+    # The reported location rides the reason text now; a multipart offender
+    # renders as "multipart at path @[...]". The path-length <= MaxBodyPartDepth
+    # bound is structurally capped by the source and pinned by property 97d.
+    var sawMultipartLoc = false
     for e in res.unsafeError.items:
-      if e.where.kind == bplMultipart:
-        assertLe e.where.path.len, MaxBodyPartDepth
+      if "multipart at path" in e.reason:
+        sawMultipartLoc = true
+    doAssert sawMultipartLoc, "expected a reported multipart location"
 
   # Trigger C — flat-body attachments[1] multipart (mirrors sc 7k).
   block:
@@ -122,6 +132,11 @@ testCase depthCouplingInvariantSampled: # §6.1.5c scenario 37r
     )
     let res = parseEmailBlueprint(mailboxIds = makeNonEmptyMailboxIdSet(), body = body)
     assertErr res
+    # The reported location rides the reason text now; a multipart offender
+    # renders as "multipart at path @[...]". The path-length <= MaxBodyPartDepth
+    # bound is structurally capped by the source and pinned by property 97d.
+    var sawMultipartLoc = false
     for e in res.unsafeError.items:
-      if e.where.kind == bplMultipart:
-        assertLe e.where.path.len, MaxBodyPartDepth
+      if "multipart at path" in e.reason:
+        sawMultipartLoc = true
+    doAssert sawMultipartLoc, "expected a reported multipart location"

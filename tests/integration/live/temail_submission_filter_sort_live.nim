@@ -70,8 +70,7 @@ proc resolveOrCreateSecondaryAliceIdentity(
     addIdentityGet(initRequestBuilder(makeBuilderId()), submissionAccountId)
   let resp1 = client.send(b1.freeze()).valueOr:
     return err("Identity/get send failed: " & error.message)
-  let getResp = resp1.get(getHandle).valueOr:
-    return err("Identity/get extract failed: " & error.message)
+  let getResp = ?extractOutcome(resp1.get(getHandle), "Identity/get")
   for ident in getResp.list:
     if ident.email == "alice@example.com" and ident.name == displayName:
       return ok(ident.id)
@@ -88,8 +87,7 @@ proc resolveOrCreateSecondaryAliceIdentity(
   )
   let resp2 = client.send(b2.freeze()).valueOr:
     return err("Identity/set send failed: " & error.message)
-  let setResp = resp2.get(setHandle).valueOr:
-    return err("Identity/set extract failed: " & error.message)
+  let setResp = ?extractOutcome(resp2.get(setHandle), "Identity/set")
   var createdId: Id
   var found = false
   setResp.createResults.withValue(cid, outcome):
@@ -142,10 +140,12 @@ testCase temailSubmissionFilterSortLive:
     let respBase = client.send(bBase.freeze()).expect(
         "send baseline EmailSubmission/query[" & $target.kind & "]"
       )
-    let baseExtract = respBase.get(baseHandle)
-    if baseExtract.isErr:
+    let baseOutcome = respBase.get(baseHandle).expect(
+        "baseline EmailSubmission/query dispatch[" & $target.kind & "]"
+      )
+    if baseOutcome.kind == mokMethodError:
       continue
-    let qrBase = baseExtract.unsafeValue
+    let qrBase = baseOutcome.value
     let baselineQueryState = qrBase.queryState
 
     let aliceAddr = buildAliceAddr()
@@ -194,7 +194,7 @@ testCase temailSubmissionFilterSortLive:
     let respA = client.send(bA.freeze()).expect(
         "send Email Submission/query identity filter[" & $target.kind & "]"
       )
-    let qrA = respA.get(hA).expect("identity filter extract[" & $target.kind & "]")
+    let qrA = respA.get(hA).expectValue("identity filter extract[" & $target.kind & "]")
     for primSub in primarySubmissions:
       var found = false
       for id in qrA.ids:
@@ -229,7 +229,7 @@ testCase temailSubmissionFilterSortLive:
       recorder.lastResponseBody, "email-submission-query-filter-sort-" & $target.kind
     )
       .expect("captureIfRequested filter+sort")
-    let qrB = respB.get(hB).expect("sort sentAt extract[" & $target.kind & "]")
+    let qrB = respB.get(hB).expectValue("sort sentAt extract[" & $target.kind & "]")
     for sId in submissionIds:
       var found = false
       for id in qrB.ids:
@@ -256,7 +256,7 @@ testCase temailSubmissionFilterSortLive:
       "email-submission-query-changes-with-filter-" & $target.kind,
     )
       .expect("captureIfRequested queryChanges[" & $target.kind & "]")
-    let qcr = respC.get(hC).expect("queryChanges extract[" & $target.kind & "]")
+    let qcr = respC.get(hC).expectValue("queryChanges extract[" & $target.kind & "]")
     assertOn target,
       $qcr.oldQueryState == $baselineQueryState,
       "oldQueryState must echo the supplied baseline"

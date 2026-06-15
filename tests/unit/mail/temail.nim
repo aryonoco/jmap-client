@@ -49,9 +49,9 @@ testCase initNonEmptyEmailImportMapEmpty:
   let res = initNonEmptyEmailImportMap(@[])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "NonEmptyEmailImportMap"
-  assertEq res.error[0].reason, "must contain at least one entry"
-  assertEq res.error[0].value, ""
+  assertEq res.error.head.typeName, "NonEmptyEmailImportMap"
+  assertEq res.error.head.reason, "must contain at least one entry"
+  assertEq res.error.head.value, ""
 
 testCase initNonEmptyEmailImportMapSingleValid:
   let cid = parseCreationId("c1").get()
@@ -68,9 +68,9 @@ testCase initNonEmptyEmailImportMapTwoSameCreationId:
   let res = initNonEmptyEmailImportMap(@[(cid, item), (cid, item)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].typeName, "NonEmptyEmailImportMap"
-  assertEq res.error[0].reason, "duplicate CreationId"
-  assertEq res.error[0].value, "c1"
+  assertEq res.error.head.typeName, "NonEmptyEmailImportMap"
+  assertEq res.error.head.reason, "duplicate CreationId"
+  assertEq res.error.head.value, "c1"
 
 testCase initNonEmptyEmailImportMapThreeSameCreationId:
   ## Three occurrences of the same CreationId still yield ONE error.
@@ -81,7 +81,7 @@ testCase initNonEmptyEmailImportMapThreeSameCreationId:
   let res = initNonEmptyEmailImportMap(@[(cid, item), (cid, item), (cid, item)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].value, "c1"
+  assertEq res.error.head.value, "c1"
 
 testCase initNonEmptyEmailImportMapTwoDistinctRepeated:
   ## Two distinct repeated CreationIds → TWO errors, one per distinct

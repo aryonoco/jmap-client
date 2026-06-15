@@ -35,6 +35,7 @@ import std/times
 import results
 
 import jmap_client/internal/protocol/dispatch
+import jmap_client/internal/protocol/jmap_error
 import jmap_client/internal/types/envelope
 import jmap_client/internal/types/errors
 import jmap_client/internal/types/identifiers
@@ -758,7 +759,7 @@ testCase conflictAlgebraCornerCasesGroup:
     let updates = @[setKeywords(empty), addKeyword(k)]
     let res = initEmailUpdateSet(updates)
     assertErr res
-    doAssert res.error[0].reason.contains("full-replace on same parent")
+    doAssert res.error.head.reason.contains("full-replace on same parent")
 
   block class3PayloadIrrelevantNonEmptySetKeywords:
     # Non-empty full-replace + sub-path — still Class 3; payload doesn't
@@ -768,7 +769,7 @@ testCase conflictAlgebraCornerCasesGroup:
     let updates = @[setKeywords(nonEmpty), addKeyword(k)]
     let res = initEmailUpdateSet(updates)
     assertErr res
-    doAssert res.error[0].reason.contains("full-replace on same parent")
+    doAssert res.error.head.reason.contains("full-replace on same parent")
 
   block class3MailboxSubpathWithFullReplace:
     # Same shape applied to the ``mailboxIds`` parent path.
@@ -777,7 +778,7 @@ testCase conflictAlgebraCornerCasesGroup:
     let updates = @[setMailboxIds(idSet), addToMailbox(id1)]
     let res = initEmailUpdateSet(updates)
     assertErr res
-    doAssert res.error[0].reason.contains("full-replace on same parent")
+    doAssert res.error.head.reason.contains("full-replace on same parent")
 
   block class2KeywordsIANAEnumerated:
     # Fold Class 2 (opposite ops at same sub-path) over every IANA keyword
@@ -789,14 +790,14 @@ testCase conflictAlgebraCornerCasesGroup:
       let updates = @[addKeyword(iana), removeKeyword(iana)]
       let res = initEmailUpdateSet(updates)
       assertErr res
-      doAssert res.error[0].reason.contains("opposite operations on same sub-path")
+      doAssert res.error.head.reason.contains("opposite operations on same sub-path")
     let slash = parseKeyword("a/b").get()
     let tilde = parseKeyword("a~b").get()
     for custom in [slash, tilde]:
       let updates = @[addKeyword(custom), removeKeyword(custom)]
       let res = initEmailUpdateSet(updates)
       assertErr res
-      doAssert res.error[0].reason.contains("opposite operations on same sub-path")
+      doAssert res.error.head.reason.contains("opposite operations on same sub-path")
 
 # =============================================================================
 # Block 4 — getBoth(EmailCopyHandles) adversarial (F2 §5.4)
@@ -839,20 +840,22 @@ testCase getBothAdversarialGroup:
       parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
-    assertErr res
-    assertEq res.error.methodErr.kind, metServerFail
+    doAssert res.isErr
+    doAssert res.error.kind == jeProtocol
+    doAssert res.error.protocol.kind == pfMissingCall
+    doAssert res.error.protocol.callId == sharedId
 
-  block getBothImplicitDestroyMethodError:
+  block getBothImplicitDestroyErrorTag:
     # The destroy handle is a NameBoundHandle filtering by method-name
     # "Email/set". A server ``error`` envelope at the shared call-id does
     # NOT match that filter: ``findInvocationByName`` compares raw wire
     # names and the error invocation's raw name is the literal string
     # ``"error"``, not ``"Email/set"``. So the error invocation is
-    # unreachable through the destroy handle's dispatch path;
-    # ``extractInvocationByName`` surfaces a synthetic ``serverFail``
-    # MethodError instead. This pins a known design limitation:
-    # destroy-side server errors are OPAQUE under the current getBoth
-    # semantics — they look like ``serverFail / no Email/set response``.
+    # unreachable through the destroy handle's dispatch path — the implicit
+    # slot is a missing call, which rides ``jeProtocol`` / ``pfMissingCall``
+    # on the rail. This pins a known design limitation: destroy-side server
+    # errors are OPAQUE under the current getBoth semantics — they look like
+    # a missing inner response.
     let sharedId = makeMcid("c0")
     let handles = makeEmailCopyHandles(sharedId)
     let errorArgs = %*{"type": "fromAccountNotFound"}
@@ -865,16 +868,17 @@ testCase getBothAdversarialGroup:
       parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
-    assertErr res
-    assertEq res.error.methodErr.kind, metServerFail
-    doAssert res.error.methodErr.description.isSome
-    doAssert "Email/set" in res.error.methodErr.description.get()
+    doAssert res.isErr
+    doAssert res.error.kind == jeProtocol
+    doAssert res.error.protocol.kind == pfMissingCall
+    doAssert res.error.protocol.callId == sharedId
 
   block getBothCopyMethodError:
     # Symmetric half: when the COPY invocation is an ``error`` envelope,
-    # ResponseHandle dispatch (extractInvocation, no name filter) parses
-    # the MethodError payload and surfaces it on the Result rail with the
-    # server-supplied errorType preserved.
+    # ResponseHandle dispatch (no name filter) parses the MethodError payload
+    # and surfaces it as DATA on the primary ``MethodOutcome.mokMethodError``,
+    # server-supplied errorType preserved. Because the primary method-errored,
+    # RFC 8620 §5.4 emits no implicit call, so getBoth leaves the implicit none.
     let sharedId = makeMcid("c0")
     let handles = makeEmailCopyHandles(sharedId)
     let errorArgs = %*{"type": "fromAccountNotFound"}
@@ -887,8 +891,11 @@ testCase getBothAdversarialGroup:
       parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
-    assertErr res
-    assertEq res.error.methodErr.kind, metFromAccountNotFound
+    assertOk res
+    let r = res.get()
+    doAssert r.primary.kind == mokMethodError
+    assertEq r.primary.error.kind, metFromAccountNotFound
+    doAssert r.implicit.isNone
 
 # =============================================================================
 # Block 5 — Cross-response coherence
@@ -1205,14 +1212,14 @@ testCase scaleInvariantsGroup:
     # in its own pass.
     let emptyRes = initNonEmptyEmailImportMap(@[])
     assertErr emptyRes
-    doAssert emptyRes.error[0].reason.contains("at least one entry")
+    doAssert emptyRes.error.head.reason.contains("at least one entry")
     let dupItems = @[
       (parseCreationId("k0").get(), makeEmailImportItem()),
       (parseCreationId("k0").get(), makeEmailImportItem()),
     ]
     let dupRes = initNonEmptyEmailImportMap(dupItems)
     assertErr dupRes
-    doAssert dupRes.error[0].reason.contains("duplicate CreationId")
+    doAssert dupRes.error.head.reason.contains("duplicate CreationId")
 
   block getBothCopyCreateResultsEmpty:
     # Both invocations well-formed; primary and implicit both have empty
@@ -1229,5 +1236,11 @@ testCase scaleInvariantsGroup:
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertOk res
-    assertLen res.get().primary.createResults, 0
-    assertLen res.get().implicit.createResults, 0
+    let r = res.get()
+    doAssert r.primary.kind == mokValue
+    let implicitOutcome = r.implicit.valueOr:
+      doAssert false, "compound implicit must be present when the primary succeeds"
+      return
+    doAssert implicitOutcome.kind == mokValue
+    assertLen r.primary.value.createResults, 0
+    assertLen implicitOutcome.value.createResults, 0

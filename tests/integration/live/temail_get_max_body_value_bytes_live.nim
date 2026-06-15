@@ -83,7 +83,7 @@ testCase temailGetMaxBodyValueBytesLive:
     let seedResp = client.send(bSeed.freeze()).expect(
         "send Email/set big body[" & $target.kind & "]"
       )
-    let seedSet = seedResp.get(seedHandle).expect(
+    let seedSet = seedResp.get(seedHandle).expectValue(
         "Email/set big body extract[" & $target.kind & "]"
       )
     var seededId: Id
@@ -114,8 +114,9 @@ testCase temailGetMaxBodyValueBytesLive:
       "email-get-max-body-value-bytes-truncated-" & $target.kind,
     )
       .expect("captureIfRequested[" & $target.kind & "]")
-    let getResp =
-      resp.get(getHandle).expect("Email/get truncation extract[" & $target.kind & "]")
+    let getResp = resp.get(getHandle).expectValue(
+        "Email/get truncation extract[" & $target.kind & "]"
+      )
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
     let email = getResp.list[0]
     let bodyValues = email.bodyValues.valueOr(initTable[PartId, EmailBodyValue]())

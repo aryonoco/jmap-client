@@ -77,7 +77,7 @@ testCase temailQueryFilterTreeLive:
     let respA =
       client.send(ba.freeze()).expect("send Email/query AND[" & $target.kind & "]")
     let andResp =
-      respA.get(andHandle).expect("Email/query AND extract[" & $target.kind & "]")
+      respA.get(andHandle).expectValue("Email/query AND extract[" & $target.kind & "]")
     let andHits = andResp.ids.toHashSet * corpus
     assertOn target,
       andHits.len == 1,
@@ -100,7 +100,7 @@ testCase temailQueryFilterTreeLive:
     let respO =
       client.send(bo.freeze()).expect("send Email/query OR[" & $target.kind & "]")
     let orResp =
-      respO.get(orHandle).expect("Email/query OR extract[" & $target.kind & "]")
+      respO.get(orHandle).expectValue("Email/query OR extract[" & $target.kind & "]")
     let orHits = orResp.ids.toHashSet * corpus
     assertOn target,
       orHits.len == 4,
@@ -125,7 +125,7 @@ testCase temailQueryFilterTreeLive:
     let respN =
       client.send(bn.freeze()).expect("send Email/query NOT[" & $target.kind & "]")
     let notResp =
-      respN.get(notHandle).expect("Email/query NOT extract[" & $target.kind & "]")
+      respN.get(notHandle).expectValue("Email/query NOT extract[" & $target.kind & "]")
     let notHits = notResp.ids.toHashSet * corpus
     assertOn target,
       notHits.len == 3,

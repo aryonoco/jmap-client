@@ -67,7 +67,9 @@ testCase fullRoundTrip:
   let dr = makeDispatchedResponse(resp, bid)
   let result = dr.get(gh)
   assertOk result
-  let gr = result.get()
+  let outcome = result.get()
+  doAssert outcome.kind == mokValue
+  let gr = outcome.value
   doAssert gr.accountId == makeAccountId("A1")
   doAssert gr.state == makeState("s1")
   assertLen gr.list, 1
@@ -118,17 +120,18 @@ testCase multiMethodWithResultReference:
 # ===========================================================================
 
 testCase errorPipeline:
-  ## Method error detection through the pipeline.
+  ## A server method error rides the ok branch as data (mokMethodError); only
+  ## dispatch faults take the JmapError rail.
   let b0 = initRequestBuilder(makeBuilderId())
   let bid = b0.builderId
   let (_, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
   let resp = makeErrorResponse("unknownMethod", makeMcid("c0"))
   let dr = makeDispatchedResponse(resp, bid)
   let result = dr.get(gh)
-  assertErr result
-  let ge = result.error()
-  doAssert ge.kind == gekMethod
-  doAssert ge.methodErr.kind == metUnknownMethod
+  assertOk result
+  let outcome = result.get()
+  doAssert outcome.kind == mokMethodError
+  doAssert outcome.error.kind == metUnknownMethod
 
 # ===========================================================================
 # E. Mixed success/error pipeline
@@ -150,11 +153,16 @@ testCase mixedSuccessError:
     makeState("rs1"),
   )
   let dr = makeDispatchedResponse(resp, bid)
-  assertOk dr.get(gh) # first succeeds
-  assertErr dr.get(sh) # second is error
-  let err2 = dr.get(sh).error()
-  doAssert err2.kind == gekMethod
-  doAssert err2.methodErr.kind == metStateMismatch
+  let r1 = dr.get(gh) # first succeeds
+  assertOk r1
+  doAssert r1.get().kind == mokValue
+  # The second invocation is an "error" tag — a method error, carried as data
+  # on the ok branch (mokMethodError), not a rail error.
+  let r2 = dr.get(sh)
+  assertOk r2
+  let outcome2 = r2.get()
+  doAssert outcome2.kind == mokMethodError
+  doAssert outcome2.error.kind == metStateMismatch
 
 # ===========================================================================
 # F. Builder -> send convenience (Layer 4 integration)
@@ -243,7 +251,9 @@ testCase setResponseUnifiedMaps:
   let dr = makeDispatchedResponse(resp, bid)
   let result = dr.get(sh)
   assertOk result
-  let sr = result.get()
+  let outcome = result.get()
+  doAssert outcome.kind == mokValue
+  let sr = outcome.value
   # Unified createResults: k1 ok, k2 err
   assertLen sr.createResults, 2
   doAssert sr.createResults[makeCreationId("k1")].isOk

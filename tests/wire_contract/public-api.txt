@@ -19,17 +19,17 @@ func addIdentityChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinc
 func addMailboxChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, MailboxChangesGetHandles)
 func addMailboxQueryThenGet (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]), sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]), queryParams: QueryParams = QueryParams(), sortAsTree: bool = false, filterAsTree: bool = false): (RequestBuilder, QueryGetHandles[Mailbox])
 func addThreadChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, ChangesGetHandles[Thread])
-func getBoth (dr: DispatchedResponse, handles: MailboxChangesGetHandles): Result[MailboxChangesGetResults, GetError]
-func getBoth [T](dr: DispatchedResponse, handles: ChangesGetHandles[T]): Result[ChangesGetResults[T], GetError]
-func getBoth [T](dr: DispatchedResponse, handles: QueryGetHandles[T]): Result[QueryGetResults[T], GetError]
+func getBoth (dr: DispatchedResponse, handles: MailboxChangesGetHandles): Result[MailboxChangesGetResults, JmapError]
+func getBoth [T](dr: DispatchedResponse, handles: ChangesGetHandles[T]): Result[ChangesGetResults[T], JmapError]
+func getBoth [T](dr: DispatchedResponse, handles: QueryGetHandles[T]): Result[QueryGetResults[T], JmapError]
 
 ## jmap_client/internal/client
 type DebugCallback
 type JmapClient
 type WireDirection
 proc fetchSession (client: JmapClient): JmapResult[Session]
-proc initJmapClient (endpoint: SessionEndpoint, credential: Credential): Result[JmapClient, ValidationError]
-proc initJmapClient (endpoint: SessionEndpoint, credential: Credential, transport: Transport): Result[JmapClient, ValidationError]
+proc initJmapClient (endpoint: SessionEndpoint, credential: Credential): Result[JmapClient, JmapError]
+proc initJmapClient (endpoint: SessionEndpoint, credential: Credential, transport: Transport): Result[JmapClient, JmapError]
 func isSessionStale (client: JmapClient, dr: DispatchedResponse): bool
 proc newBuilder (client: JmapClient): RequestBuilder
 proc refreshSessionIfStale (client: JmapClient, dr: DispatchedResponse): JmapResult[bool]
@@ -186,7 +186,7 @@ func hash (p: EmailBodyProperty): Hash
 func hash (p: EmailGetProperty): Hash
 func initEmailCopyItem (id: Id, mailboxIds: Opt[NonEmptyMailboxIdSet] = Opt.none(NonEmptyMailboxIdSet), keywords: Opt[KeywordSet] = Opt.none(KeywordSet), receivedAt: Opt[UTCDate] = Opt.none(UTCDate)): EmailCopyItem
 func initEmailImportItem (blobId: BlobId, mailboxIds: NonEmptyMailboxIdSet, keywords: Opt[KeywordSet] = Opt.none(KeywordSet), receivedAt: Opt[UTCDate] = Opt.none(UTCDate)): EmailImportItem
-func initNonEmptyEmailImportMap (items: openArray[(CreationId, EmailImportItem)]): Result[NonEmptyEmailImportMap, seq[ValidationError]]
+func initNonEmptyEmailImportMap (items: openArray[(CreationId, EmailImportItem)]): Result[NonEmptyEmailImportMap, NonEmptySeq[ValidationError]]
 func isLeaf (part: EmailBodyPart): bool
 func keywordComparator (keywordProperty: KeywordSortProperty, keyword: Keyword, direction: SortDirection = sdServerDefault, collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm)): EmailComparator
 func kind (p: EmailBodyProperty): EmailBodyPropertyKind
@@ -209,22 +209,15 @@ func wireName (p: EmailGetProperty): string
 
 ## jmap_client/internal/mail/email_blueprint
 func $ (a: BodyPartPath): string
-func $ (e: EmailBlueprintErrors): string
 func == (a, b: BodyPartLocation): bool
 func == (a, b: BodyPartPath): bool
-func == (a, b: EmailBlueprintError): bool
-func == (a, b: EmailBlueprintErrors): bool
 type BodyPartLocation
 type BodyPartLocationKind
 type BodyPartPath
 type EmailBlueprint
 type EmailBlueprintBody
-type EmailBlueprintConstraint
-type EmailBlueprintError
-type EmailBlueprintErrors
 type EmailBodyKind
 func [] (a: BodyPartPath, i: Idx): int
-func [] (e: EmailBlueprintErrors, i: Idx): EmailBlueprintError
 func bcc (bp: EmailBlueprint): Opt[seq[EmailAddress]]
 func body (bp: EmailBlueprint): EmailBlueprintBody
 func bodyKind (bp: EmailBlueprint): EmailBodyKind
@@ -232,35 +225,22 @@ func bodyValues (bp: EmailBlueprint): Table[PartId, BlueprintBodyValue]
 enumfield bplBlobRef
 enumfield bplInline
 enumfield bplMultipart
-func capacity (e: EmailBlueprintErrors): int
 func cc (bp: EmailBlueprint): Opt[seq[EmailAddress]]
-enumfield ebcAllowedFormRejected
-enumfield ebcBodyPartDepthExceeded
-enumfield ebcBodyPartHeaderDuplicate
-enumfield ebcBodyStructureHeaderDuplicate
-enumfield ebcEmailTopLevelHeaderDuplicate
-enumfield ebcHtmlBodyNotTextHtml
-enumfield ebcTextBodyNotTextPlain
 enumfield ebkFlat
 enumfield ebkStructured
 func extraHeaders (bp: EmailBlueprint): lent Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]
 func flatBody (textBody: Opt[BlueprintBodyPart] = Opt.none(BlueprintBodyPart), htmlBody: Opt[BlueprintBodyPart] = Opt.none(BlueprintBodyPart), attachments: seq[BlueprintBodyPart] = @[]): EmailBlueprintBody
 func fromAddr (bp: EmailBlueprint): Opt[seq[EmailAddress]]
 func hash (a: BodyPartPath): Hash
-func head (e: EmailBlueprintErrors): EmailBlueprintError
 func inReplyTo (bp: EmailBlueprint): Opt[seq[string]]
 func initBodyPartPath (path: seq[int]): BodyPartPath
 iterator items (a: BodyPartPath): int
-iterator items (e: EmailBlueprintErrors): EmailBlueprintError
 func keywords (bp: EmailBlueprint): KeywordSet
 func len (a: BodyPartPath): int
-func len (e: EmailBlueprintErrors): int
 func mailboxIds (bp: EmailBlueprint): NonEmptyMailboxIdSet
-func message (e: EmailBlueprintError): string
 func messageId (bp: EmailBlueprint): Opt[seq[string]]
 iterator pairs (a: BodyPartPath): (int, int)
-iterator pairs (e: EmailBlueprintErrors): (int, EmailBlueprintError)
-func parseEmailBlueprint (mailboxIds: NonEmptyMailboxIdSet, body: EmailBlueprintBody = flatBody(), keywords: KeywordSet = initKeywordSet(@[]), receivedAt: Opt[UTCDate] = Opt.none(UTCDate), fromAddr: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), to: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), cc: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), bcc: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), replyTo: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), sender: Opt[EmailAddress] = Opt.none(EmailAddress), subject: Opt[string] = Opt.none(string), sentAt: Opt[Date] = Opt.none(Date), messageId: Opt[seq[string]] = Opt.none(seq[string]), inReplyTo: Opt[seq[string]] = Opt.none(seq[string]), references: Opt[seq[string]] = Opt.none(seq[string]), extraHeaders: Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue] = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()): Result[EmailBlueprint, EmailBlueprintErrors]
+func parseEmailBlueprint (mailboxIds: NonEmptyMailboxIdSet, body: EmailBlueprintBody = flatBody(), keywords: KeywordSet = initKeywordSet(@[]), receivedAt: Opt[UTCDate] = Opt.none(UTCDate), fromAddr: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), to: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), cc: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), bcc: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), replyTo: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), sender: Opt[EmailAddress] = Opt.none(EmailAddress), subject: Opt[string] = Opt.none(string), sentAt: Opt[Date] = Opt.none(Date), messageId: Opt[seq[string]] = Opt.none(seq[string]), inReplyTo: Opt[seq[string]] = Opt.none(seq[string]), references: Opt[seq[string]] = Opt.none(seq[string]), extraHeaders: Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue] = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()): Result[EmailBlueprint, NonEmptySeq[ValidationError]]
 func receivedAt (bp: EmailBlueprint): Opt[UTCDate]
 func references (bp: EmailBlueprint): Opt[seq[string]]
 func replyTo (bp: EmailBlueprint): Opt[seq[EmailAddress]]
@@ -346,13 +326,13 @@ func kind (p: EmailSubmissionGetProperty): EmailSubmissionGetPropertyKind
 func kind (x: IdOrCreationRef): IdOrCreationRefKind
 func len (a: NonEmptyEmailSubmissionUpdates): int
 func len (a: NonEmptyIdSeq): int
-func parseEmailSubmissionBlueprint (identityId: Id, emailId: Id, envelope: Opt[Envelope] = Opt.none(Envelope)): Result[EmailSubmissionBlueprint, seq[ValidationError]]
+func parseEmailSubmissionBlueprint (identityId: Id, emailId: Id, envelope: Opt[Envelope] = Opt.none(Envelope)): Result[EmailSubmissionBlueprint, NonEmptySeq[ValidationError]]
 func parseEmailSubmissionComparator (rawProperty: string, direction: SortDirection = sdServerDefault, collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm)): Result[EmailSubmissionComparator, ValidationError]
 func parseEmailSubmissionGetProperty (raw: string): Result[EmailSubmissionGetProperty, ValidationError]
-func parseNonEmptyEmailSubmissionUpdates (items: openArray[(Id, EmailSubmissionUpdate)]): Result[NonEmptyEmailSubmissionUpdates, seq[ValidationError]]
+func parseNonEmptyEmailSubmissionUpdates (items: openArray[(Id, EmailSubmissionUpdate)]): Result[NonEmptyEmailSubmissionUpdates, NonEmptySeq[ValidationError]]
 func parseNonEmptyIdSeq (items: openArray[Id]): Result[NonEmptyIdSeq, ValidationError]
-func parseNonEmptyOnSuccessDestroyEmail (items: openArray[IdOrCreationRef]): Result[NonEmptyOnSuccessDestroyEmail, seq[ValidationError]]
-func parseNonEmptyOnSuccessUpdateEmail (items: openArray[(IdOrCreationRef, EmailUpdateSet)]): Result[NonEmptyOnSuccessUpdateEmail, seq[ValidationError]]
+func parseNonEmptyOnSuccessDestroyEmail (items: openArray[IdOrCreationRef]): Result[NonEmptyOnSuccessDestroyEmail, NonEmptySeq[ValidationError]]
+func parseNonEmptyOnSuccessUpdateEmail (items: openArray[(IdOrCreationRef, EmailUpdateSet)]): Result[NonEmptyOnSuccessUpdateEmail, NonEmptySeq[ValidationError]]
 func setUndoStatusToCanceled (): EmailSubmissionUpdate
 func toAny (s: EmailSubmission[usCanceled]): AnyEmailSubmission
 func toAny (s: EmailSubmission[usFinal]): AnyEmailSubmission
@@ -376,14 +356,14 @@ enumfield euRemoveFromMailbox
 enumfield euRemoveKeyword
 enumfield euSetKeywords
 enumfield euSetMailboxIds
-func initEmailUpdateSet (updates: openArray[EmailUpdate]): Result[EmailUpdateSet, seq[ValidationError]]
+func initEmailUpdateSet (updates: openArray[EmailUpdate]): Result[EmailUpdateSet, NonEmptySeq[ValidationError]]
 func len (a: NonEmptyEmailUpdates): int
 func markFlagged (): EmailUpdate
 func markRead (): EmailUpdate
 func markUnflagged (): EmailUpdate
 func markUnread (): EmailUpdate
 func moveToMailbox (id: Id): EmailUpdate
-func parseNonEmptyEmailUpdates (items: openArray[(Id, EmailUpdateSet)]): Result[NonEmptyEmailUpdates, seq[ValidationError]]
+func parseNonEmptyEmailUpdates (items: openArray[(Id, EmailUpdateSet)]): Result[NonEmptyEmailUpdates, NonEmptySeq[ValidationError]]
 func removeFromMailbox (id: Id): EmailUpdate
 func removeKeyword (k: Keyword): EmailUpdate
 func setKeywords (ks: KeywordSet): EmailUpdate
@@ -469,7 +449,7 @@ const igpMayDelete : IdentityGetProperty
 const igpName : IdentityGetProperty
 const igpReplyTo : IdentityGetProperty
 const igpTextSignature : IdentityGetProperty
-func initIdentityUpdateSet (updates: openArray[IdentityUpdate]): Result[IdentityUpdateSet, seq[ValidationError]]
+func initIdentityUpdateSet (updates: openArray[IdentityUpdate]): Result[IdentityUpdateSet, NonEmptySeq[ValidationError]]
 enumfield iuSetBcc
 enumfield iuSetHtmlSignature
 enumfield iuSetName
@@ -479,7 +459,7 @@ func kind (p: IdentityGetProperty): IdentityGetPropertyKind
 func len (a: NonEmptyIdentityUpdates): int
 func parseIdentityCreate (email: string, name: string = "", replyTo: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), bcc: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), textSignature: string = "", htmlSignature: string = ""): Result[IdentityCreate, ValidationError]
 func parseIdentityGetProperty (raw: string): Result[IdentityGetProperty, ValidationError]
-func parseNonEmptyIdentityUpdates (items: openArray[(Id, IdentityUpdateSet)]): Result[NonEmptyIdentityUpdates, seq[ValidationError]]
+func parseNonEmptyIdentityUpdates (items: openArray[(Id, IdentityUpdateSet)]): Result[NonEmptyIdentityUpdates, NonEmptySeq[ValidationError]]
 func setBcc (bcc: Opt[seq[EmailAddress]]): IdentityUpdate
 func setHtmlSignature (htmlSignature: string): IdentityUpdate
 func setName (name: string): IdentityUpdate
@@ -537,7 +517,7 @@ func addPartialMailboxGet (b: sink RequestBuilder, accountId: AccountId, ids: Op
 func addPartialThreadGet (b: sink RequestBuilder, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), properties: NonEmptySeq[ThreadGetProperty]): (RequestBuilder, ResponseHandle[GetResponse[PartialThread]])
 func addThreadChanges (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, ResponseHandle[ChangesResponse[Thread]])
 func addThreadGet (b: sink RequestBuilder, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])): (RequestBuilder, ResponseHandle[GetResponse[Thread]])
-func getAll (dr: DispatchedResponse, handles: EmailQueryThreadChain): Result[EmailQueryThreadResults, GetError]
+func getAll (dr: DispatchedResponse, handles: EmailQueryThreadChain): Result[EmailQueryThreadResults, JmapError]
 
 ## jmap_client/internal/mail/mail_errors
 func invalidEmailProperties (se: SetError): Opt[seq[string]]
@@ -578,7 +558,7 @@ func addSearchSnippetGet (b: sink RequestBuilder, accountId: AccountId, filter: 
 func addSearchSnippetGetByRef (b: sink RequestBuilder, accountId: AccountId, filter: Filter[EmailFilterCondition], emailIds: Referencable[seq[Id]]): (RequestBuilder, ResponseHandle[SearchSnippetGetResponse])
 func addVacationResponseGet (b: sink RequestBuilder, accountId: AccountId): (RequestBuilder, ResponseHandle[GetResponse[VacationResponse]])
 func addVacationResponseSet (b: sink RequestBuilder, accountId: AccountId, update: VacationResponseUpdateSet, ifInState: Opt[JmapState] = Opt.none(JmapState)): (RequestBuilder, ResponseHandle[SetResponse[NoCreate, PartialVacationResponse]])
-func getBoth (dr: DispatchedResponse, handles: EmailQuerySnippetChain): Result[EmailQuerySnippetResults, GetError]
+func getBoth (dr: DispatchedResponse, handles: EmailQuerySnippetChain): Result[EmailQuerySnippetResults, JmapError]
 
 ## jmap_client/internal/mail/mailbox
 func $ (p: MailboxGetProperty): string
@@ -604,7 +584,7 @@ func hash (p: MailboxGetProperty): Hash
 func hash (r: MailboxRole): Hash
 func identifier (r: MailboxRole): string
 func initMailboxIdSet (ids: openArray[Id]): MailboxIdSet
-func initMailboxUpdateSet (updates: openArray[MailboxUpdate]): Result[MailboxUpdateSet, seq[ValidationError]]
+func initMailboxUpdateSet (updates: openArray[MailboxUpdate]): Result[MailboxUpdateSet, NonEmptySeq[ValidationError]]
 iterator items (ms: MailboxIdSet): Id
 func kind (p: MailboxGetProperty): MailboxGetPropertyKind
 func kind (r: MailboxRole): MailboxRoleKind
@@ -652,7 +632,7 @@ func parseMailboxCreate (name: string, parentId: Opt[Id] = Opt.none(Id), role: O
 func parseMailboxGetProperty (raw: string): Result[MailboxGetProperty, ValidationError]
 func parseMailboxRole (raw: string): Result[MailboxRole, ValidationError]
 func parseNonEmptyMailboxIdSet (ids: openArray[Id]): Result[NonEmptyMailboxIdSet, ValidationError]
-func parseNonEmptyMailboxUpdates (items: openArray[(Id, MailboxUpdateSet)]): Result[NonEmptyMailboxUpdates, seq[ValidationError]]
+func parseNonEmptyMailboxUpdates (items: openArray[(Id, MailboxUpdateSet)]): Result[NonEmptyMailboxUpdates, NonEmptySeq[ValidationError]]
 const roleAll : MailboxRole
 const roleArchive : MailboxRole
 const roleDrafts : MailboxRole
@@ -710,7 +690,7 @@ iterator items (a: NonEmptyRcptList): SubmissionAddress
 func len (a: NonEmptyRcptList): int
 func nullReversePath (params: Opt[SubmissionParams] = Opt.none(SubmissionParams)): ReversePath
 iterator pairs (a: NonEmptyRcptList): (int, SubmissionAddress)
-func parseNonEmptyRcptList (items: openArray[SubmissionAddress]): Result[NonEmptyRcptList, seq[ValidationError]]
+func parseNonEmptyRcptList (items: openArray[SubmissionAddress]): Result[NonEmptyRcptList, NonEmptySeq[ValidationError]]
 func parseNonEmptyRcptListFromServer (items: openArray[SubmissionAddress]): Result[NonEmptyRcptList, ValidationError]
 func reversePath (address: SubmissionAddress): ReversePath
 enumfield rpkMailbox
@@ -777,7 +757,7 @@ func paramKey (p: SubmissionParam): SubmissionParamKey
 func parseHoldForSeconds (raw: UnsignedInt): Result[HoldForSeconds, ValidationError]
 func parseMtPriority (raw: int): Result[MtPriority, ValidationError]
 func parseNotifySet (flags: set[DsnNotifyFlag]): Result[NotifySet, ValidationError]
-func parseSubmissionParams (items: openArray[SubmissionParam]): Result[SubmissionParams, seq[ValidationError]]
+func parseSubmissionParams (items: openArray[SubmissionParam]): Result[SubmissionParams, NonEmptySeq[ValidationError]]
 enumfield retFull
 enumfield retHdrs
 func retParam (t: DsnRetType): SubmissionParam
@@ -812,18 +792,11 @@ type ParsedDeliveredState
 type ParsedDisplayedState
 type ParsedSmtpReply
 type ReplyCode
-type SmtpReplyViolation
 type StatusCodeClass
 type SubjectCode
 type UndoStatus
 func anyFailed (m: DeliveryStatusMap): bool
 func countDelivered (m: DeliveryStatusMap): int
-func detectClassDigit (c: char): Result[StatusCodeClass, SmtpReplyViolation]
-func detectConsistentItems [T](per: openArray[T], violation: SmtpReplyViolation): Result[void, SmtpReplyViolation]
-func detectDetailInRange (n: uint16): Result[DetailCode, SmtpReplyViolation]
-func detectReplyCodeGrammar (line: string): Result[ReplyCode, SmtpReplyViolation]
-func detectSeparator (line: string, isFinal: bool): Result[void, SmtpReplyViolation]
-func detectSubjectInRange (n: uint16): Result[SubjectCode, SmtpReplyViolation]
 enumfield dpOther
 enumfield dpUnknown
 enumfield dpYes
@@ -840,21 +813,6 @@ func renderSmtpReply (p: ParsedSmtpReply): string
 enumfield sccPermanentFailure
 enumfield sccSuccess
 enumfield sccTransientFailure
-enumfield srBadReplyCodeDigit1
-enumfield srBadReplyCodeDigit2
-enumfield srBadReplyCodeDigit3
-enumfield srBadSeparator
-enumfield srControlChars
-enumfield srEmpty
-enumfield srEnhancedClassInvalid
-enumfield srEnhancedDetailOverflow
-enumfield srEnhancedMalformedTriple
-enumfield srEnhancedMultilineMismatch
-enumfield srEnhancedSubjectOverflow
-enumfield srLineTooShort
-enumfield srMultilineCodeMismatch
-enumfield srMultilineContinuation
-enumfield srMultilineFinalHyphen
 func toTable (m: DeliveryStatusMap): Table[RFC5321Mailbox, DeliveryStatus]
 func toUint16 (d: DetailCode): uint16
 func toUint16 (r: ReplyCode): uint16
@@ -898,7 +856,7 @@ type VacationResponseUpdate
 type VacationResponseUpdateSet
 type VacationResponseUpdateVariantKind
 func hash (p: VacationResponseGetProperty): Hash
-func initVacationResponseUpdateSet (updates: openArray[VacationResponseUpdate]): Result[VacationResponseUpdateSet, seq[ValidationError]]
+func initVacationResponseUpdateSet (updates: openArray[VacationResponseUpdate]): Result[VacationResponseUpdateSet, NonEmptySeq[ValidationError]]
 func kind (p: VacationResponseGetProperty): VacationResponseGetPropertyKind
 func parseVacationResponseGetProperty (raw: string): Result[VacationResponseGetProperty, ValidationError]
 func setFromDate (fromDate: Opt[UTCDate]): VacationResponseUpdate
@@ -957,9 +915,9 @@ type ResponseHandle [T]
 func callId [T](h: NameBoundHandle[T]): MethodCallId
 func callId [T](h: ResponseHandle[T]): MethodCallId
 func createdIds (dr: DispatchedResponse): Opt[Table[CreationId, Id]]
-func get [T](dr: DispatchedResponse, h: NameBoundHandle[T]): Result[T, GetError]
-func get [T](dr: DispatchedResponse, handle: ResponseHandle[T]): Result[T, GetError]
-func getBoth [A; B](dr: DispatchedResponse, handles: CompoundHandles[A, B]): Result[CompoundResults[A, B], GetError]
+func get [T](dr: DispatchedResponse, h: NameBoundHandle[T]): Result[MethodOutcome[T], JmapError]
+func get [T](dr: DispatchedResponse, handle: ResponseHandle[T]): Result[MethodOutcome[T], JmapError]
+func getBoth [A; B](dr: DispatchedResponse, handles: CompoundHandles[A, B]): Result[CompoundResults[A, B], JmapError]
 func hash [T](h: NameBoundHandle[T]): Hash
 func hash [T](h: ResponseHandle[T]): Hash
 func methodName [T](h: NameBoundHandle[T]): MethodName
@@ -972,6 +930,51 @@ template registerExtractableEntity (T: typedesc)
 template registerJmapEntity (T: typedesc)
 template registerQueryableEntity (T: typedesc)
 template registerSettableEntity (T: typedesc)
+
+## jmap_client/internal/protocol/jmap_error
+func $ (err: JmapError): string
+func $ (m: Misuse): string
+func $ (p: ProtocolFault): string
+func $ (sf: SessionFault): string
+type JmapError
+type JmapErrorKind
+type JmapResult [T]
+type MethodOutcome [T]
+type MethodOutcomeKind
+type Misuse
+type ProtocolFault
+type ProtocolFaultKind
+type SessionFault
+type SessionFaultKind
+enumfield jeMisuse
+enumfield jeProtocol
+enumfield jeRequest
+enumfield jeSession
+enumfield jeTransport
+enumfield jeValidation
+func jmapRequest (request: RequestError): JmapError
+func jmapSession (session: SessionFault): JmapError
+func jmapTransport (transport: TransportError): JmapError
+func jmapValidation (violation: ValidationError): JmapError
+func jmapValidation (violations: NonEmptySeq[ValidationError]): JmapError
+func lift [T; E](r: Result[T, E]): Result[T, JmapError]
+func message (err: JmapError): string
+func message (m: Misuse): string
+func message (p: ProtocolFault): string
+func message (sf: SessionFault): string
+enumfield mokMethodError
+enumfield mokValue
+enumfield pfDecode
+enumfield pfMalformedError
+enumfield pfMissingCall
+func sessionFault (kind: SessionFaultKind, capability: CapabilityKind): SessionFault
+enumfield sfCapabilityAbsent
+enumfield sfPrimaryAccountAbsent
+func toJmapError (request: RequestError): JmapError
+func toJmapError (session: SessionFault): JmapError
+func toJmapError (transport: TransportError): JmapError
+func toJmapError (violation: ValidationError): JmapError
+func toJmapError (violations: NonEmptySeq[ValidationError]): JmapError
 
 ## jmap_client/internal/protocol/methods
 type ChangesRequest [T]
@@ -1004,6 +1007,9 @@ func toJson [T](req: ChangesRequest[T]): JsonNode
 func toJson [T](req: GetRequest[T]): JsonNode
 func toJson [T](resp: CopyResponse[T]): JsonNode
 
+## jmap_client/internal/protocol/preflight
+func requirePrimaryAccount (session: Session, kind: CapabilityKind): Result[AccountId, JmapError]
+
 ## jmap_client/internal/push
 type PushChannel
 
@@ -1017,12 +1023,9 @@ type SendProc
 type Transport
 enumfield hmGet
 enumfield hmPost
-proc newHttpTransport (timeout: int = 30000, maxRedirects: int = 5, maxResponseBytes: int = 50000000, userAgent: string = "jmap-client-nim/0.1.0"): Result[Transport, ValidationError]
-proc newTransport (sendImpl: SendProc, closeImpl: CloseProc): Result[Transport, ValidationError]
+proc newHttpTransport (timeout: int = 30000, maxRedirects: int = 5, maxResponseBytes: int = 50000000, userAgent: string = "jmap-client-nim/0.1.0"): Result[Transport, JmapError]
+proc newTransport (sendImpl: SendProc, closeImpl: CloseProc): Result[Transport, JmapError]
 proc send (t: Transport, req: HttpRequest): Result[HttpResponse, TransportError]
-
-## jmap_client/internal/types
-type JmapResult [T]
 
 ## jmap_client/internal/types/account_capability_schemas
 func $ (e: AccountCapabilityEntry): string
@@ -1118,16 +1121,10 @@ enumfield rkDirect
 enumfield rkReference
 
 ## jmap_client/internal/types/errors
-func $ (ce: ClientError): string
-func $ (ge: GetError): string
 func $ (me: MethodError): string
 func $ (re: RequestError): string
 func $ (se: SetError): string
 func $ (te: TransportError): string
-type ClientError
-type ClientErrorKind
-type GetError
-type GetErrorKind
 type MethodError
 type MethodErrorKind
 type RequestError
@@ -1136,18 +1133,11 @@ type SetError
 type SetErrorKind
 type TransportError
 type TransportErrorKind
-enumfield cekRequest
-enumfield cekTransport
-func classifyException (e: ref CatchableError): ClientError
 func classifyTransportException (e: ref CatchableError): TransportError
 func enforceBodySizeLimit (maxResponseBytes: int, body: string): Result[void, TransportError]
-enumfield gekHandleMismatch
-enumfield gekMethod
 func httpStatusError (status: int, detail: string): TransportError
 func kind (me: MethodError): MethodErrorKind
 func kind (re: RequestError): RequestErrorKind
-func message (err: ClientError): string
-func message (ge: GetError): string
 func message (me: MethodError): string
 func message (re: RequestError): string
 func message (se: SetError): string
@@ -1454,6 +1444,7 @@ func $ (a: NonEmptySeq[IdentityGetProperty]): string
 func $ (a: NonEmptySeq[MailboxGetProperty]): string
 func $ (a: NonEmptySeq[ThreadGetProperty]): string
 func $ (a: NonEmptySeq[VacationResponseGetProperty]): string
+func $ (a: NonEmptySeq[ValidationError]): string
 func $ (a: NonEmptySeq[seq[EmailAddressGroup]]): string
 func $ (a: NonEmptySeq[seq[EmailAddress]]): string
 func $ (a: NonEmptySeq[seq[string]]): string
@@ -1510,6 +1501,7 @@ func == (a, b: NonEmptySeq[IdentityGetProperty]): bool
 func == (a, b: NonEmptySeq[MailboxGetProperty]): bool
 func == (a, b: NonEmptySeq[ThreadGetProperty]): bool
 func == (a, b: NonEmptySeq[VacationResponseGetProperty]): bool
+func == (a, b: NonEmptySeq[ValidationError]): bool
 func == (a, b: NonEmptySeq[seq[EmailAddressGroup]]): bool
 func == (a, b: NonEmptySeq[seq[EmailAddress]]): bool
 func == (a, b: NonEmptySeq[seq[string]]): bool
@@ -1527,7 +1519,6 @@ func > (a: Idx, b: int): bool
 func >= (a: Idx, b: int): bool
 const Base64UrlChars : set[char]
 type Idx
-type TokenViolation
 type ValidationError
 func [] (a: NonEmptySeq[Date], i: Idx): lent Date
 func [] (a: NonEmptySeq[EmailBodyProperty], i: Idx): lent EmailBodyProperty
@@ -1537,6 +1528,7 @@ func [] (a: NonEmptySeq[IdentityGetProperty], i: Idx): lent IdentityGetProperty
 func [] (a: NonEmptySeq[MailboxGetProperty], i: Idx): lent MailboxGetProperty
 func [] (a: NonEmptySeq[ThreadGetProperty], i: Idx): lent ThreadGetProperty
 func [] (a: NonEmptySeq[VacationResponseGetProperty], i: Idx): lent VacationResponseGetProperty
+func [] (a: NonEmptySeq[ValidationError], i: Idx): lent ValidationError
 func [] (a: NonEmptySeq[seq[EmailAddressGroup]], i: Idx): lent seq[EmailAddressGroup]
 func [] (a: NonEmptySeq[seq[EmailAddress]], i: Idx): lent seq[EmailAddress]
 func [] (a: NonEmptySeq[seq[string]], i: Idx): lent seq[string]
@@ -1552,6 +1544,7 @@ func contains (a: NonEmptySeq[IdentityGetProperty], x: IdentityGetProperty): boo
 func contains (a: NonEmptySeq[MailboxGetProperty], x: MailboxGetProperty): bool
 func contains (a: NonEmptySeq[ThreadGetProperty], x: ThreadGetProperty): bool
 func contains (a: NonEmptySeq[VacationResponseGetProperty], x: VacationResponseGetProperty): bool
+func contains (a: NonEmptySeq[ValidationError], x: ValidationError): bool
 func contains (a: NonEmptySeq[seq[EmailAddressGroup]], x: seq[EmailAddressGroup]): bool
 func contains (a: NonEmptySeq[seq[EmailAddress]], x: seq[EmailAddress]): bool
 func contains (a: NonEmptySeq[seq[string]], x: seq[string]): bool
@@ -1566,12 +1559,6 @@ template defineSealedNonEmptySeqOps (T: typedesc)
 template defineSealedOpaqueStringOps (T: typedesc)
 template defineSealedStringOps (T: typedesc)
 template defineSealedTagIntOps (T: typedesc)
-func detectLenientToken (raw: string): Result[void, TokenViolation]
-func detectNonControlString (raw: string): Result[void, TokenViolation]
-func detectNonEmpty (raw: string): Result[void, TokenViolation]
-func detectNonEmptyNoPrefix (raw: string): Result[void, TokenViolation]
-func detectStrictBase64UrlToken (raw: string): Result[void, TokenViolation]
-func detectStrictPrintableToken (raw: string, forbidden: set[char]): Result[void, TokenViolation]
 func hash (a: AccountId): Hash
 func hash (a: BlobId): Hash
 func hash (a: BlueprintBodyHeaderName): Hash
@@ -1598,6 +1585,7 @@ func hash (a: NonEmptySeq[IdentityGetProperty]): Hash
 func hash (a: NonEmptySeq[MailboxGetProperty]): Hash
 func hash (a: NonEmptySeq[ThreadGetProperty]): Hash
 func hash (a: NonEmptySeq[VacationResponseGetProperty]): Hash
+func hash (a: NonEmptySeq[ValidationError]): Hash
 func hash (a: NonEmptySeq[seq[EmailAddressGroup]]): Hash
 func hash (a: NonEmptySeq[seq[EmailAddress]]): Hash
 func hash (a: NonEmptySeq[seq[string]]): Hash
@@ -1610,6 +1598,7 @@ func hash (a: ReplyCode): Hash
 func hash (a: SubjectCode): Hash
 func hash (a: UTCDate): Hash
 func hash (a: UnsignedInt): Hash
+func hash (ve: ValidationError): Hash
 template idx (i: static[int]): Idx
 iterator items (a: NonEmptySeq[Date]): Date
 iterator items (a: NonEmptySeq[EmailBodyProperty]): EmailBodyProperty
@@ -1619,6 +1608,7 @@ iterator items (a: NonEmptySeq[IdentityGetProperty]): IdentityGetProperty
 iterator items (a: NonEmptySeq[MailboxGetProperty]): MailboxGetProperty
 iterator items (a: NonEmptySeq[ThreadGetProperty]): ThreadGetProperty
 iterator items (a: NonEmptySeq[VacationResponseGetProperty]): VacationResponseGetProperty
+iterator items (a: NonEmptySeq[ValidationError]): ValidationError
 iterator items (a: NonEmptySeq[seq[EmailAddressGroup]]): seq[EmailAddressGroup]
 iterator items (a: NonEmptySeq[seq[EmailAddress]]): seq[EmailAddress]
 iterator items (a: NonEmptySeq[seq[string]]): seq[string]
@@ -1640,6 +1630,7 @@ func len (a: NonEmptySeq[IdentityGetProperty]): int
 func len (a: NonEmptySeq[MailboxGetProperty]): int
 func len (a: NonEmptySeq[ThreadGetProperty]): int
 func len (a: NonEmptySeq[VacationResponseGetProperty]): int
+func len (a: NonEmptySeq[ValidationError]): int
 func len (a: NonEmptySeq[seq[EmailAddressGroup]]): int
 func len (a: NonEmptySeq[seq[EmailAddress]]): int
 func len (a: NonEmptySeq[seq[string]]): int
@@ -1661,6 +1652,7 @@ iterator pairs (a: NonEmptySeq[IdentityGetProperty]): (int, IdentityGetProperty)
 iterator pairs (a: NonEmptySeq[MailboxGetProperty]): (int, MailboxGetProperty)
 iterator pairs (a: NonEmptySeq[ThreadGetProperty]): (int, ThreadGetProperty)
 iterator pairs (a: NonEmptySeq[VacationResponseGetProperty]): (int, VacationResponseGetProperty)
+iterator pairs (a: NonEmptySeq[ValidationError]): (int, ValidationError)
 iterator pairs (a: NonEmptySeq[seq[EmailAddressGroup]]): (int, seq[EmailAddressGroup])
 iterator pairs (a: NonEmptySeq[seq[EmailAddress]]): (int, seq[EmailAddress])
 iterator pairs (a: NonEmptySeq[seq[string]]): (int, seq[string])
@@ -1672,13 +1664,6 @@ template ruleOn (name: string)
 func succ (i: Idx): Idx
 func toInt (i: Idx): int
 func toNatural (i: Idx): Natural
-enumfield tvControlChars
-enumfield tvCreationIdPrefix
-enumfield tvEmpty
-enumfield tvForbiddenChar
-enumfield tvLengthOutOfRange
-enumfield tvNonPrintableAscii
-enumfield tvNotBase64Url
 template validateUniqueByIt (s: untyped, keyExpr: untyped, typeName, emptyMsg, dupMsg: string): seq[ValidationError]
 
 ## jmap_client/internal/websocket

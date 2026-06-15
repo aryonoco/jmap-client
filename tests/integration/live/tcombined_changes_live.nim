@@ -104,7 +104,7 @@ testCase tcombinedChangesLive:
     let respDestroy = client.send(bDestroy.freeze()).expect(
         "send Mailbox/set destroy step-47 child[" & $target.kind & "]"
       )
-    let destroyResp = respDestroy.get(destroyHandle).expect(
+    let destroyResp = respDestroy.get(destroyHandle).expectValue(
         "Mailbox/set destroy step-47 extract[" & $target.kind & "]"
       )
     var sawDestroyOk = false
@@ -143,17 +143,26 @@ testCase tcombinedChangesLive:
         client.send(b3.freeze()).expect("send combined */changes[" & $target.kind & "]")
       # Cat-B: any extract may surface a typed error
       # (``cannotCalculateChanges`` on a state-history-windowed server
-      # like Cyrus 3.12.2). Skip the iteration on extract failure;
-      # the outer loop's best-effort convergence check still runs.
+      # like Cyrus 3.12.2), now carried as ``MethodOutcome.mokMethodError``
+      # data; a rail error is a dispatch fault. Skip the iteration unless
+      # every leg carried a value; the outer loop's best-effort convergence
+      # check still runs.
       let mailboxExtract = resp.get(mailboxH)
       let threadExtract = resp.get(threadH)
       let emailExtract = resp.get(emailH)
       if mailboxExtract.isErr or threadExtract.isErr or emailExtract.isErr:
         sleep(200)
         continue
-      let mailboxCr = mailboxExtract.unsafeValue
-      let threadCr = threadExtract.unsafeValue
-      let emailCr = emailExtract.unsafeValue
+      let mailboxOutcome = mailboxExtract.unsafeValue
+      let threadOutcome = threadExtract.unsafeValue
+      let emailOutcome = emailExtract.unsafeValue
+      if mailboxOutcome.kind != mokValue or threadOutcome.kind != mokValue or
+          emailOutcome.kind != mokValue:
+        sleep(200)
+        continue
+      let mailboxCr = mailboxOutcome.value
+      let threadCr = threadOutcome.value
+      let emailCr = emailOutcome.value
       if threadCr.created.len + threadCr.updated.len >= 1:
         captureIfRequested(
           recorder.lastResponseBody,

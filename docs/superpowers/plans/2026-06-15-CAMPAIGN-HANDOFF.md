@@ -2,16 +2,15 @@
 # CAMPAIGN HANDOFF — jmap-client API → libcurl/SQLite refactor
 
 > **You are a fresh agent with zero prior context. Read this whole document
-> before doing anything.** It tells you the mission, the non-negotiable design
-> lens, the full history, exactly what is done, exactly what is left, every
-> quality gate, and the immediate next action. Written 2026-06-15. The campaign
-> began 2026-06-14.
+> before doing anything.** It is the single canonical orientation: the mission,
+> the non-negotiable design lens, the full history, exactly what is done, exactly
+> what is left, every quality gate, and the immediate next action. Last updated
+> 2026-06-15 after **S1 completed**. The campaign began 2026-06-14.
 >
-> Companion memories (auto-loaded each session): `api-libcurl-sqlite-refactor`,
-> `api-design-only-consumers`. Per-sub-project plans live in
-> `docs/superpowers/plans/`. The S0 plan
-> (`2026-06-14-s0-truthful-contract-plan.md`) has a STATE/HANDOFF header of its
-> own.
+> Companion auto-loaded memories: `api-libcurl-sqlite-refactor` (campaign
+> state), `api-design-only-consumers` (the design lens). Per-sub-project plans
+> live in `docs/superpowers/plans/`; gitignored specs in
+> `docs/superpowers/specs/`.
 
 ---
 
@@ -20,36 +19,35 @@
 - **Project:** `jmap-client` — a cross-platform JMAP (RFC 8620 core + RFC 8621
   mail) **email** client library in Nim, designed for eventual FFI use from
   C/C++. (No video player, no web app — it is an email-protocol library.)
-- **Mission:** refactor the library's **public API** so it ages like libcurl
-  and SQLite, not like OpenSSL or libdbus. Driven entirely by the needs of
+- **Mission:** refactor the library's **public API** so it ages like **libcurl
+  and SQLite**, not like **OpenSSL or libdbus**. Driven entirely by the needs of
   **future application developers** who will link this library into email
-  clients.
-- **Status:** Campaign decomposed into 6 sub-projects (S0–S4 + a triage
-  ledger). **S0 is COMPLETE and fully verified.** S1 is the next sub-project.
-- **S0 deliverable:** replaced a broken text-scraping public-API contract
-  generator with a **compiler-as-library oracle**, so the frozen contract files
-  now faithfully describe the consumer-reachable surface.
-- **Git:** branch `api/s0-truthful-contract`, 6 clean commits, `just ci` green
-  AND `just clean && just jmap-reset && just test-full` green. The **only**
-  remaining S0 step is `git push` + open a PR, which is paused awaiting the
-  user's explicit go-ahead (it is an outward-facing action). The user was last
-  shown a drafted PR title/body and asked to approve the push.
+  clients. RFC 8620 + 8621 are implemented; **Layer-5 C FFI, Push (RFC 8620 §7),
+  and Blob upload/download are deferred.**
+- **Status:** Campaign decomposed into 6 sub-projects (S0–S4 + a triage ledger).
+  - **S0 (truthful contract) — ✅ DONE & merged to `main`** (PR #5).
+  - **S1 (one error rail, `JmapError`) — ✅ DONE, both gates green, NOT yet
+    pushed.** Branch `api/s1-one-error-rail`, HEAD `c73dbdf`, 13 commits.
+  - **S2 (read-model uniformity) — ⬜ NEXT.** S3, S4, and the triage ledger
+    follow.
+- **Immediate decision pending from the user:** whether to **push
+  `api/s1-one-error-rail` + open a PR** (and/or merge to `main`). The agent was
+  last awaiting that go-ahead — **do not push/PR/merge without explicit user
+  confirmation** (outward-facing action).
 
 ---
 
-## 1. The mission (the user's own words)
-
-The user's initiating prompt, verbatim:
+## 1. The mission (the user's own words — verbatim)
 
 > Note about the project: The layer 5 C FFI is deferred for now and push and
 > blob upload/download are also deferred for now. Other than that, I believe I
 > have implemented all of RFC 8620 and RFC 8621 here.
 >
-> Now I'm focused on the project's API from the pov of an application
-> developer, a consumer of the library. This project is supposed to be a
-> library which other application developers can then use and link to to add
-> JMAP support to their email clients, allowing their clients to talk to JMAP
-> servers. Libraries like this live or die by their API design.
+> Now I'm focused on the project's API from the pov of an application developer,
+> a consumer of the library. This project is supposed to be a library which other
+> application developers can then use and link to to add JMAP support to their
+> email clients, allowing their clients to talk to JMAP servers. Libraries like
+> this live or die by their API design.
 >
 > I defined a set of 29 API Principles for this project to adhere to which are
 > defined in `docs/design/14-Nim-API-Principles.md`.
@@ -57,50 +55,56 @@ The user's initiating prompt, verbatim:
 > I delivered some of the required API enhancements in git commit
 > `39e4891aac531759440fcede26a0d7c2e7c4fae1`.
 >
-> As a way to test the quality of the API … I built an example CLI app,
-> completely separate from the library and trying to just use the public API
-> … Send and receive actual email and do all the things which an email client
-> is supposed to do. The important thing however is not to have a pretty CLI
-> but to document all aspects of the public API … from the perspective of an
-> application developer. A first revision of this CLI was built in commit
+> As a way to test the quality of the API to see if it adheres to my principles,
+> I built an example CLI app, completely separate from the library and trying to
+> just use the public API of the library to communicate and talk to JMAP servers.
+> Send and receive actual email and do all the things which an email client is
+> supposed to do. The important thing however is not to have a pretty CLI but to
+> document all aspects of the public API of the library from the perspective of
+> an application developer. A first revision of this CLI was built in commit
 > `96cea22ac075686c4487b9ed2b3dbc459c3e765e`.
 
-So: RFC 8620 + 8621 are implemented; **Layer 5 C FFI, Push (RFC 8620 §7), and
-Blob upload/download are deferred**. The work is *API design quality*, judged by
-a real consumer (the `examples/jmap-cli/` bench), against 29 principles.
+So: RFC 8620 + 8621 are implemented; L5 FFI, Push, Blob are deferred. The work
+is **API design quality**, judged by a real consumer (the `examples/jmap-cli/`
+bench), against the **29 API principles**. The resulting public API must follow
+the patterns of **libcurl and SQLite** and avoid the failure modes of **OpenSSL
+and libdbus**.
 
 ---
 
-## 2. THE NON-NEGOTIABLE DESIGN LENS (read twice)
+## 2. THE NON-NEGOTIABLE DESIGN LENS (read twice — overrides any principle on conflict)
 
-This governs **every** design decision in the campaign and **overrides any
-principle where they conflict**. Memorise it.
+This governs **every** design decision in the campaign. Memorise it.
 
 1. **The ONLY design input is the future application developer** who will
    consume this library. Model the API after **libcurl and SQLite**; actively
    avoid the failure modes of **OpenSSL and libdbus**.
-2. **Tests are NOT a design input.** "Tests can and should be accommodated to by
-   other means." Never justify an API shape with "stability bought with tests"
-   (P2) or "easier to test." Never bend the public surface or the source to
-   placate a tool (e.g. in S0 we fixed the *contract generator*, never edited a
-   `0'u64` literal or dropped an operator to make the tool's life easier).
-3. **Incumbent callers are NOT constraints.** What `convenience.nim`, the
-   `examples/jmap-cli/` CLI, or any test happens to use is not a design input.
-   **If a current caller breaks under the principled cut, that is a FINDING to
-   report, not a reason to preserve the old shape.** `convenience.nim` is itself
-   a *dissolution candidate* (see S4).
-4. **There are 0 users. Blast radius does not matter.** What matters is a
-   **clean and comprehensive** implementation. Do not preserve backward
+2. **Tests are NOT a design input.** Verbatim: *"Tests should not be a factor in
+   the API design. Tests can and should be accommodated to by other means."*
+   Never justify an API shape with "easier to test" or "stability bought with
+   tests" (P2). Never bend the public surface or the source to placate a tool —
+   fix the tool/tests instead.
+3. **Incumbent callers are NOT constraints.** Verbatim: *"what `convenience.nim`
+   or any other current caller happens to use is not a design input; if a current
+   caller breaks under the principled cut, that is a finding, not a constraint."*
+   `convenience.nim` is itself a **dissolution candidate** (see decision 2 / S4).
+4. **There are 0 users. Blast radius does not matter.** Verbatim: *"There are
+   currently 0 users of the library. Blast radius doesn't matter. What does matter
+   is clean and comprehensive implementation."* Do not preserve backward
    compatibility for its own sake.
 5. **Version-agnostic.** The user explicitly does **not** want a 1.0 freeze or
-   any version gymnastics. "I want to fix all the issues, don't care about what
-   version we are." So principles framed around "lock before 1.0" (P1) are
-   reinterpreted as "fix everything now, comprehensively." Do **not** tag
+   version gymnastics: *"I want to fix all the issues, don't care about what
+   version we are."* Principles framed around "lock before 1.0" (P1) are
+   reinterpreted as **"fix everything now, comprehensively."** Do **not** tag
    versions or split work to protect a release.
 6. **Quality is paramount; this is a showcase for the user's team.** Exemplary,
-   modern, accurate, complete code. No corners cut, nothing half-baked,
-   everything performed to completion. The user does not care about speed of
+   modern, accurate, complete code. *"comprehensively and cohesively applied
+   without cutting any corners or leaving any loose ends … done in an exemplary
+   fashion and performed to completion."* The user does not care about speed of
    execution or token cost.
+
+When in doubt, ask: **"would libcurl or SQLite do this? Or is this the
+OpenSSL/libdbus choice?"**
 
 ---
 
@@ -108,26 +112,23 @@ principle where they conflict**. Memorise it.
 
 Full authoritative text: **`docs/design/14-Nim-API-Principles.md`** — read it.
 It distils lessons from six C libraries (great: libcurl, SQLite, zlib;
-cautionary: OpenSSL, c-client/UW-IMAP, libdbus). One-line summaries so you know
-what each number means in review:
+cautionary: OpenSSL, c-client/UW-IMAP, libdbus). One-line summaries:
 
-- **P1** Lock the contract; evolve by addition only. *(reinterpreted: §2.5 —
+- **P1** Lock the contract; evolve by addition only. *(reinterpreted §2.5:
   version-agnostic; "fix everything now")*
-- **P2** Stability bought with tests. *(do NOT use tests as a design driver —
-  §2.2)*
+- **P2** Stability bought with tests. *(do NOT use tests as a design driver — §2.2)*
 - **P3** Overloading/default args over `_v2` suffix versioning.
 - **P4** Pick a scope; defend it (JMAP only — no IMAP/POP/SMTP/contacts/cals).
 - **P5** Single public layer; internals are internal.
 - **P6** Convenience APIs quarantined from the protocol-fidelity core.
-  *(the campaign DECISION is to DISSOLVE this — see §6 decision 2; readers etc.
-  become core, `convenience.nim` may be dissolved/repurposed.)*
+  *(campaign DECISION: DISSOLVE this — decision 2; readers etc. become core.)*
 - **P7** Watch the wrap rate (if everyone wraps you, the API is wrong).
 - **P8** Opaque handles via private fields + ARC `=destroy`.
 - **P9** Max two context types per concept (handle + builder).
 - **P10** No global state; configuration is a typed value.
-- **P11** No global callbacks; per-handle field + context (closure) pointer.
+- **P11** No global callbacks; per-handle field + context (closure).
 - **P12** Memory ownership encoded in the type (`sink`/`lent`/`var`).
-- **P13** One error rail (`Result[T, E]`); name every variant. *(= S1.)*
+- **P13** One error rail (`Result[T, E]`); name every variant. *(= S1, DONE.)*
 - **P14** No thread-local error queues / last-error globals.
 - **P15** Smart constructors return `Result`; raw constructors private.
 - **P16** Encode preconditions in types (phantom types, builders, sum types).
@@ -142,73 +143,52 @@ what each number means in review:
   framework lock-in; don't import chronos/asyncdispatch in L1–L3).
 - **P23** Plan Push/WebSocket as a separate type from day one.
 - **P24** Decide the threading invariant explicitly; encode it.
-- **P25** License clarity (BSD-2-Clause) from v0.1.0.
+- **P25** License clarity (BSD-2-Clause).
 - **P26** Standard build tooling (mise + just + nimble); no per-OS branching.
 - **P27** Documentation as succession planning.
 - **P28** Long-form first-party narrative documentation.
 - **P29** Bench API ergonomics with a real consumer (= the `jmap-cli` bench).
 
-`docs/design/14-Nim-API-Principles.md` also has a "Concrete decisions to make
-before 1.0" list and is the rubric reviewers cite by number.
+Reviewers cite principles by number. The doc also has a "Concrete decisions to
+make before 1.0" list (reinterpreted as the action list, version-agnostic).
 
 ---
 
 ## 4. How things were when the campaign started (2026-06-14)
 
 - RFC 8620 + 8621 implemented; **L5 FFI, Push, Blob deferred**.
-- Commit `39e4891` delivered earlier API enhancements; commit `96cea22`
-  (the base of our work, a merge) added the first `examples/jmap-cli/` bench.
-- The bench is the P29 consumer: a thin CLI driving **only the public API**
+- Commit `39e4891` delivered earlier API enhancements; commit `96cea22` added
+  the first `examples/jmap-cli/` bench.
+- The bench is the P29 consumer: a CLI driving **only the public API**
   (`import jmap_client` [+ `jmap_client/convenience`]) to exercise every
-  RFC 8620/8621 entity area against live JMAP servers (Stalwart/James/Cyrus).
-  It sends/receives real email. Its purpose is the **audit**, not the CLI.
-- The bench produced three artefacts (READ THEM to understand the findings):
-  - **`examples/jmap-cli/AUDIT.md`** — the terse ledger: **92 findings**, Phase 1
-    "observe-only" (every finding tagged `[open]`; triage into
-    resolve/accept/file is a deferred "Phase 2"). ≈16 positives, ≈76 frictions;
-    6 high / 7 medium severity flagged. **No command was inexpressible** via the
-    public API.
-  - **`docs/design/16-api-from-the-consumers-chair.md`** — the narrative
-    critique: per-area P7 verdict ("reach for it directly" vs "you'll wrap it").
-  - **`docs/superpowers/jmap-cli-api-truth.md`** — a per-area recon "truth
-    sheet" (gitignored scratch, but present on disk). Symbol-level ground truth.
-- A pre-existing tracker, **`docs/TODO/pre-1.0-api-alignment.md`** (Sections
-  A–H, ~118 items), tracks principle alignment. Sections A (freeze surface) and
-  B (type-safety) are largely DONE; Section C (consumer ergonomics), D
-  (policy), F (verification), H (CI lints) are largely TODO. **This campaign
-  supersedes that tracker's 1.0-freeze framing where they conflict** (we are
-  version-agnostic), but its Section C items map onto our R1/R2/R4.
+  RFC 8620/8621 entity area against live JMAP servers (Stalwart/James/Cyrus). It
+  sends/receives real email. **Its purpose is the audit, not the CLI.**
+- The bench produced three artefacts (READ to understand the findings):
+  - **`examples/jmap-cli/AUDIT.md`** — the ledger: **92 findings** (≈16
+    positives, ≈76 frictions; 6 high / 7 medium). No command was inexpressible
+    via the public API. Now carries an **"S1 resolution" section** mapping each
+    error-rail finding to its fix.
+  - **`docs/design/16-api-from-the-consumers-chair.md`** — narrative critique.
+  - **`docs/superpowers/jmap-cli-api-truth.md`** — recon truth sheet (gitignored).
 
-### The 92 findings reduce to SIX root causes (this is the key synthesis)
+### The 92 findings reduced to SIX root causes (the key synthesis)
 
-- **R1 — No one-shot for the common single-method case.** Behind: bare-get
-  repetition (every read repeats `newBuilder → add*Get → freeze → send → get`),
-  the single-email update triple-seal (flag/move), the single-recipient send.
-- **R2 — Missing total readers/constructors on existing types.** `FieldEcho`
-  has no reader; no `decodedTextBody`/`leafTextParts`; `MailboxRights` has no
-  roll-up; no plain-text body constructor; no `byIds`; no limit shorthand; no
-  capability pre-flight (`requireMail`). These are arguably *bugs against
-  parse-don't-validate*: the library parses once but never shipped the read-once
-  accessor.
-- **R3 — Error-rail fragmentation.** Five call-path rails that don't compose:
-  `ValidationError`, `seq[ValidationError]`, `EmailBlueprintErrors`,
-  `ClientError`, `GetError`. No lifts between them; no hub-public `ClientError`
-  constructor (so a consumer can't even return on the library's own rail).
-- **R4 — The send path has no ergonomic front door.** RFC-faithful but brutal:
-  a 4-layer blueprint hand-build, `parsePartIdFromServer` misnamed for send-side
-  use, the misleading `addEmailSubmissionAndEmailSet` (does NOT create the
-  email), and an untyped `emailId` forward-reference smuggled via
-  `parseIdFromServer("#" & cid)`.
-- **R5 — The contract didn't describe the surface.** The `public-api.txt` /
-  `type-shapes.txt` snapshot generator was a broken text scraper. **S0 FIXED
-  THIS.**
-- **R6 — Read-model unevenness.** Three idioms for the same job: direct public
-  fields (`Mailbox`, `Identity`), accessor funcs (`Thread`), and the
-  `Opt`-vs-`FieldEcho` split for the same field (`Email` vs `PartialEmail`).
-
-The decisive slice is **freeze-blocking vs additive** is now moot (version-
-agnostic): we fix **all** root causes comprehensively, including the
-type-touching ones.
+- **R1 — No one-shot for the common single-method case.** (bare-get repetition;
+  single-email update triple-seal; single-recipient send.) → **S4.**
+- **R2 — Missing total readers/constructors on existing types.** (`FieldEcho`
+  has no reader; no `decodedTextBody`/`leafTextParts`; `MailboxRights` no
+  roll-up; no `byIds`; no `requireMail`/etc.) → **S3.**
+- **R3 — Error-rail fragmentation.** Five call-path rails that don't compose. →
+  **S1 — ✅ CLEARED.**
+- **R4 — The send path has no ergonomic front door.** (4-layer blueprint
+  hand-build; misnamed `parsePartIdFromServer`; the misleading
+  `addEmailSubmissionAndEmailSet`; the uncopyable-`RequestBuilder`-in-Ok-arm
+  friction.) → **S4.** *(Note: S1 fixed the error-rail part; the uncopyable
+  builder + one-shots remain.)*
+- **R5 — The contract didn't describe the surface.** The snapshot generator was a
+  broken text scraper. → **S0 — ✅ CLEARED.**
+- **R6 — Read-model unevenness.** Three idioms for the same job (direct fields vs
+  accessors vs `Opt`-vs-`FieldEcho`). → **S2.**
 
 ---
 
@@ -217,101 +197,63 @@ type-touching ones.
 The user chose the **maximal-toward-the-libcurl/SQLite-ideal** option on each:
 
 1. **One error rail.** Collapse the 5 call-path rails (R3) into a single
-   `JmapError` sum type with named arms (validation / transport / dispatch).
-   Add a hub-public constructor so consumers return on it. The whole
-   `newBuilder → add* → freeze → send → get` pipeline composes with one `?`.
-   `MethodError` / `SetError` stay **response DATA** (RFC-faithful — JMAP
-   defines method-level and set-level errors as values inside successful
-   responses; like SQLite's `SQLITE_ROW` vs `SQLITE_DONE` row status). SQLite
-   has ONE int code; libcurl ONE `CURLcode`. This is the single most
-   libcurl/SQLite-defining change available. → **S1.**
-2. **One ergonomic core, no quarantine.** SQLite has no convenience module —
-   `sqlite3_column_text` (a reader) is on the core; libcurl's easy-path is
-   first-class. So readers / smart constructors / predicates / single-method
-   one-shots, AND one blessed easy-path per operation (`connect`,
-   `sendPlainText`, `queryThenGet`), all become first-class on the always-on
-   hub. The P6 quarantine **dissolves**; `convenience.nim` either folds into the
-   core or is kept only for honest multi-method pipeline compositions (decided
-   in S4). → **S3 (primitives) + S4 (one-shots/easy-path/structure).**
+   `JmapError` sum type. → **S1 — ✅ DONE.**
+2. **One ergonomic core, no quarantine.** SQLite has no convenience module;
+   readers/constructors/predicates/one-shots AND one blessed easy-path per
+   operation become first-class on the always-on hub. The P6 quarantine
+   **dissolves**; `convenience.nim` folds into the core or is kept only for
+   honest multi-method compositions. → **S3 (primitives) + S4 (one-shots/
+   easy-path/structure).**
 3. **One read idiom.** Uniform access across all entity *data records* and one
    optionality model per field (collapse the `Opt`-vs-`FieldEcho` split).
-   Recommended pole: **direct public fields for data records**
-   (Mailbox/Email/Identity/Thread/PartialEmail), reserving opaque-handle +
-   accessor discipline (P8) for the *stateful* types (`JmapClient`, `Session`,
-   `RequestBuilder`, `BuiltRequest`) — mirrors SQLite exactly (opaque handles
-   for stateful objects, direct access for the data you pull out). The one
-   wrinkle to reconcile is `Thread`'s `lent seq` accessor. → **S2.**
+   Recommended pole: **direct public fields for data records**; opaque-handle +
+   accessor discipline (P8) only for *stateful* types (`JmapClient`, `Session`,
+   `RequestBuilder`, `BuiltRequest`). Reconcile `Thread`'s `lent seq` accessor.
+   → **S2.**
 
 ---
 
 ## 6. The campaign decomposition (6 sub-projects)
 
-Each is its own spec → plan → implement cycle (the superpowers
-brainstorming → writing-plans → executing-plans flow). Dependency order:
+Each is its own spec → plan → implement cycle (superpowers brainstorming →
+writing-plans → executing-plans). Dependency order:
 
 | # | Sub-project | Clears | Depends on | Status |
 |---|---|---|---|---|
-| **S0** | **Truthful contract** | R5 | — | **✅ DONE & verified** |
-| **S1** | **One error rail** (`JmapError`) | R3 | S0 | ⬜ NEXT |
-| **S2** | **Read-model uniformity** | R6 | S0 | ⬜ |
+| **S0** | **Truthful contract** (compiler-as-library oracle) | R5 | — | ✅ DONE & merged |
+| **S1** | **One error rail** (`JmapError`) | R3 | S0 | ✅ DONE, not pushed |
+| **S2** | **Read-model uniformity** | R6 | S0 | ⬜ NEXT |
 | **S3** | **Complete the core** (readers/ctors/predicates/`requireMail`) | R2 | S1, S2 | ⬜ |
-| **S4** | **One-shots + easy-path + dissolve quarantine** (`connect`, `sendPlainText`, `queryThenGet`, bare-get one-shots) | R1, R4 | S3 | ⬜ |
-| — | **Triage ledger** (AUDIT Phase 2: every `[open]` finding → resolve / accept / file-as-Cn, mapped to the sub-project that fixes it) | all 92 | runs across all | ⬜ |
-
-S0 and S1 are independent of each other; S1 is the architectural keystone
-(it changes nearly every public return type), so it is the recommended next
-step. Build the regression net (S0) first — done — then the keystone.
+| **S4** | **One-shots + easy-path + dissolve quarantine** (`connect`, `sendPlainText`, `queryThenGet`, bare-get one-shots, the uncopyable-builder front door) | R1, R4 | S3 | ⬜ |
+| — | **Triage ledger** (AUDIT Phase 2: every `[open]` finding → resolve / accept / file, mapped to its sub-project) | all 92 | across all | ⬜ (S1 error-rail findings done) |
 
 ---
 
-## 7. What S0 DID (complete, in detail)
+## 7. What S0 DID (done & merged — summary)
 
 **Problem.** The frozen contract `tests/wire_contract/public-api.txt` (symbol
-signatures) and `type-shapes.txt` (type field shapes), generated by
-`scripts/api_surface.nim` (a text scraper) and locked by the H16/H17 lints, was
-a **fiction in both directions**:
-- **~436 reachable symbols invisible**: a char-literal state machine treated a
-  typed integer literal `0'u64` as an unterminated char literal and ran away to
-  EOF (swallowing `send`/`freeze`/`newBuilder`/the `EmailUpdateSet` family/…);
-  `#` inside comments and string/char literals caused the same; grouped
-  `const`/`type`-block members (`egp*`, `kw*`, `roleInbox`, `ResponseHandle`)
-  were dropped; and ~212 template-generated operators (`==`/`$`/`hash`/… from
-  the `defineSealed*` family) are structurally invisible to any text scrape.
-- **~22 phantom rows**: generic template *bodies* were rendered as bogus
-  unbound-`T` decls (`func hash (a: T)`).
-- The generator and the lints **shared the resolver**, so the lints passed while
-  the contract lied — false confidence (the OpenSSL/libdbus failure mode).
+signatures) + `type-shapes.txt` (type field shapes), generated by a text scraper
+and locked by the H16/H17 lints, was a fiction in both directions (≈436
+reachable symbols invisible; ≈22 phantom rows; generator and lints shared the
+broken resolver, so the lints passed while the contract lied).
 
 **Solution — a compiler-as-library oracle (the modern, faithful mechanism).**
-- **`scripts/api_probe.nim`** (new): a union re-export of both public hubs
-  (`import jmap_client; import jmap_client/convenience; export …`). In-repo so
-  the project's own `config.nims` applies (config faithfulness).
-- **`scripts/api_oracle.nim`** (new): loads the module graph, runs `sem`, and
-  walks `modulegraphs.allSyms(graph, probeModule)` — which yields **own +
-  re-exported** exported symbols because `semdata.exportSym` AND `reexportSym`
-  both write the same `ifaces.interf` table `allSyms` iterates. This is, by
-  construction, *what `import jmap_client` exposes* — the compiler's own
-  definition. Renders two views from the AST: `--mode:api` (signatures, grouped
-  by module, operators + const members included, a `## re-exported from
-  nim-results` provenance section) and `--mode:type-shapes` (object public
-  fields via `sfExported` filter — so private `raw*` fields are excluded — plus
-  enum members with wire strings, case scaffolding, proc-type/alias RHS like
-  `SendProc`). Mode via the `API_ORACLE_MODE` env var. Strips template
-  `` `gensymN `` suffixes for stability.
-- **Retired** `scripts/api_surface.nim`, `freeze_public_api.nim`,
-  `freeze_type_shapes.nim`.
-- **Rewired** `justfile` recipes `freeze-api` / `freeze-type-shapes` /
-  `lint-public-api` / `lint-type-shapes` (shared private `_api-oracle` build
-  recipe) and `tests/lint/h16_public_api_snapshot.nim` /
-  `h17_type_shape_snapshot.nim` (now diff the committed snapshot against the
-  oracle's live output, passed as `argv[1]` by the recipe). The lints no longer
-  import the scraper.
-- **Regenerated** both snapshots as the honest baseline (api +1326/−297, shapes
-  +138).
+- **`scripts/api_probe.nim`** — a union re-export of both public hubs
+  (`import jmap_client; import jmap_client/convenience; export …`).
+- **`scripts/api_oracle.nim`** — loads the module graph, runs `sem`, walks
+  `modulegraphs.allSyms(graph, probeModule)` (own + re-exported exported symbols,
+  by construction = *what `import jmap_client` exposes*). Two modes via the
+  `API_ORACLE_MODE` env var: `api` (signatures) and `type-shapes` (object public
+  fields via `sfExported`, enums with wire strings, etc.). Strips template
+  `` `gensymN `` suffixes.
+- **Rewired** `justfile` recipes (`freeze-api`/`freeze-type-shapes`/
+  `lint-public-api`/`lint-type-shapes`, via the private `_api-oracle` build) and
+  the lints `tests/lint/h16_public_api_snapshot.nim` / `h17_type_shape_snapshot.nim`
+  (now diff the committed snapshot vs the oracle's live output, passed as
+  `argv[1]`). Retired the old `api_surface.nim` scraper + freeze scripts.
 
-**Build / run the oracle** (for when S1+ need to regenerate the contract after
-changing the surface — `just freeze-api` / `just freeze-type-shapes` do this for
-you):
+**Build/run the oracle** (the `just freeze-api` / `just freeze-type-shapes`
+recipes do this for you after any surface change):
 ```
 NIMPREFIX="$(dirname "$(dirname "$(readlink -f "$(command -v nim)")")")"
 nim c --hints:off --warnings:off -d:nimcore --path:"$NIMPREFIX" \
@@ -319,220 +261,285 @@ nim c --hints:off --warnings:off -d:nimcore --path:"$NIMPREFIX" \
 API_ORACLE_MODE=api /tmp/jmap_api_oracle check --mm:arc --threads:on --panics:on \
   --path:src --path:vendor/nim-results scripts/api_probe.nim
 ```
-(`--path:'$nim'` also works — Nim expands `$nim` to its prefix on the command
-line; the recipes use that.) The oracle depends on **compiler-internal API**
-(`allSyms`, `ifaces`, `sfExported`); Nim is pinned via mise; a Nim upgrade must
-re-verify it. The `compiler/` package is available in CI (nimalyzer/`just
-analyse` already use `--path:$nim`).
-
-**Verification (all green):** `errorCounter=0`; strict superset of the old
-surface (0 real symbols lost — adversarially audited by an independent subagent;
-the single removal `fromJson(MailboxChangesResponse)` is a **correctness win**:
-the oracle honours `mail.nim`'s `export types except fromJson`, compile-verified
-unreachable, which the scraper violated); byte-deterministic; the **negative
-control** (add a throwaway `*`-export → H16 now fails and names it → revert →
-passes) proves the contract *actually locks* now (the old blind lint could not).
-`just ci` green; `just clean && just jmap-reset && just test-full` green.
-
-**Git:** branch `api/s0-truthful-contract`, commits (oldest→newest):
-`b6d0666` (spec+plan), `a6882c6` (oracle core), `7a5180f` (api render),
-`d83a0ca` (type-shape render), `ca90c99` (atomic switch: rewire + retire +
-regen), `05f188d` (record verification). S0 spec (gitignored, on disk):
-`docs/superpowers/specs/2026-06-14-s0-truthful-contract-design.md`. S0 plan
-(tracked): `docs/superpowers/plans/2026-06-14-s0-truthful-contract-plan.md`.
-
-**Immediate S0 remainder:** `git push -u origin api/s0-truthful-contract` +
-`gh pr create` — **paused for the user's go-ahead** (outward-facing). A PR
-title/body was drafted and shown to the user; mention in the PR that the
-`fromJson(MailboxChangesResponse)` removal is a correctness fix, not an API loss.
+The oracle depends on compiler-internal API (`allSyms`, `ifaces`, `sfExported`);
+a Nim upgrade must re-verify it. **Merged to `main` (PR #5).**
 
 ---
 
-## 8. What is LEFT (the work ahead)
+## 8. What S1 DID (done — both gates green, NOT pushed — full detail)
 
-**S1 — One error rail (next, the keystone).** Design & build `JmapError`, a
-single sum type with named arms covering the build + dispatch failure modes
-(validation, transport, dispatch/get). Provide a hub-public constructor.
-Migrate every public fallible signature so `newBuilder → add* → freeze → send →
-get` composes with one `?`. Keep `MethodError`/`SetError` as response data
-(RFC-faithful). Expect this to break `convenience.nim`, the CLI, and tests —
-those breakages are **findings**, not constraints; fix the callers afterward,
-do not preserve the old rails. Touches the previously-"frozen" A12 error surface
-— fine, we are version-agnostic. This also makes the eventual L5 C-ABI cleaner
-(one enum → one set of C codes, per P13/P14).
+**Goal (P13).** Collapse the **five** fragmented call-path error rails into ONE
+`JmapError` sum so the whole `build → send → get` pipeline composes with a single
+`?`. Before S1 the rails were `ValidationError`, `seq[ValidationError]`,
+`EmailBlueprintErrors`, `ClientError`, and `GetError` — they did not compose
+(`send` returned `ClientError`, `get` returned `GetError`, no converter bridged
+them, `?` cannot auto-lift), which forced the CLI bench to abandon `?` and
+collapse every stage to `Result[T, string]` with a hand-rolled `joinErrs`.
 
-**S2 — Read-model uniformity.** Settle the final entity *data-record* shapes:
-one access idiom (recommend direct public fields for data records; opaque
-handles keep accessors), one optionality model per field (collapse
-`Email`/`PartialEmail` `Opt`-vs-`FieldEcho`). Reconcile `Thread`'s `lent seq`
-accessor. Do this BEFORE S3 so the readers target final shapes.
+**The four user-approved design decisions** (all the recommended pole):
+1. **L1 purity → lift at the boundary.** Pure L1 smart constructors stay
+   `Result[T, ValidationError]`; unification happens at the L3/L4 boundary via a
+   sanctioned `.lift` + `toJmapError` overloads (`?` can't auto-convert and
+   `converter`s are forbidden). NOT by retyping L1.
+2. **`get` returns method errors as DATA** on the ok branch via `MethodOutcome[T]`
+   (`mokValue` | `mokMethodError`); only library/dispatch faults ride the rail
+   (RFC 8620 §3.6.2 — a method error is response data, like a per-id SetError).
+   The fail-fast single-method convenience is deferred to **S4**.
+3. **A 5th `jeSession` arm** for "expected capability / primary account absent"
+   (the `primaryAccount`/`find*` `Opt` misses had no rail home).
+4. **Split `jeMisuse` (consumer bug — handle from a different builder) from
+   `jeProtocol` (server-response malformed)**, with `jeProtocol` preserving the
+   L2 `SerdeViolation`'s RFC-6901 JsonPath — which forces `JmapError` to live in
+   **L3** (and `JmapResult` to relocate there with it).
+
+**What shipped (the result):**
+- **`src/jmap_client/internal/protocol/jmap_error.nim`** (new, L3): `JmapError`
+  — a flat 6-arm sum `{jeValidation | jeTransport | jeRequest | jeSession |
+  jeMisuse | jeProtocol}`, each arm one typed payload (sub-types `SessionFault`,
+  `Misuse`, `ProtocolFault`). Plus `MethodOutcome[T]`, the per-arm `jmap*`
+  constructors, the `toJmapError` lifts + the generic `lift` helper, `message`/`$`,
+  and `JmapResult[T] = Result[T, JmapError]`. Flat arms (not a nested
+  `ClientError`) for FFI one-enum isomorphism and to dodge `strictCaseObjects`
+  Rule 4. `ProtocolFault`'s call id lives **in the variants** — mandatory
+  `MethodCallId` on `pfMissingCall`/`pfMalformedError`, optional `decodeCallId`
+  only on `pfDecode` (which also serves the call-less envelope/session decode).
+- **`JmapResult` relocated** L1 → L3; the five old rails folded in; `ClientError`,
+  `GetError`, `EmailBlueprintErrors` **retired**; the lossy `validationToClientError`
+  hack and the synthetic `serverFail` `MethodError`s deleted.
+- **`classify.nim`** (L4) returns `JmapError` directly (HTTP/JSON → `jeTransport`,
+  RFC 7807 → `jeRequest`, envelope decode → unlocalised `jeProtocol`).
+- **`get`/`getBoth`/`getAll`** → `Result[MethodOutcome[T], JmapError]`. Compound
+  `getBoth` (RFC 8620 §5.4 implicit call) models the implicit as
+  `Opt[MethodOutcome[B]]` — extracted only when the primary succeeds (the server
+  emits the implicit only on primary success). **This was a real design gap the
+  live gate caught and fixed.**
+- The 14 accumulating validators now carry `NonEmptySeq[ValidationError]`.
+  `requirePrimaryAccount` (new L3 module `protocol/preflight.nim`) seeds the
+  `jeSession` arm. `TokenViolation` / `SmtpReplyViolation` interned (removed from
+  the public hubs via `export … except …`). `MethodError` / `SetError` remain
+  **response data**, never a public rail.
+- **`examples/jmap-cli/` rewritten** to thread one `JmapError` end-to-end —
+  `joinErrs` + the `Result[T, string]` collapse deleted; `email_send.nim` is a
+  clean single-`?` pipeline (the P29 proof). `convenience.nim` needed no rewrite
+  (earlier phases moved its `getBoth` to `MethodOutcome`/`JmapError`).
+- **Contract regenerated** from the oracle; **~110 test files migrated** (method
+  errors asserted as data; `jeMisuse`/`jeProtocol`; `NonEmptySeq`). The
+  compile-time surface audits now actively assert the new rail present + the
+  retired rails ABSENT.
+- **An independent adversarial review** of the keystone returned *"sound — no
+  must-fix correctness bug; RFC-faithful, layer-clean, no method/set-error
+  leakage."* Its two DDD-strictness findings were resolved (**D2**: moved
+  `ProtocolFault`'s call id into the variants) or consciously accepted with
+  documentation (**D1**: kept the `Opt` implicit — `getBoth` is its sole producer
+  and never emits a contradictory pair).
+
+**Git.** Branch `api/s1-one-error-rail`, HEAD `c73dbdf`, **13 commits** (Linux-
+kernel style), 154 files, +3773/−2465. **Both gates green** (`just ci` + the full
+live `test-full` against Cyrus + Stalwart + James). **NOT pushed.** Spec
+(gitignored): `docs/superpowers/specs/2026-06-15-s1-one-error-rail-design.md`.
+Plan (tracked, with a STATE header marked DONE):
+`docs/superpowers/plans/2026-06-15-s1-one-error-rail-plan.md`.
+
+---
+
+## 9. What is LEFT (the work ahead)
+
+**Immediate (awaiting the user's go-ahead):** push `api/s1-one-error-rail` +
+open a PR (draft: `errors: collapse the five error rails into one JmapError
+(S1)`, body = the one-rail summary + the four locked decisions + the gate results
++ the adversarial-review note + the S2–S4 deferrals; flag that
+`ClientError`/`GetError`/`EmailBlueprintErrors` removal is intentional, not an
+API loss). **Confirm with the user before pushing/PR/merging** (outward-facing).
+
+**S2 — Read-model uniformity (NEXT).** Settle the final entity *data-record*
+shapes: one access idiom (recommend direct public fields for data records;
+opaque handles keep accessors), one optionality model per field (collapse the
+`Email`/`PartialEmail` `Opt`-vs-`FieldEcho` split). Reconcile `Thread`'s
+`lent seq` accessor. **Do this BEFORE S3** so the readers target final shapes.
+Clears R6. Independent of S1 (could even predate it; do it now).
 
 **S3 — Complete the core (R2).** Add the missing total readers / smart
 constructors / predicates on the now-final types: a `FieldEcho` reader,
 `email.decodedTextBody()` / `leafTextParts`, `MailboxRights.canRead/canWrite/
 canDelete`, a plain-text body constructor, `byIds` per-entity get helpers, a
-limit shorthand, capability pre-flight (`requireMail`/`requireSubmission`/
-`requireVacation`), and a hub-public `ClientError`/`JmapError` constructor. These
-are core completion, NOT "convenience."
+limit shorthand, the per-capability preflight sugar
+(`requireMail`/`requireSubmission`/`requireVacation`, building on S1's
+`requirePrimaryAccount`). Core completion, NOT "convenience."
 
 **S4 — One-shots + easy-path + dissolve quarantine (R1, R4).** Single-method
-one-shot combinators, a dispatch-and-extract shorthand, and the blessed
-easy-path: `connect(url, user, pass)`, `sendPlainText(account, identity, from,
-to, subject, body)` (hiding the blueprint chain, the `#`-ref smuggle, the
-two-creation wiring, the move ceremony), `queryThenGet`. Decide the fate of
-`convenience.nim` (fold into core vs keep for honest pipeline compositions
-only). This is the curl_easy / sqlite3_exec surface — first-class, documented as
-the simple path over the granular lifecycle.
+one-shot combinators; the dispatch-and-extract shorthand; the blessed easy-path
+(`connect(url, user, pass)`, `sendPlainText(...)` hiding the blueprint chain and
+the two-creation wiring, `queryThenGet`); the **fail-fast `get` convenience**
+deferred from S1 (and the decision "may convenience put a `MethodError` on a
+rail?"); a front door for the **uncopyable-`RequestBuilder`** friction
+(`addEmailSubmissionAndEmailSet` returns an uncopyable builder in its Ok arm, so
+it can't ride `?`/`.lift` today). Decide the fate of `convenience.nim`. This is
+the `curl_easy_*` / `sqlite3_exec` surface — first-class, documented as the
+simple path over the granular lifecycle.
 
-**Triage ledger (AUDIT Phase 2).** Convert every `[open]` line in
+**Triage ledger (AUDIT Phase 2).** Convert every remaining `[open]` line in
 `examples/jmap-cli/AUDIT.md` into `resolved | accepted-as-trade-off |
-filed-as-Cn`, each mapped to the sub-project that addresses it. This is the
-acceptance checklist that proves comprehensiveness.
+filed-as-Cn`, mapped to the sub-project that fixes it. (The error-rail findings
+are already resolved in the S1 ledger section.)
 
-**Re-bench after each sub-project.** The `examples/jmap-cli/` consumer is the
-P29 instrument; after S1–S4 land, re-exercise it (it will need updating since
-the API changes — those updates are how you confirm the new API is better) and
-update `AUDIT.md` / `docs/design/16-…`.
+**Re-bench after each sub-project.** The `examples/jmap-cli/` consumer is the P29
+instrument; after each sub-project, re-exercise it and update `AUDIT.md` /
+`docs/design/16-…`.
 
 ---
 
-## 9. Quality requirements & process (MANDATORY)
+## 10. Quality requirements & process (MANDATORY)
 
-### Gates — work is complete ONLY when both pass
-1. **`just ci`** — runs: `reuse fmt-check lint lint-isolated lint-style
-   lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct
-   lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths
-   lint-error-messages lint-public-api lint-type-shapes analyse test`.
+### Gates — a sub-project is complete ONLY when BOTH pass
+1. **`just ci`** — runs: reuse, fmt-check, the lint battery (incl.
+   `lint-public-api`, `lint-type-shapes`, `lint-error-messages`,
+   `lint-internal-boundary`, …), `analyse` (nimalyzer), `test` (fast suite).
 2. **`just clean && just jmap-reset && just test-full`** — in that EXACT order
-   (clean build artefacts → reset live JMAP servers → full live suite). If
-   `test-full` fails, fix, then re-run the WHOLE `clean → jmap-reset →
-   test-full` sequence; repeat until green.
+   (clean artefacts → reset live JMAP servers → full live suite against
+   Stalwart/James/Cyrus). If `test-full` fails, fix, then **re-run the WHOLE
+   `clean → jmap-reset → test-full` sequence**; repeat until green.
 
-Other useful commands: `just` (list), `just build`, `just test` (fast suite),
-`just fmt` (nph; **only `src/` + `tests/`, NOT `scripts/`**), `just analyse`
-(nimalyzer; scans `src` + `tests`, not `scripts`), `just freeze-api` /
-`freeze-type-shapes` (regenerate the contract via the S0 oracle after a surface
-change), `just jmap-up`/`jmap-status`.
+Other commands: `just` (list), `just build`, `just test` (fast suite; **skips the
+slow files in `tests/testament_skip.txt`** — those run only in `test-full`, so a
+skip-listed file can hide a break that only `test-full` surfaces), `just fmt`
+(nph; **`src/` + `tests/` only, NOT `scripts/`**), `just analyse` (nimalyzer;
+scans `src` + `tests`, not `scripts`), `just freeze-api` / `freeze-type-shapes`
+(regenerate the contract via the S0 oracle after a surface change),
+`just jmap-up`/`jmap-status`.
 
 ### Commit format (Linux-kernel style — from CLAUDE.md)
-Subject `subsystem: short description` ≤75 cols, imperative ("add" not "added").
-Body wrapped ~75 cols, explains **why**. End EVERY commit body with exactly:
+Subject `subsystem: short description` ≤75 cols, imperative. Body wrapped ~75
+cols, explains **why**. End EVERY commit body with exactly:
 ```
 Co-developed-by: Aryan Ameri <github@aryan.ameri.coffee>
 Signed-off-by: Aryan Ameri <github@aryan.ameri.coffee>
 Assisted-by: Claude:claude-4.8-opus
 ```
 **No other AI/LLM attribution in any git message.** (A PR *body* may carry the
-Claude Code footer — it is GitHub metadata, not a git message — but confirm with
-the user if unsure; they are strict about attribution.)
+Claude Code footer — GitHub metadata, not a git message — but confirm if unsure;
+the user is strict about attribution.)
 
 ### Coding conventions (CLAUDE.md + `.claude/rules/`)
-- **Layers:** L1 types, L2 serde, L3 protocol — `{.push raises: [],
-  noSideEffect.}` and `func` only (no `proc`); L4 transport/client, L5 FFI —
+- **Layers:** L1 types, L2 serde, L3 protocol → `{.push raises: [],
+  noSideEffect.}` + `func`-only (no `proc`); L4 transport/client, L5 FFI →
   `{.push raises: [].}`. Every `src/` file has `{.experimental:
   "strictCaseObjects".}` right after the push pragma. (Tests are exempt.)
 - **Errors:** Railway-Oriented Programming with vendored `nim-results`
   (`Result[T,E]`, `Opt[T]`, `?`, `valueOr`). Smart constructors return
-  `Result[T, ValidationError]`; raw distinct/case constructors are private.
-  `JmapResult[T] = Result[T, ClientError]` (→ becomes `JmapError` in S1).
-- **Style:** `let`/`const` default, `var` only locally when necessary;
-  expression-oriented (`if`/`case`/`block` as expressions, exhaustive, no
-  catch-all `else` on finite enums); `Opt[T]` not `std/options`; prefer `for v
-  in opt`. British-English comments/docstrings; **comments explain *why*, not
-  *what*** (the *what* lives in the types). `--styleCheck:error` casing.
+  `Result[T, ValidationError]`; the public pipeline rail is now
+  `JmapResult[T] = Result[T, JmapError]`.
+- **Style:** `let`/`const` default, `var` only locally; expression-oriented
+  (`if`/`case`/`block` as expressions, exhaustive, no catch-all `else` on finite
+  enums); `Opt[T]` not `std/options`; prefer `for v in opt`. British-English
+  comments/docstrings; **comments explain *why*, not *what***. `--styleCheck:error`.
 - **Type safety:** distinct newtypes for identifiers; sum types over bools /
-  bit-flags; make illegal states unrepresentable; phantom types / builder
-  lifecycle where a precondition exists.
-- **Never** loosen compiler/analyzer settings, suppress nimalyzer rules, or add
-  module-level mutable `var`/globals/global callbacks. The detailed rule files:
+  bit-flags; **make illegal states unrepresentable** (the project's #1 DDD
+  principle — an adversarial reviewer will and did flag violations even in
+  hub-private-constructed types); phantom/builder lifecycle where a precondition
+  exists. Case objects need explicit `==`/`$`/`hash` *where used*; `strictCaseObjects`
+  Rule details (combined-arm reads, no nested case-in-case) are in
+  `.claude/rules/nim-type-safety.md`.
+- **Never** loosen compiler/analyzer settings, suppress nimalyzer rules
+  (e.g. `ruleOff: "complexity"` — decompose instead), add module-level mutable
+  `var`/globals/global callbacks, or add `converter`s. Detailed rules:
   `.claude/rules/nim-conventions.md`, `nim-type-safety.md`,
-  `nim-functional-core.md`, `nim-ffi-boundary.md`. There are also Skills:
-  `jmap-protocol`, `nim-json-serde`, `testament`, `nim-ffi-boundary`,
-  `comment-base`.
+  `nim-functional-core.md`, `nim-ffi-boundary.md`. Skills: `jmap-protocol`,
+  `nim-json-serde`, `testament`, `nim-ffi-boundary`, `comment-base`.
 - One dependency: vendored, patched `nim-results` at `vendor/nim-results`.
   Everything else is Nim stdlib.
 
-### Execution discipline (what has worked; keep doing it)
-- **Durable, on-disk plan with a STATE/HANDOFF header per sub-project**; update
-  it as each phase lands. **Commit per phase** — each commit is a git checkpoint
-  that survives compaction. The next agent reads the plan STATE + `git log` and
-  resumes exactly.
-- **Use the superpowers skills:** `brainstorming` (design a sub-project before
-  coding — HARD GATE: no implementation until the design is approved),
-  `writing-plans` (bite-sized plan with verification gates), `executing-plans`
-  (per-phase, stop-and-ask on blockers). Get the user's approval on each
-  sub-project's design before building.
+### Execution discipline (what has worked across S0 + S1 — keep doing it)
+- **Durable, on-disk plan with a STATE/HANDOFF header per sub-project**, updated
+  as each phase lands. **Commit per phase** — each commit is a git checkpoint
+  that survives compaction. **Keep each commit green** (the chosen S1 discipline:
+  every phase left all of `src/` building; tests swept in one later phase; both
+  gates at the end). The next agent reads the plan STATE + `git log` and resumes.
+- **Use the superpowers skills:** `brainstorming` (design a sub-project with the
+  user before coding — HARD GATE: no implementation until the design is
+  approved), `writing-plans`, `executing-plans`. Get the user's approval on each
+  sub-project's design before building. (`AskUserQuestion` is the tool for the
+  genuine design forks.)
 - **Use subagents** (the `Agent` tool) for (a) **context economy** — offload
-  iteration-heavy implementation so the churn stays out of the main context, and
-  (b) **adversarial verification** — an independent skeptic reviewing
-  high-stakes changes (e.g. the S0 contract diff). Review their output before
-  committing.
-- **Stage explicit paths; NEVER `git add -A`.** (Lesson: `git add -A` swept two
-  pre-existing untracked files into an S0 commit; had to `--amend` them out.)
-- Confirm outward-facing actions (push, PR) with the user before doing them.
+  voluminous mechanical work (the test sweep, the CLI rewrite, mechanical
+  reader-updates) with the compiler/oracle as the objective gate; and (b)
+  **adversarial verification** — an independent skeptic reviewing high-stakes
+  changes (the S0 contract diff; the S1 keystone). **Always review their diffs +
+  re-run the gate yourself before committing** — they catch real things AND
+  occasionally misjudge.
+- **Stage explicit paths; NEVER `git add -A`.** (Lesson: `git add -A` once swept
+  untracked files into a commit.)
+- **Confirm outward-facing actions (push, PR, merge) with the user** before doing
+  them.
 
 ### REUSE / SPDX (a `just ci` gate)
-`REUSE.toml` covers `src/**`, `tests/**`, `docs/**`, `**/*.md`, `**/*.txt`,
-`**/*.cfg`, etc. **`scripts/**` is NOT glob-covered** — new `.nim` files under
-`scripts/` need an inline `# SPDX-License-Identifier: BSD-2-Clause` +
-`# Copyright (c) 2026 Aryan Ameri` header (the oracle/probe have them). Docs use
-`<!-- SPDX-License-Identifier: CC-BY-4.0 -->`.
+`REUSE.toml` covers `src/**`, `tests/**`, `docs/**`, and the common extensions.
+**`scripts/**` is NOT glob-covered** — new `.nim` files under `scripts/` need an
+inline two-line BSD-2-Clause + copyright header. Docs use a CC-BY-4.0 SPDX
+identifier inside an HTML comment. **Caution:** the REUSE linter scans for the
+SPDX-identifier string anywhere; a backtick-wrapped SPDX example in markdown prose
+trips it — wrap such prose in `<!-- REUSE-IgnoreStart -->` / `<!-- REUSE-IgnoreEnd -->`
+(as done in `docs/design/14-Nim-API-Principles.md` and §10 here).
 
 ---
 
-## 10. Key file map
+## 11. Key file map
 
 - `docs/design/14-Nim-API-Principles.md` — **the 29 principles (the rubric).**
 - `docs/design/16-api-from-the-consumers-chair.md` — narrative consumer critique.
-- `examples/jmap-cli/AUDIT.md` — **the 92-finding ledger** (Phase-1 observe-only).
-- `examples/jmap-cli/` — the P29 consumer bench (CLI + `cli_session.nim`
-  connect helper + `commands/*`). Imports only `jmap_client`
-  [+ `jmap_client/convenience`]; `check-public-only.sh` enforces that.
+- `examples/jmap-cli/AUDIT.md` — the 92-finding ledger (+ the S1 resolution section).
+- `examples/jmap-cli/` — the P29 consumer bench (CLI + `commands/*` +
+  `cli_session.nim`). Imports only `jmap_client` [+ `convenience`];
+  `check-public-only.sh` enforces that. **Now threads one `JmapError` rail.**
 - `docs/superpowers/jmap-cli-api-truth.md` — recon truth sheet (gitignored).
 - `docs/TODO/pre-1.0-api-alignment.md` — pre-existing Section A–H tracker
-  (superseded on the 1.0-freeze framing; Section C maps to R1/R2/R4).
+  (superseded on the 1.0-freeze framing; its Section C maps to R1/R2/R4).
 - `src/jmap_client.nim` — the public re-export hub (L5 C-ABI exports land here).
-- `src/jmap_client/convenience.nim` — opt-in P6 pipeline combinators
-  (dissolution candidate, S4).
-- `src/jmap_client/internal/` — `types/` (L1), `serialisation/` (L2),
-  `protocol.nim` (L3), `transport.nim` + `client.nim` (L4), `mail/` (RFC 8621),
-  `push.nim`/`websocket.nim` (deferred stubs). See CLAUDE.md "Important
-  Directories".
-- `scripts/api_oracle.nim` + `api_probe.nim` — the S0 contract oracle.
-- `tests/wire_contract/{public-api.txt,type-shapes.txt}` — the frozen contract
-  (now oracle-generated). `tests/lint/h16_*`, `h17_*` — the lock lints.
+- `src/jmap_client/convenience.nim` — opt-in pipeline combinators (P6 dissolution
+  candidate, S4).
+- `src/jmap_client/internal/` — `types/` (L1, incl. `errors.nim`,
+  `validation.nim`), `serialisation/` (L2), `protocol.nim` + `protocol/` (L3:
+  `builder`, `dispatch`, `methods`, `entity`, **`jmap_error` (S1)**,
+  **`preflight` (S1)**), `transport.nim` + `transport/` (L4: `classify`),
+  `client.nim` (L4), `mail/` (RFC 8621), `push.nim`/`websocket.nim` (deferred
+  stubs).
+- `scripts/api_oracle.nim` + `api_probe.nim` — the S0 contract oracle;
+  `scripts/freeze_error_messages.nim` — the H15 error-message snapshot generator.
+- `tests/wire_contract/{public-api.txt, type-shapes.txt, error-messages.txt}` —
+  the frozen contract (oracle-generated). `tests/lint/h16_*`/`h17_*`/`h15_*` —
+  the lock lints. `tests/testament_skip.txt` — the fast-suite skip list.
 - `config.nims` / `jmap_client.nimble` — compiler flags (`--mm:arc`,
-  `strictDefs`, `threads:on`, `panics:on`, `floatChecks`, the `warningAsError`
-  battery; `styleCheck` enforced per-file via `just lint-style` over `src/`).
+  `strictDefs`, `threads:on`, `panics:on`, the `warningAsError` battery).
 - `CLAUDE.md` — project instructions (commit format, principles, conventions).
-- `/.nim-reference/` — read-only Nim stdlib + compiler + docs (audit the
-  oracle's compiler-API usage here).
+- `/.nim-reference/` — read-only Nim stdlib + compiler + docs.
 
 ---
 
-## 11. Current working state (snapshot, 2026-06-15)
+## 12. Current working state (snapshot, 2026-06-15)
 
-- Branch `api/s0-truthful-contract` checked out, **working tree clean**, 6
-  commits ahead of `main`, both gates green.
-- In-session task list (ephemeral) had S0 Phases 0–6; Phase 6's only remainder
-  is the push+PR awaiting user go-ahead.
-- Memories present: `api-libcurl-sqlite-refactor` (campaign),
+- Branch `api/s1-one-error-rail` checked out, **working tree clean**, HEAD
+  `c73dbdf`, **13 commits ahead of `main`**, **both gates green**. **NOT pushed.**
+- `main` has S0 merged (the oracle); S1 lives only on the branch.
+- Memories present: `api-libcurl-sqlite-refactor` (campaign state, marks S1 DONE),
   `api-design-only-consumers` (the design lens), plus the older
-  `api-refactor-section-ab-campaign` (the pre-1.0 tracker, partly superseded).
+  `api-refactor-section-ab-campaign` (partly superseded).
 
 ---
 
-## 12. Immediate next action
+## 13. Immediate next action
 
-1. If the user has approved: `git push -u origin api/s0-truthful-contract` and
-   open the S0 PR (draft in the conversation / §7). Mark the
-   `fromJson(MailboxChangesResponse)` removal as a correctness fix in the body.
-2. Otherwise, or once S0 is merged: start **S1 (one error rail)** — invoke the
-   `brainstorming` skill, design `JmapError` against the design lens (§2) and
-   P13/P5/P15/P18, get the user's approval, then `writing-plans` →
-   `executing-plans` with per-phase commits and the two gates (§9). Treat any
-   `convenience.nim`/CLI/test breakage as a finding to fix, never a constraint.
+1. **Confirm with the user** whether to **push `api/s1-one-error-rail` + open a
+   PR** (and/or merge to `main`). Do NOT push/PR/merge without explicit
+   go-ahead (outward-facing). If approved: `git push -u origin
+   api/s1-one-error-rail`, `gh pr create …`, note the rail removals are
+   intentional.
+2. **Then start S2 (read-model uniformity):** invoke the `brainstorming` skill,
+   design the final entity data-record shapes against the design lens (§2) and
+   P8/P19/decision 3 (direct public fields for data records; collapse the
+   `Opt`-vs-`FieldEcho` split; reconcile `Thread`'s `lent seq`), **get the user's
+   approval**, then `writing-plans` → `executing-plans` with per-phase commits and
+   the two gates (§10). Treat any `convenience.nim`/CLI/test breakage as a
+   **finding to fix, never a constraint**.
 
-**When in doubt, re-read §2 (the design lens) and ask: "would libcurl or SQLite
-do this? Or is this the OpenSSL/libdbus choice?"** Optimise for the future
-application developer, comprehensively, no corners cut.
+**When in doubt, re-read §2 (the design lens). Optimise for the future
+application developer, comprehensively, no corners cut — libcurl/SQLite, not
+OpenSSL/libdbus.**

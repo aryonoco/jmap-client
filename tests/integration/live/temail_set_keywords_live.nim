@@ -58,8 +58,9 @@ testCase temailSetKeywordsLive:
     )
     let resp3 =
       client.send(b3.freeze()).expect("send Email/get pre-update[" & $target.kind & "]")
-    let getResp1 =
-      resp3.get(getHandle1).expect("Email/get pre-update extract[" & $target.kind & "]")
+    let getResp1 = resp3.get(getHandle1).expectValue(
+        "Email/get pre-update extract[" & $target.kind & "]"
+      )
     assertOn target, getResp1.list.len == 1, "Email/get must return the seeded message"
     let staleState = getResp1.state
 
@@ -79,7 +80,7 @@ testCase temailSetKeywordsLive:
     let resp4 = client.send(b4.freeze()).expect(
         "send Email/set update happy[" & $target.kind & "]"
       )
-    let setResp1 = resp4.get(setHandle1).expect(
+    let setResp1 = resp4.get(setHandle1).expectValue(
         "Email/set update happy extract[" & $target.kind & "]"
       )
     let updateOutcome = setResp1.updateResults[seededId]
@@ -96,7 +97,7 @@ testCase temailSetKeywordsLive:
     let resp5 = client.send(b5.freeze()).expect(
         "send Email/get post-update[" & $target.kind & "]"
       )
-    let getResp2 = resp5.get(getHandle2).expect(
+    let getResp2 = resp5.get(getHandle2).expectValue(
         "Email/get post-update extract[" & $target.kind & "]"
       )
     assertOn target, getResp2.list.len == 1, "Email/get must return the seeded message"
