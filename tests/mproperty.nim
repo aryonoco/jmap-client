@@ -1479,11 +1479,11 @@ proc genHeaderValueString(rng: var Rand, form: HeaderForm): HeaderValue =
   let val = rng.genPrintableString(60)
   case form
   of hfRaw:
-    HeaderValue(form: hfRaw, rawValue: val)
+    HeaderValue(form: hfRaw, rawValue: Opt.some(val))
   of hfText:
-    HeaderValue(form: hfText, textValue: val)
+    HeaderValue(form: hfText, textValue: Opt.some(val))
   else:
-    HeaderValue(form: hfRaw, rawValue: val)
+    HeaderValue(form: hfRaw, rawValue: Opt.some(val))
 
 proc genHeaderValueNullable(rng: var Rand, form: HeaderForm): HeaderValue =
   ## Generates nullable HeaderValue variants (hfMessageIds, hfDate, hfUrls).
@@ -1511,7 +1511,7 @@ proc genHeaderValueNullable(rng: var Rand, form: HeaderForm): HeaderValue =
       urlList.add("https://example.com/path" & $i)
     HeaderValue(form: hfUrls, urls: Opt.some(urlList))
   else:
-    HeaderValue(form: hfRaw, rawValue: "")
+    HeaderValue(form: hfRaw, rawValue: Opt.some(""))
 
 proc genHeaderValue*(rng: var Rand, form: HeaderForm): HeaderValue =
   ## Generates a HeaderValue for the given form variant.
@@ -1525,13 +1525,13 @@ proc genHeaderValue*(rng: var Rand, form: HeaderForm): HeaderValue =
     var addrs: seq[EmailAddress] = @[]
     for _ in 0 ..< count:
       addrs.add(rng.genEmailAddress())
-    HeaderValue(form: hfAddresses, addresses: addrs)
+    HeaderValue(form: hfAddresses, addresses: Opt.some(addrs))
   of hfGroupedAddresses:
     let count = rng.rand(0 .. 2)
     var groups: seq[EmailAddressGroup] = @[]
     for _ in 0 ..< count:
       groups.add(rng.genEmailAddressGroup())
-    HeaderValue(form: hfGroupedAddresses, groups: groups)
+    HeaderValue(form: hfGroupedAddresses, groups: Opt.some(groups))
   of hfMessageIds, hfDate, hfUrls:
     rng.genHeaderValueNullable(form)
 

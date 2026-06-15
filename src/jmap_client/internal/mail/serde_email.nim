@@ -320,7 +320,12 @@ func parseHeaderValueArray(
     node: JsonNode, form: HeaderForm, path: JsonPath
 ): Result[seq[HeaderValue], SerdeViolation] =
   ## Parses a JSON array of header values for ``:all`` dynamic header properties.
-  ## Each element parsed via parseHeaderValue with the given form.
+  ## Each element parsed via parseHeaderValue with the given form. RFC 8621
+  ## §4.1.3 returns an empty array (never null) for a ``:all`` request the
+  ## message lacks; be lenient and map an unexpected ``null`` to the empty
+  ## sequence rather than rejecting it.
+  if node.isNil or node.kind == JNull:
+    return ok(newSeq[HeaderValue]())
   ?expectKind(node, JArray, path)
   var values: seq[HeaderValue] = @[]
   for i, elem in node.getElems(@[]):

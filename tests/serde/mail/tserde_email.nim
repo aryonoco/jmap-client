@@ -292,7 +292,7 @@ testCase toJsonFromAddrKey: # scenario 19
 testCase toJsonRequestedHeaders: # scenario 20
   var e = makeEmail()
   let hpk = parseHeaderPropertyName("header:Subject:asText").get()
-  let hv = HeaderValue(form: hfText, textValue: "Test Subject")
+  let hv = HeaderValue(form: hfText, textValue: Opt.some("Test Subject"))
   var headerTable = initTable[HeaderPropertyKey, HeaderValue]()
   headerTable[hpk] = hv
   e.requestedHeaders = Opt.some(headerTable)
@@ -304,7 +304,8 @@ testCase toJsonRequestedHeadersAll: # scenario 21
   var e = makeEmail()
   let hpk = parseHeaderPropertyName("header:From:asAddresses:all").get()
   let hv = HeaderValue(
-    form: hfAddresses, addresses: @[EmailAddress(name: Opt.none(string), email: "a@b")]
+    form: hfAddresses,
+    addresses: Opt.some(@[EmailAddress(name: Opt.none(string), email: "a@b")]),
   )
   var headerTableAll = initTable[HeaderPropertyKey, seq[HeaderValue]]()
   headerTableAll[hpk] = @[hv]

@@ -55,27 +55,29 @@ testCase fromJsonNullValue: # scenario 11f
 testCase parseHfRaw: # scenario 30
   let res = parseHeaderValue(hfRaw, %"raw header content")
   assertOk res
-  assertEq res.get().rawValue, "raw header content"
+  assertSomeEq res.get().rawValue, "raw header content"
 
 testCase parseHfText: # scenario 31
   let res = parseHeaderValue(hfText, %"text header content")
   assertOk res
-  assertEq res.get().textValue, "text header content"
+  assertSomeEq res.get().textValue, "text header content"
 
 testCase parseHfAddresses: # scenario 32
   let node = %*[{"name": "Joe", "email": "joe@example.com"}]
   let res = parseHeaderValue(hfAddresses, node)
   assertOk res
-  assertLen res.get().addresses, 1
-  assertEq res.get().addresses[0].email, "joe@example.com"
+  assertSome res.get().addresses
+  assertLen res.get().addresses.get(), 1
+  assertEq res.get().addresses.get()[0].email, "joe@example.com"
 
 testCase parseHfGroupedAddresses: # scenario 33
   let node =
     %*[{"name": "Team", "addresses": [{"name": "Joe", "email": "joe@example.com"}]}]
   let res = parseHeaderValue(hfGroupedAddresses, node)
   assertOk res
-  assertLen res.get().groups, 1
-  assertSomeEq res.get().groups[0].name, "Team"
+  assertSome res.get().groups
+  assertLen res.get().groups.get(), 1
+  assertSomeEq res.get().groups.get()[0].name, "Team"
 
 testCase parseHfMessageIds: # scenario 34
   let node = %*["<msg1@example.com>", "<msg2@example.com>"]
@@ -126,30 +128,35 @@ testCase wrongKindRemainingForms: # scenario 51
   assertErr parseHeaderValue(hfDate, %*[1, 2])
   assertErr parseHeaderValue(hfUrls, %*{"not": "array"})
 
-testCase nullForNonNullableForm: # scenario 52
-  assertErr parseHeaderValue(hfAddresses, newJNull())
+testCase nullForSingleInstanceForm: # scenario 52
+  # RFC 8621 §4.1.3: an absent single-instance header is returned as null, so
+  # all four single-instance forms must accept null and yield Opt.none — they
+  # no longer reject it. (Detailed none-value checks live in
+  # ``tserde_header_null.nim``.)
+  for form in [hfRaw, hfText, hfAddresses, hfGroupedAddresses]:
+    assertOk parseHeaderValue(form, newJNull())
 
 # ============= F. HeaderValue toJson (scenario 42) =============
 
 testCase headerValueToJsonAllForms: # scenario 42
   # hfRaw
-  let rawVal = HeaderValue(form: hfRaw, rawValue: "raw content")
+  let rawVal = HeaderValue(form: hfRaw, rawValue: Opt.some("raw content"))
   assertEq rawVal.toJson(), %"raw content"
 
   # hfText
-  let textVal = HeaderValue(form: hfText, textValue: "text content")
+  let textVal = HeaderValue(form: hfText, textValue: Opt.some("text content"))
   assertEq textVal.toJson(), %"text content"
 
   # hfAddresses
   let ea = parseEmailAddress("joe@example.com", Opt.some("Joe")).get()
-  let addrVal = HeaderValue(form: hfAddresses, addresses: @[ea])
+  let addrVal = HeaderValue(form: hfAddresses, addresses: Opt.some(@[ea]))
   let addrJson = addrVal.toJson()
   doAssert addrJson.kind == JArray
   assertLen addrJson.getElems(), 1
 
   # hfGroupedAddresses
   let group = EmailAddressGroup(name: Opt.some("Team"), addresses: @[ea])
-  let groupVal = HeaderValue(form: hfGroupedAddresses, groups: @[group])
+  let groupVal = HeaderValue(form: hfGroupedAddresses, groups: Opt.some(@[group]))
   let groupJson = groupVal.toJson()
   doAssert groupJson.kind == JArray
   assertLen groupJson.getElems(), 1
@@ -177,27 +184,29 @@ testCase headerValueToJsonAllForms: # scenario 42
 
 testCase headerValueRoundTrip: # scenario 43
   # hfRaw
-  let rawOrig = HeaderValue(form: hfRaw, rawValue: "test")
+  let rawOrig = HeaderValue(form: hfRaw, rawValue: Opt.some("test"))
   let rawRT = parseHeaderValue(hfRaw, rawOrig.toJson()).get()
-  assertEq rawRT.rawValue, "test"
+  assertSomeEq rawRT.rawValue, "test"
 
   # hfText
-  let textOrig = HeaderValue(form: hfText, textValue: "test text")
+  let textOrig = HeaderValue(form: hfText, textValue: Opt.some("test text"))
   let textRT = parseHeaderValue(hfText, textOrig.toJson()).get()
-  assertEq textRT.textValue, "test text"
+  assertSomeEq textRT.textValue, "test text"
 
   # hfAddresses
   let ea = parseEmailAddress("joe@example.com", Opt.some("Joe")).get()
-  let addrOrig = HeaderValue(form: hfAddresses, addresses: @[ea])
+  let addrOrig = HeaderValue(form: hfAddresses, addresses: Opt.some(@[ea]))
   let addrRT = parseHeaderValue(hfAddresses, addrOrig.toJson()).get()
-  assertLen addrRT.addresses, 1
-  assertEq addrRT.addresses[0].email, "joe@example.com"
+  assertSome addrRT.addresses
+  assertLen addrRT.addresses.get(), 1
+  assertEq addrRT.addresses.get()[0].email, "joe@example.com"
 
   # hfGroupedAddresses
   let group = EmailAddressGroup(name: Opt.some("Team"), addresses: @[ea])
-  let groupOrig = HeaderValue(form: hfGroupedAddresses, groups: @[group])
+  let groupOrig = HeaderValue(form: hfGroupedAddresses, groups: Opt.some(@[group]))
   let groupRT = parseHeaderValue(hfGroupedAddresses, groupOrig.toJson()).get()
-  assertLen groupRT.groups, 1
+  assertSome groupRT.groups
+  assertLen groupRT.groups.get(), 1
 
   # hfMessageIds — Some
   let msgOrig = HeaderValue(form: hfMessageIds, messageIds: Opt.some(@["<msg@ex.com>"]))
@@ -235,12 +244,14 @@ testCase headerValueDateNoneToJson: # scenario 44
 testCase emptyAddressesArray: # scenario 45
   let res = parseHeaderValue(hfAddresses, %*[])
   assertOk res
-  assertLen res.get().addresses, 0
+  assertSome res.get().addresses
+  assertLen res.get().addresses.get(), 0
 
 testCase emptyGroupsArray: # scenario 46
   let res = parseHeaderValue(hfGroupedAddresses, %*[])
   assertOk res
-  assertLen res.get().groups, 0
+  assertSome res.get().groups
+  assertLen res.get().groups.get(), 0
 
 testCase emptyMessageIdsArray: # scenario 47
   let res = parseHeaderValue(hfMessageIds, %*[])
@@ -266,7 +277,7 @@ testCase malformedDateString: # scenario 50
 testCase emptyRawString: # scenario 52a
   let res = parseHeaderValue(hfRaw, %"")
   assertOk res
-  assertEq res.get().rawValue, ""
+  assertSomeEq res.get().rawValue, ""
 
 testCase mixedKindArray: # scenario 52b
   let node = %*[42, "not-an-object"]

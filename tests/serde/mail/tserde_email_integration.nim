@@ -124,11 +124,12 @@ testCase emailRoundTripWithDynamicHeaders: # scenario 133
   # Populate requestedHeaders with two entries
   var reqHeaders = initTable[HeaderPropertyKey, HeaderValue]()
   let hpkText = parseHeaderPropertyName("header:X-Custom:asText").get()
-  reqHeaders[hpkText] = HeaderValue(form: hfText, textValue: "custom text value")
+  reqHeaders[hpkText] =
+    HeaderValue(form: hfText, textValue: Opt.some("custom text value"))
   let hpkAddr = parseHeaderPropertyName("header:X-Sender:asAddresses").get()
   reqHeaders[hpkAddr] = HeaderValue(
     form: hfAddresses,
-    addresses: @[EmailAddress(name: Opt.none(string), email: "bob@test.com")],
+    addresses: Opt.some(@[EmailAddress(name: Opt.none(string), email: "bob@test.com")]),
   )
   e.requestedHeaders = Opt.some(reqHeaders)
 
@@ -136,8 +137,8 @@ testCase emailRoundTripWithDynamicHeaders: # scenario 133
   var reqHeadersAll = initTable[HeaderPropertyKey, seq[HeaderValue]]()
   let hpkAll = parseHeaderPropertyName("header:X-Trace:asText:all").get()
   reqHeadersAll[hpkAll] = @[
-    HeaderValue(form: hfText, textValue: "trace-1"),
-    HeaderValue(form: hfText, textValue: "trace-2"),
+    HeaderValue(form: hfText, textValue: Opt.some("trace-1")),
+    HeaderValue(form: hfText, textValue: Opt.some("trace-2")),
   ]
   e.requestedHeadersAll = Opt.some(reqHeadersAll)
 

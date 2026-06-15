@@ -169,8 +169,10 @@ testCase temailGetHeaderFormsLive:
     assertOn target,
       fromHv.form == hfAddresses, "From HeaderValue must carry hfAddresses form"
     assertOn target,
-      fromHv.addresses.len == 1,
-      "expected one From address (got " & $fromHv.addresses.len & ")"
+      fromHv.addresses.isSome, "From hfAddresses payload must be non-null"
+    let fromAddrs = fromHv.addresses.get()
     assertOn target,
-      fromHv.addresses[0].email == "alice@example.com",
-      "From address must be alice@example.com (got " & fromHv.addresses[0].email & ")"
+      fromAddrs.len == 1, "expected one From address (got " & $fromAddrs.len & ")"
+    assertOn target,
+      fromAddrs[0].email == "alice@example.com",
+      "From address must be alice@example.com (got " & fromAddrs[0].email & ")"

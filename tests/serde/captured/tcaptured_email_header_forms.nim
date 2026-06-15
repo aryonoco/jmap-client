@@ -50,5 +50,5 @@ testCase tcapturedEmailHeaderForms:
     doAssert fromKey in requestedHeaders, "header:From:asAddresses must be present"
     let fromHV = requestedHeaders.getOrDefault(fromKey)
     doAssert fromHV.form == hfAddresses
-    doAssert fromHV.addresses.len >= 1,
+    doAssert fromHV.addresses.isSome and fromHV.addresses.get().len >= 1,
       "From must carry at least one address in the captured fixture"

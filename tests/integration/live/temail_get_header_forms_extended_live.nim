@@ -140,7 +140,8 @@ testCase temailGetHeaderFormsExtendedLive:
     assertOn target,
       commentsTextHv.form == hfText, "Comments HeaderValue must carry hfText form"
     assertOn target,
-      commentsTextHv.textValue.len > 0, "asText payload must be a non-empty string"
+      commentsTextHv.textValue.isSome and commentsTextHv.textValue.get().len > 0,
+      "asText payload must be a non-empty string"
 
     let commentsRawKey = parseHeaderPropertyName("header:Comments:asRaw").expect(
         "parseHeaderPropertyName commentsRaw"
@@ -151,7 +152,7 @@ testCase temailGetHeaderFormsExtendedLive:
     assertOn target,
       commentsRawHv.form == hfRaw, "Comments asRaw HeaderValue must carry hfRaw form"
     assertOn target,
-      commentsRawHv.rawValue.len > 0,
+      commentsRawHv.rawValue.isSome and commentsRawHv.rawValue.get().len > 0,
       "asRaw payload must be a non-empty byte-passthrough string"
 
     let toGroupedKey = parseHeaderPropertyName("header:To:asGroupedAddresses").expect(
@@ -164,7 +165,7 @@ testCase temailGetHeaderFormsExtendedLive:
       toGroupedHv.form == hfGroupedAddresses,
       "To HeaderValue must carry hfGroupedAddresses form"
     assertOn target,
-      toGroupedHv.groups.len >= 1,
+      toGroupedHv.groups.isSome and toGroupedHv.groups.get().len >= 1,
       "asGroupedAddresses must produce at least one group entry"
 
     let resentAllKey = parseHeaderPropertyName("header:Resent-To:asAddresses:all")

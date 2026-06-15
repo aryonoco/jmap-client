@@ -95,15 +95,19 @@ testCase propRoundTripHeaderValue:
     of hfText:
       doAssert rt.textValue == v.textValue, "HeaderValue textValue mismatch"
     of hfAddresses:
-      doAssert rt.addresses.len == v.addresses.len, "HeaderValue addresses len mismatch"
-      for i in 0 ..< v.addresses.len:
-        doAssert rt.addresses[i].email == v.addresses[i].email
-        doAssert rt.addresses[i].name == v.addresses[i].name
+      let rtAddrs = rt.addresses.get()
+      let vAddrs = v.addresses.get()
+      doAssert rtAddrs.len == vAddrs.len, "HeaderValue addresses len mismatch"
+      for i in 0 ..< vAddrs.len:
+        doAssert rtAddrs[i].email == vAddrs[i].email
+        doAssert rtAddrs[i].name == vAddrs[i].name
     of hfGroupedAddresses:
-      doAssert rt.groups.len == v.groups.len, "HeaderValue groups len mismatch"
-      for i in 0 ..< v.groups.len:
-        doAssert rt.groups[i].name == v.groups[i].name
-        doAssert rt.groups[i].addresses.len == v.groups[i].addresses.len
+      let rtGroups = rt.groups.get()
+      let vGroups = v.groups.get()
+      doAssert rtGroups.len == vGroups.len, "HeaderValue groups len mismatch"
+      for i in 0 ..< vGroups.len:
+        doAssert rtGroups[i].name == vGroups[i].name
+        doAssert rtGroups[i].addresses.len == vGroups[i].addresses.len
     of hfMessageIds:
       doAssert rt.messageIds == v.messageIds, "HeaderValue messageIds mismatch"
     of hfDate:

@@ -241,12 +241,16 @@ func `$`*(k: HeaderPropertyKey): string =
 
 type HeaderValue* {.ruleOff: "objects".} = object
   ## Parsed header content discriminated by form (RFC 8621 §4.1.2).
-  ## ``Opt.none`` on nullable variants means "server could not parse."
+  ## Every variant is ``Opt`` because RFC 8621 §4.1.3 returns ``null`` for a
+  ## requested single-instance header the message lacks (the value is null if
+  ## fetching a single instance, an empty array if requesting ``:all``).
+  ## ``Opt.none`` means the header was absent — never conflate it with an
+  ## empty string or an empty array.
   case form*: HeaderForm
-  of hfRaw: rawValue*: string
-  of hfText: textValue*: string
-  of hfAddresses: addresses*: seq[EmailAddress]
-  of hfGroupedAddresses: groups*: seq[EmailAddressGroup]
+  of hfRaw: rawValue*: Opt[string]
+  of hfText: textValue*: Opt[string]
+  of hfAddresses: addresses*: Opt[seq[EmailAddress]]
+  of hfGroupedAddresses: groups*: Opt[seq[EmailAddressGroup]]
   of hfMessageIds: messageIds*: Opt[seq[string]]
   of hfDate: date*: Opt[Date]
   of hfUrls: urls*: Opt[seq[string]]

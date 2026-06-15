@@ -63,29 +63,40 @@ func parseHeaderValue*(
     form: HeaderForm, node: JsonNode, path: JsonPath = emptyJsonPath()
 ): Result[HeaderValue, SerdeViolation] =
   ## Parses a JSON value into the correct ``HeaderValue`` variant based on
-  ## the given form. Nullable forms (messageIds, date, urls) accept JNull
-  ## as ``Opt.none``.
+  ## the given form. Every form accepts JNull as ``Opt.none``: RFC 8621
+  ## §4.1.3 returns ``null`` for a requested single-instance header the
+  ## message lacks.
   case form
   of hfRaw:
+    if node.isNil or node.kind == JNull:
+      return ok(HeaderValue(form: hfRaw, rawValue: Opt.none(string)))
     ?expectKind(node, JString, path)
-    return ok(HeaderValue(form: hfRaw, rawValue: node.getStr("")))
+    return ok(HeaderValue(form: hfRaw, rawValue: Opt.some(node.getStr(""))))
   of hfText:
+    if node.isNil or node.kind == JNull:
+      return ok(HeaderValue(form: hfText, textValue: Opt.none(string)))
     ?expectKind(node, JString, path)
-    return ok(HeaderValue(form: hfText, textValue: node.getStr("")))
+    return ok(HeaderValue(form: hfText, textValue: Opt.some(node.getStr(""))))
   of hfAddresses:
+    if node.isNil or node.kind == JNull:
+      return ok(HeaderValue(form: hfAddresses, addresses: Opt.none(seq[EmailAddress])))
     ?expectKind(node, JArray, path)
     var addrs: seq[EmailAddress] = @[]
     for i, elem in node.getElems(@[]):
       let ea = ?EmailAddress.fromJson(elem, path / i)
       addrs.add(ea)
-    return ok(HeaderValue(form: hfAddresses, addresses: addrs))
+    return ok(HeaderValue(form: hfAddresses, addresses: Opt.some(addrs)))
   of hfGroupedAddresses:
+    if node.isNil or node.kind == JNull:
+      return ok(
+        HeaderValue(form: hfGroupedAddresses, groups: Opt.none(seq[EmailAddressGroup]))
+      )
     ?expectKind(node, JArray, path)
     var groups: seq[EmailAddressGroup] = @[]
     for i, elem in node.getElems(@[]):
       let g = ?EmailAddressGroup.fromJson(elem, path / i)
       groups.add(g)
-    return ok(HeaderValue(form: hfGroupedAddresses, groups: groups))
+    return ok(HeaderValue(form: hfGroupedAddresses, groups: Opt.some(groups)))
   of hfMessageIds:
     let ids = ?parseNullableStringArray(node, path)
     return ok(HeaderValue(form: hfMessageIds, messageIds: ids))
@@ -103,23 +114,31 @@ func parseHeaderValue*(
 # =============================================================================
 
 func toJson*(v: HeaderValue): JsonNode =
-  ## Serialise HeaderValue to JSON. ``Opt.none`` on nullable variants
-  ## produces ``null``.
+  ## Serialise HeaderValue to JSON. ``Opt.none`` on any variant produces
+  ## ``null`` — RFC 8621 §4.1.3 wire shape for an absent single instance.
   case v.form
   of hfRaw:
-    return %v.rawValue
+    for raw in v.rawValue:
+      return %raw
+    return newJNull()
   of hfText:
-    return %v.textValue
+    for text in v.textValue:
+      return %text
+    return newJNull()
   of hfAddresses:
-    var arr = newJArray()
-    for ea in v.addresses:
-      arr.add(ea.toJson())
-    return arr
+    for addrs in v.addresses:
+      var arr = newJArray()
+      for ea in addrs:
+        arr.add(ea.toJson())
+      return arr
+    return newJNull()
   of hfGroupedAddresses:
-    var arr = newJArray()
-    for g in v.groups:
-      arr.add(g.toJson())
-    return arr
+    for groups in v.groups:
+      var arr = newJArray()
+      for g in groups:
+        arr.add(g.toJson())
+      return arr
+    return newJNull()
   of hfMessageIds:
     for ids in v.messageIds:
       var arr = newJArray()
