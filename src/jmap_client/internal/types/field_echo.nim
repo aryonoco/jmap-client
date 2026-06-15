@@ -100,8 +100,10 @@ func toOpt*[T](fe: FieldEcho[T]): Opt[T] =
   ## an opt-in lossy reader, NOT a converter, NOT erasure of the type (the
   ## ``isAbsent``/``isNull`` predicates remain for offline-sync callers).
   case fe.kind
-  of fekValue: Opt.some(fe.value)
-  of fekAbsent, fekNull: Opt.none(T)
+  of fekValue:
+    Opt.some(fe.value)
+  of fekAbsent, fekNull:
+    Opt.none(T)
 
 func `==`*[T](a, b: FieldEcho[T]): bool =
   ## Arm-dispatched equality. Case-objects under strict require nested

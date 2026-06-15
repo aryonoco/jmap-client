@@ -35,6 +35,7 @@ testCase valueOrBindsEchoOnce:
   proc echoOnce(): FieldEcho[int] =
     inc calls
     fieldValue(5)
+
   assertEq echoOnce().valueOr(0), 5
   assertEq calls, 1
 
@@ -44,6 +45,7 @@ testCase valueOrDoesNotEvaluateDefOnValue:
   proc fallback(): int =
     evaluated = true
     0
+
   assertEq fieldValue(5).valueOr(fallback()), 5
   assertFalse evaluated, "valueOr must not evaluate def on fekValue"
 
