@@ -33,7 +33,7 @@ No new deps, no `converter`s, no `requiresInit`.
   - P0 FieldEcho reader ✅ `0d93a4a` · P1 NonEmptyIdSeq relocate ✅ `a4f5a44` · P2 newtypes ✅ `6c9a306` ·
     P3 ceremony flips ✅ `5785fa2` · P4 Thread ✅ `55042d8` · P5 capability arms ✅ `b83f091` · P6 Account ✅ `b2242fc` ·
     P7 Session ✅ `065eb6f` · P8 Email headers + MailboxChangesResponse ✅ `27443be` ·
-    P9 SetResponse projections ⬜ · P10 contract regen ⬜ · P11 test sweep ⬜ ·
+    P9 SetResponse projections ✅ `759ab11` · P10 contract regen ⬜ · P11 test sweep ⬜ ·
     P12 CLI re-bench ⬜ · P13 gates ⬜.
 
 ### RESUME PROTOCOL (for a zero-context successor after compaction)
@@ -107,6 +107,31 @@ default fields; URL-template required vars §2; mayDelete always-present Boolean
 - **Post-S2: a dedicated RFC-conformance audit of the WHOLE codebase** (every D/A/B
   decision + protocol claim, not just S2-touched) is a USER-APPROVED new sub-project
   to run AFTER S2 completes — record it in the campaign handoff at S2 wrap-up.
+
+### P11 SWEEP INVENTORY (broken-test sites surfaced by P0-P9 reviews)
+
+The src/ flips intentionally left tests red (per-phase gate is `just build`). P11
+must migrate these (compiler is the gate; tests adapt to the API, never the reverse):
+- **`tests/mfixtures.nim` is a FOUNDATIONAL shared helper — fix it FIRST.** Its
+  `makeEmail` assigns `headers: @[]` to the now-`Opt[seq[EmailHeader]]` field
+  (lines ~564/596/624) → `mfixtures` and `massertions` won't compile, cascading to
+  most tests. Wrap with `Opt.some(@[...])` / `Opt.none(...)` as appropriate.
+- **capability accessor calls** (`.maxSizeUpload()`/`.collationAlgorithms()`/
+  `.maxDelayedSend()`/`.uri()`/etc. → drop parens; `coreCapabilities()`→`.core`):
+  `tests/serde/tserde_capabilities.nim`, `tserde_session.nim`,
+  `tserde/captured/tcaptured_session.nim`, `tests/serde/mail/tserde_mail_account_capabilities.nim`,
+  `tests/property/tprop_capabilities.nim`/`tprop_session.nim`/`tprop_server_capability.nim`/
+  `tprop_account_capability_entry.nim`/`tprop_serde.nim`, `tests/unit/tcapabilities.nim`/
+  `tsession.nim`, `tests/compliance/trfc_8620.nim`/`tscenarios.nim`, `tests/stress/tadversarial.nim`,
+  `tests/serde/tserde_account.nim`, `tests/mproperty.nim`.
+- **`Session.apiUrl` is now `ApiUrl`** (use `$session.apiUrl` where a string/`.len`/`==`
+  was used); **`Account.name` is `DisplayName`** (use `$`).
+- **`Thread.emailIds` is `NonEmptyIdSeq`** (`.toSeq` where a `seq[Id]` is needed).
+- **`Email.headers`/`requestedHeaders*` are `Opt`** (unwrap).
+- **B12 behavioural tests must be SEMANTICALLY updated (not mechanically adapted)** —
+  see the RFC-AUDIT FINDINGS B12 entry: the read-only-account-drops-caps assertions are
+  now WRONG; invert/remove them. `tests/compile/tcompile_a17_account_capability_surface.nim:21`
+  asserts `declared(WriteImplyingAccountCapabilities)` — that const is gone; remove the assert.
 
 ### DEFERRED FINDINGS (discovered during execution; OUT of S2 scope)
 
