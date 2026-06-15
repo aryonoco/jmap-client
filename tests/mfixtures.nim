@@ -1110,9 +1110,10 @@ proc makeErrorResponse*(
 # ---------------------------------------------------------------------------
 
 proc makeEmailJson*(): JsonNode =
-  ## Golden Email JSON with all 28 fields. Derived from ``makeEmail().toJson()``
-  ## so the fixture always reflects the current type definition (§12.14).
-  makeEmail().toJson()
+  ## Golden Email JSON with all 28 fields. Derived from
+  ## ``makeEmail().toJsonForFixture()`` so the fixture always reflects the
+  ## current type definition (§12.14).
+  makeEmail().toJsonForFixture()
 
 proc makeParsedEmailJson*(): JsonNode =
   ## Valid ParsedEmail JSON without metadata. Derived from

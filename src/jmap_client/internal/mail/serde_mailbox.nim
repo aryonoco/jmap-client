@@ -193,8 +193,15 @@ func fromJson*(
 # Mailbox
 # =============================================================================
 
-func toJson*(mbx: Mailbox): JsonNode =
-  ## Serialise Mailbox to JSON. All fields emitted; parentId/role as value or null.
+func toJsonForFixture*(mbx: Mailbox): JsonNode =
+  ## TEST-FIXTURE ONLY. Emits null for every Opt.none, which is NOT a
+  ## conformant /get response (RFC 8620 §5.1 returns only the requested
+  ## properties, absent not null). Production code never serialises a full
+  ## Email/Mailbox — receive models are parsed via Partial*.fromJson and
+  ## re-emitted via Partial*.toJson, which omit absent fields. The distinct
+  ## name prevents accidental reuse as a response serialiser.
+  ##
+  ## All fields emitted; parentId/role as value or null.
   var node = newJObject()
   node["id"] = mbx.id.toJson()
   node["name"] = %mbx.name

@@ -102,7 +102,7 @@ testCase sharedHelperParity: # scenario 132
 # =============================================================================
 
 testCase emailRoundTripWithDynamicHeaders: # scenario 133
-  ## emailFromJson(email.toJson()) == email for a fully-populated Email
+  ## emailFromJson(email.toJsonForFixture()) == email for a fully-populated Email
   ## including entries in both requestedHeaders and requestedHeadersAll.
   var e = makeEmail()
 
@@ -143,7 +143,7 @@ testCase emailRoundTripWithDynamicHeaders: # scenario 133
   e.requestedHeadersAll = Opt.some(reqHeadersAll)
 
   # Round-trip
-  let roundTripped = emailFromJson(e.toJson())
+  let roundTripped = emailFromJson(e.toJsonForFixture())
   assertOk roundTripped
   doAssert emailEq(roundTripped.get(), e), "Email round-trip mismatch"
 
@@ -153,7 +153,7 @@ testCase emailRoundTripWithDynamicHeaders: # scenario 133
 
 testCase dynamicHeaderPhase2RoundTrip: # scenario 134
   ## JSON with both :all and non-:all header:* keys -> emailFromJson ->
-  ## Email.toJson -> keys preserved with correct (lowercase) names and values.
+  ## Email.toJsonForFixture -> keys preserved with correct (lowercase) names and values.
   var j = makeEmailJson()
   j["header:Subject:asText"] = %"My Subject"
   j["header:X-Trace:asText:all"] = %*["trace-a", "trace-b"]
@@ -167,7 +167,7 @@ testCase dynamicHeaderPhase2RoundTrip: # scenario 134
   assertEq e.requestedHeadersAll.unsafeGet.len, 1
 
   # Re-serialise and verify keys are lowercase-normalised
-  let serialised = e.toJson()
+  let serialised = e.toJsonForFixture()
 
   # parseHeaderPropertyName normalises to lowercase: "Subject" -> "subject"
   const textKey = "header:subject:asText"

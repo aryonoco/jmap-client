@@ -393,7 +393,7 @@ testCase roundTripMailbox: # scenario 48
     myRights: rights,
     isSubscribed: true,
   )
-  let roundTripped = Mailbox.fromJson(original.toJson()).get()
+  let roundTripped = Mailbox.fromJson(original.toJsonForFixture()).get()
   assertEq roundTripped.id, original.id
   assertEq roundTripped.name, original.name
   assertEq roundTripped.parentId, original.parentId

@@ -45,7 +45,7 @@ testCase fromJsonGoldenPath: # scenario 4
   # Round-trip: parse → serialize → parse produces identical result.
   # Cannot compare directly with makeEmail() because parseCharsetField
   # applies C20 defaults (text/* → us-ascii) that the fixture omits.
-  let rt = emailFromJson(parsed.toJson())
+  let rt = emailFromJson(parsed.toJsonForFixture())
   assertOk rt
   doAssert emailEq(rt.get(), parsed), "golden path round-trip mismatch"
 
@@ -270,7 +270,7 @@ testCase fromJsonAttachmentsOnlyPartialShape: # scenario 17c — attachments-onl
 # ============= B. Email toJson (scenarios 18–23) =============
 
 testCase toJsonOptNoneNull: # scenario 18
-  let node = makeEmail().toJson()
+  let node = makeEmail().toJsonForFixture()
   # All convenience headers are Opt.none in makeEmail(), so they emit as null
   const headerKeys = [
     "messageId", "inReplyTo", "references", "sender", "from", "to", "cc", "bcc",
@@ -284,7 +284,7 @@ testCase toJsonFromAddrKey: # scenario 19
   var e = makeEmail()
   let ea = EmailAddress(name: Opt.none(string), email: "test@example.com")
   e.fromAddr = Opt.some(@[ea])
-  let node = e.toJson()
+  let node = e.toJsonForFixture()
   doAssert node{"from"} != nil, "\"from\" key must be present"
   doAssert node{"from"}.kind == JArray
   doAssert node{"fromAddr"}.isNil, "\"fromAddr\" key must not appear"
@@ -296,7 +296,7 @@ testCase toJsonRequestedHeaders: # scenario 20
   var headerTable = initTable[HeaderPropertyKey, HeaderValue]()
   headerTable[hpk] = hv
   e.requestedHeaders = Opt.some(headerTable)
-  let node = e.toJson()
+  let node = e.toJsonForFixture()
   doAssert node{"header:subject:asText"} != nil,
     "dynamic header key must appear as top-level key"
 
@@ -310,19 +310,19 @@ testCase toJsonRequestedHeadersAll: # scenario 21
   var headerTableAll = initTable[HeaderPropertyKey, seq[HeaderValue]]()
   headerTableAll[hpk] = @[hv]
   e.requestedHeadersAll = Opt.some(headerTableAll)
-  let node = e.toJson()
+  let node = e.toJsonForFixture()
   doAssert node{"header:from:asAddresses:all"} != nil,
     "dynamic :all header key must appear"
   doAssert node{"header:from:asAddresses:all"}.kind == JArray
 
 testCase toJsonNoDynamicHeaders: # scenario 22
-  let node = makeEmail().toJson()
+  let node = makeEmail().toJsonForFixture()
   for key, _ in node.pairs:
     doAssert not key.startsWith("header:"),
       "no header: prefixed keys when tables are empty"
 
 testCase toJsonEmptyCollections: # scenario 23
-  let node = makeEmail().toJson()
+  let node = makeEmail().toJsonForFixture()
   # Empty seq emits as []
   doAssert node{"textBody"} != nil and node{"textBody"}.kind == JArray
   assertLen node{"textBody"}.getElems(@[]), 0
