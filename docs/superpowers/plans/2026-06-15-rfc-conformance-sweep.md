@@ -13,10 +13,14 @@
 - **Branch:** `api/rfc-conformance-sweep` (off `main`, post-S2).
 - **Verification:** `just build` per fix; both gates (`just ci` + `clean &&
   jmap-reset && test-full`) at the end. Linux-kernel commits, 3 trailers.
-- **Status:** 🔜 starting.
-  - F1 header-null bug ✅ `7fdc941` · F2 mrSubscriptions ✅ `83c936e` · F3 D5 toJson→fixture ✅ `235f68e` ·
-    F4 VacationResponse vrgkId ✅ `539c178` · F5 deviation-register doc ✅ `884bfd5` ·
-    Gates 🔜.
+- **Status:** ✅ COMPLETE — BOTH GATES GREEN (2026-06-15). `just ci` passed;
+  `just clean && just jmap-reset && just test-full` "All shards passed" vs
+  Stalwart/James/Cyrus. Branch `api/rfc-conformance-sweep` off `main` (S2 already
+  merged), NOT merged (push/PR pending user confirmation).
+  - F1 header-null bug ✅ `7fdc941` (+ complexity decomp `7b948cf`) · F2
+    mrSubscriptions ✅ `83c936e` · F3 D5 toJson→fixture ✅ `235f68e` (+ ripple fix
+    `0ce15f2` — a skip-listed test that the live gate caught) · F4 VacationResponse
+    vrgkId ✅ `539c178` · F5 deviation-register doc ✅ `884bfd5` · Gates ✅ both green.
 
 ## Findings ledger (from the 9-auditor RFC audit; high overall conformance)
 
