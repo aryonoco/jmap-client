@@ -19,25 +19,15 @@
     submission*: SubmissionAccountCapabilities
   of ckVacationResponse:
   of ckCore:
-    coreData*: JsonNode
   of ckWebsocket:
-    websocketData*: JsonNode
   of ckMdn:
-    mdnData*: JsonNode
   of ckSmimeVerify:
-    smimeVerifyData*: JsonNode
   of ckBlob:
-    blobData*: JsonNode
   of ckQuota:
-    quotaData*: JsonNode
   of ckContacts:
-    contactsData*: JsonNode
   of ckCalendars:
-    calendarsData*: JsonNode
   of ckSieve:
-    sieveData*: JsonNode
   of ckUnknown:
-    unknownData*: JsonNode
 
 ## AccountId [jmap_client/internal/types/identifiers]
 
@@ -1365,23 +1355,14 @@
   of ckSubmission:
   of ckVacationResponse:
   of ckWebsocket:
-    websocketData*: JsonNode
   of ckMdn:
-    mdnData*: JsonNode
   of ckSmimeVerify:
-    smimeVerifyData*: JsonNode
   of ckBlob:
-    blobData*: JsonNode
   of ckQuota:
-    quotaData*: JsonNode
   of ckContacts:
-    contactsData*: JsonNode
   of ckCalendars:
-    calendarsData*: JsonNode
   of ckSieve:
-    sieveData*: JsonNode
   of ckUnknown:
-    unknownData*: JsonNode
 
 ## Session [jmap_client/internal/types/session]
   core*: CoreCapabilities
