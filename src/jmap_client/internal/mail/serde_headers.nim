@@ -59,50 +59,75 @@ func parseNullableStringArray(
     strs.add(elem.getStr(""))
   return ok(Opt.some(strs))
 
+func noneHeaderValue(form: HeaderForm): HeaderValue =
+  ## The ``Opt.none`` variant for each form — the wire shape of a requested
+  ## single-instance header the message lacks (RFC 8621 §4.1.3, ``null``).
+  case form
+  of hfRaw:
+    HeaderValue(form: hfRaw, rawValue: Opt.none(string))
+  of hfText:
+    HeaderValue(form: hfText, textValue: Opt.none(string))
+  of hfAddresses:
+    HeaderValue(form: hfAddresses, addresses: Opt.none(seq[EmailAddress]))
+  of hfGroupedAddresses:
+    HeaderValue(form: hfGroupedAddresses, groups: Opt.none(seq[EmailAddressGroup]))
+  of hfMessageIds:
+    HeaderValue(form: hfMessageIds, messageIds: Opt.none(seq[string]))
+  of hfDate:
+    HeaderValue(form: hfDate, date: Opt.none(Date))
+  of hfUrls:
+    HeaderValue(form: hfUrls, urls: Opt.none(seq[string]))
+
+func parseAddressArray(
+    node: JsonNode, path: JsonPath
+): Result[seq[EmailAddress], SerdeViolation] =
+  ## Parse a present JSON array of address objects (RFC 8621 §4.1.2.3). The
+  ## caller's top-level null guard guarantees ``node`` is non-null.
+  ?expectKind(node, JArray, path)
+  var addrs: seq[EmailAddress] = @[]
+  for i, elem in node.getElems(@[]):
+    addrs.add(?EmailAddress.fromJson(elem, path / i))
+  return ok(addrs)
+
+func parseGroupArray(
+    node: JsonNode, path: JsonPath
+): Result[seq[EmailAddressGroup], SerdeViolation] =
+  ## Parse a present JSON array of grouped-address objects (RFC 8621
+  ## §4.1.2.4). The caller's top-level null guard guarantees ``node`` is
+  ## non-null.
+  ?expectKind(node, JArray, path)
+  var groups: seq[EmailAddressGroup] = @[]
+  for i, elem in node.getElems(@[]):
+    groups.add(?EmailAddressGroup.fromJson(elem, path / i))
+  return ok(groups)
+
 func parseHeaderValue*(
     form: HeaderForm, node: JsonNode, path: JsonPath = emptyJsonPath()
 ): Result[HeaderValue, SerdeViolation] =
   ## Parses a JSON value into the correct ``HeaderValue`` variant based on
   ## the given form. Every form accepts JNull as ``Opt.none``: RFC 8621
   ## §4.1.3 returns ``null`` for a requested single-instance header the
-  ## message lacks.
+  ## message lacks. The single null guard below covers all seven forms, so
+  ## each ``case`` arm handles only the present-value shape.
+  if node.isNil or node.kind == JNull:
+    return ok(noneHeaderValue(form))
   case form
   of hfRaw:
-    if node.isNil or node.kind == JNull:
-      return ok(HeaderValue(form: hfRaw, rawValue: Opt.none(string)))
     ?expectKind(node, JString, path)
     return ok(HeaderValue(form: hfRaw, rawValue: Opt.some(node.getStr(""))))
   of hfText:
-    if node.isNil or node.kind == JNull:
-      return ok(HeaderValue(form: hfText, textValue: Opt.none(string)))
     ?expectKind(node, JString, path)
     return ok(HeaderValue(form: hfText, textValue: Opt.some(node.getStr(""))))
   of hfAddresses:
-    if node.isNil or node.kind == JNull:
-      return ok(HeaderValue(form: hfAddresses, addresses: Opt.none(seq[EmailAddress])))
-    ?expectKind(node, JArray, path)
-    var addrs: seq[EmailAddress] = @[]
-    for i, elem in node.getElems(@[]):
-      let ea = ?EmailAddress.fromJson(elem, path / i)
-      addrs.add(ea)
+    let addrs = ?parseAddressArray(node, path)
     return ok(HeaderValue(form: hfAddresses, addresses: Opt.some(addrs)))
   of hfGroupedAddresses:
-    if node.isNil or node.kind == JNull:
-      return ok(
-        HeaderValue(form: hfGroupedAddresses, groups: Opt.none(seq[EmailAddressGroup]))
-      )
-    ?expectKind(node, JArray, path)
-    var groups: seq[EmailAddressGroup] = @[]
-    for i, elem in node.getElems(@[]):
-      let g = ?EmailAddressGroup.fromJson(elem, path / i)
-      groups.add(g)
+    let groups = ?parseGroupArray(node, path)
     return ok(HeaderValue(form: hfGroupedAddresses, groups: Opt.some(groups)))
   of hfMessageIds:
     let ids = ?parseNullableStringArray(node, path)
     return ok(HeaderValue(form: hfMessageIds, messageIds: ids))
   of hfDate:
-    if node.isNil or node.kind == JNull:
-      return ok(HeaderValue(form: hfDate, date: Opt.none(Date)))
     let d = ?Date.fromJson(node, path)
     return ok(HeaderValue(form: hfDate, date: Opt.some(d)))
   of hfUrls:
@@ -113,50 +138,45 @@ func parseHeaderValue*(
 # HeaderValue — toJson
 # =============================================================================
 
+func optSeqToJsonArray[T](opt: Opt[seq[T]]): JsonNode =
+  ## Emit a JSON array — each element rendered via its ``toJson`` — when the
+  ## option holds a value, or ``null`` when absent (RFC 8621 §4.1.3 wire
+  ## shape for a requested single-instance header the message lacks).
+  result = newJNull()
+  for items in opt:
+    var arr = newJArray()
+    for item in items:
+      arr.add(item.toJson())
+    result = arr
+
+func optStringSeqToJsonArray(opt: Opt[seq[string]]): JsonNode =
+  ## Emit a JSON array of strings when the option holds a value, or ``null``
+  ## when absent (RFC 8621 §4.1.3 absent single-instance wire shape).
+  result = newJNull()
+  for items in opt:
+    var arr = newJArray()
+    for s in items:
+      arr.add(%s)
+    result = arr
+
 func toJson*(v: HeaderValue): JsonNode =
   ## Serialise HeaderValue to JSON. ``Opt.none`` on any variant produces
   ## ``null`` — RFC 8621 §4.1.3 wire shape for an absent single instance.
   case v.form
   of hfRaw:
-    for raw in v.rawValue:
-      return %raw
-    return newJNull()
+    optStringToJsonOrNull(v.rawValue)
   of hfText:
-    for text in v.textValue:
-      return %text
-    return newJNull()
+    optStringToJsonOrNull(v.textValue)
   of hfAddresses:
-    for addrs in v.addresses:
-      var arr = newJArray()
-      for ea in addrs:
-        arr.add(ea.toJson())
-      return arr
-    return newJNull()
+    optSeqToJsonArray(v.addresses)
   of hfGroupedAddresses:
-    for groups in v.groups:
-      var arr = newJArray()
-      for g in groups:
-        arr.add(g.toJson())
-      return arr
-    return newJNull()
+    optSeqToJsonArray(v.groups)
   of hfMessageIds:
-    for ids in v.messageIds:
-      var arr = newJArray()
-      for id in ids:
-        arr.add(%id)
-      return arr
-    return newJNull()
+    optStringSeqToJsonArray(v.messageIds)
   of hfDate:
-    for d in v.date:
-      return d.toJson()
-    return newJNull()
+    optToJsonOrNull(v.date)
   of hfUrls:
-    for urls in v.urls:
-      var arr = newJArray()
-      for u in urls:
-        arr.add(%u)
-      return arr
-    return newJNull()
+    optStringSeqToJsonArray(v.urls)
 
 # =============================================================================
 # BlueprintEmailHeaderName (Design §4.3.3)
