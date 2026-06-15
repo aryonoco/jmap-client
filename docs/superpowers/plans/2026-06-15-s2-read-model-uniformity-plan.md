@@ -29,8 +29,8 @@ No new deps, no `converter`s, no `requiresInit`.
   both gates in Phase 13. The wire contract is regenerated once in Phase 10 (the
   H16/H17 lints fail on the stale snapshot until then — so per-phase verification
   is `just build`, NOT `just ci`; `just ci` runs only at Phase 13).
-- **Status:** ⬜ not started. (Mark each phase ✅ DONE with its commit SHA here.)
-  - P0 FieldEcho reader ⬜ · P1 NonEmptyIdSeq relocate ⬜ · P2 newtypes ⬜ ·
+- **Status:** 🟢 IN PROGRESS. (Mark each phase ✅ DONE with its commit SHA here.)
+  - P0 FieldEcho reader ✅ `0d93a4a` · P1 NonEmptyIdSeq relocate ✅ `a4f5a44` · P2 newtypes ✅ `6c9a306` ·
     P3 ceremony flips ⬜ · P4 Thread ⬜ · P5 capability arms ⬜ · P6 Account ⬜ ·
     P7 Session ⬜ · P8 Email headers + MailboxChangesResponse ⬜ ·
     P9 SetResponse projections ⬜ · P10 contract regen ⬜ · P11 test sweep ⬜ ·
@@ -620,11 +620,17 @@ git commit   # subject: "protocol/methods: add SetResponse success/failure proje
 **Files:** `tests/wire_contract/public-api.txt`, `…/type-shapes.txt`, the
 compile-time surface-audit tests (`grep -rln "public-api\|type-shapes\|surface" tests/`).
 
-- [ ] **Step 1 — regenerate.** Run `just freeze-api` then `just freeze-type-shapes`
-  (the S0 oracle recipes). Inspect the diff: it should show the new public fields,
-  the removed accessors, `headers→Opt`, the capability arms, the dropped
-  `MailboxChangesResponse` forwarders, and the new `FieldEcho`/`SetResponse`
-  symbols — and nothing unexpected.
+- [ ] **Step 1 — regenerate.** Run `just freeze-api`, then `just freeze-type-shapes`,
+  then **`just freeze-error-messages`** (the S0 oracle + H15 recipes). Inspect each
+  diff: api/type-shapes should show the new public fields, the removed accessors,
+  `headers→Opt`, the capability arms, the dropped `MailboxChangesResponse`
+  forwarders, and the new `FieldEcho`/`SetResponse` symbols — and nothing
+  unexpected. **error-messages.txt** changes because S2 adds `parseDisplayName`/
+  `parseApiUrl` (new `DisplayName`/`ApiUrl` validation messages) and P6 replaces the
+  inline `"Account"`/`"name contains control characters"` message with
+  `parseDisplayName`'s `"DisplayName"`/`"contains control characters"` (and P7 may
+  shift the `detectApiUrl` messages); `lint-error-messages` is part of `just ci`
+  (justfile), so this MUST be regenerated or P13 fails H15.
 - [ ] **Step 2 — update compile-time surface audits.** Any in-tree test asserting
   the *presence of the old accessors* or *absence of the new fields* updates to the
   new surface (assert new public fields present, retired accessors absent).
@@ -632,7 +638,7 @@ compile-time surface-audit tests (`grep -rln "public-api\|type-shapes\|surface" 
   `just lint-type-shapes`. Expected: pass (snapshot == oracle).
 - [ ] **Step 4 — commit.**
 ```bash
-git add tests/wire_contract/public-api.txt tests/wire_contract/type-shapes.txt $(git diff --name-only tests/lint tests/unit 2>/dev/null)
+git add tests/wire_contract/public-api.txt tests/wire_contract/type-shapes.txt tests/wire_contract/error-messages.txt $(git diff --name-only tests/lint tests/unit 2>/dev/null)
 git commit   # subject: "tests/wire_contract: regenerate surface after read-model flip"
 ```
 
