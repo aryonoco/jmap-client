@@ -231,8 +231,10 @@ type VacationResponseGetPropertyKind* = enum
   ## Discriminator for ``VacationResponseGetProperty``. Backing strings are
   ## the RFC 8621 §8 VacationResponse property wire names; ``vrgkOther``
   ## carries a capability-extension property whose raw identifier lives
-  ## alongside.
-  vrgkId = "id"
+  ## alongside. ``id`` is intentionally not a member: the singleton id is the
+  ## derived constant ``VacationResponseSingletonId`` and is always returned
+  ## by the server (RFC 8620 §5.1), so it is never a client-selectable
+  ## property.
   vrgkIsEnabled = "isEnabled"
   vrgkFromDate = "fromDate"
   vrgkToDate = "toDate"
@@ -247,8 +249,7 @@ type VacationResponseGetProperty* {.ruleOff: "objects".} = object
   case rawKind: VacationResponseGetPropertyKind
   of vrgkOther:
     rawIdentifier: string
-  of vrgkId, vrgkIsEnabled, vrgkFromDate, vrgkToDate, vrgkSubject, vrgkTextBody,
-      vrgkHtmlBody:
+  of vrgkIsEnabled, vrgkFromDate, vrgkToDate, vrgkSubject, vrgkTextBody, vrgkHtmlBody:
     discard
 
 func kind*(p: VacationResponseGetProperty): VacationResponseGetPropertyKind =
@@ -260,8 +261,7 @@ func wireName*(p: VacationResponseGetProperty): string =
   case p.rawKind
   of vrgkOther:
     p.rawIdentifier
-  of vrgkId, vrgkIsEnabled, vrgkFromDate, vrgkToDate, vrgkSubject, vrgkTextBody,
-      vrgkHtmlBody:
+  of vrgkIsEnabled, vrgkFromDate, vrgkToDate, vrgkSubject, vrgkTextBody, vrgkHtmlBody:
     $p.rawKind
 
 func `$`*(p: VacationResponseGetProperty): string =
@@ -278,7 +278,6 @@ func hash*(p: VacationResponseGetProperty): Hash =
   hash(p.wireName)
 
 const
-  vrgpId* = VacationResponseGetProperty(rawKind: vrgkId) ## Selects ``id``.
   vrgpIsEnabled* = VacationResponseGetProperty(rawKind: vrgkIsEnabled)
     ## Selects ``isEnabled``.
   vrgpFromDate* = VacationResponseGetProperty(rawKind: vrgkFromDate)
@@ -299,9 +298,10 @@ func parseVacationResponseGetProperty*(
   ## (capability-extension forward-compat, A11).
   detectNonControlString(raw).isOkOr:
     return err(toValidationError(error, "VacationResponseGetProperty", raw))
+  # ``id`` is intentionally absent here — the singleton id is the derived
+  # constant ``VacationResponseSingletonId``, not a selectable property, so it
+  # falls through to ``vrgkOther`` like any other unrecognised name.
   case raw
-  of "id":
-    ok(vrgpId)
   of "isEnabled":
     ok(vrgpIsEnabled)
   of "fromDate":

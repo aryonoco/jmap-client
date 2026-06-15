@@ -846,7 +846,6 @@ func setToDate (toDate: Opt[UTCDate]): VacationResponseUpdate
 func toSeq (s: VacationResponseUpdateSet): seq[VacationResponseUpdate]
 enumfield vrgkFromDate
 enumfield vrgkHtmlBody
-enumfield vrgkId
 enumfield vrgkIsEnabled
 enumfield vrgkOther
 enumfield vrgkSubject
@@ -854,7 +853,6 @@ enumfield vrgkTextBody
 enumfield vrgkToDate
 const vrgpFromDate : VacationResponseGetProperty
 const vrgpHtmlBody : VacationResponseGetProperty
-const vrgpId : VacationResponseGetProperty
 const vrgpIsEnabled : VacationResponseGetProperty
 const vrgpSubject : VacationResponseGetProperty
 const vrgpTextBody : VacationResponseGetProperty

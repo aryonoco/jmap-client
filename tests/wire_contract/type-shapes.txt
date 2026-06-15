@@ -1580,10 +1580,9 @@
 ## VacationResponseGetProperty [jmap_client/internal/mail/vacation]
   case rawKind: VacationResponseGetPropertyKind
   of vrgkOther:
-  of vrgkId, vrgkIsEnabled, vrgkFromDate, vrgkToDate, vrgkSubject, vrgkTextBody, vrgkHtmlBody:
+  of vrgkIsEnabled, vrgkFromDate, vrgkToDate, vrgkSubject, vrgkTextBody, vrgkHtmlBody:
 
 ## VacationResponseGetPropertyKind [jmap_client/internal/mail/vacation]
-  vrgkId = "id"
   vrgkIsEnabled = "isEnabled"
   vrgkFromDate = "fromDate"
   vrgkToDate = "toDate"
