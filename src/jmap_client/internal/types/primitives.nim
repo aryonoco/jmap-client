@@ -360,3 +360,10 @@ func asSeq*[T](a: NonEmptySeq[T]): lent seq[T] {.inline.} =
   ## underlying seq without naming the module-private ``rawValue``
   ## field across module boundaries.
   a.rawValue
+
+# The accumulating validators carry their violations on a
+# ``NonEmptySeq[ValidationError]`` rail; this instantiation supplies the sealed
+# read surface (``==`` / ``$`` / ``hash`` / ``len`` / ``[]`` / ``contains`` /
+# iteration) the rail's consumers — and ``.get()``'s panic renderer — need.
+# Placed here because ``asSeq`` and ``hash(ValidationError)`` are both in scope.
+defineSealedNonEmptySeqOps(ValidationError)

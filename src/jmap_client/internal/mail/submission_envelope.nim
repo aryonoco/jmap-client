@@ -17,6 +17,7 @@
 {.experimental: "strictCaseObjects".}
 
 import ../types/validation
+import ../types/primitives
 
 import ./submission_mailbox
 export submission_mailbox
@@ -124,7 +125,7 @@ iterator pairs*(a: NonEmptyRcptList): (int, SubmissionAddress) =
 
 func parseNonEmptyRcptList*(
     items: openArray[SubmissionAddress]
-): Result[NonEmptyRcptList, seq[ValidationError]] =
+): Result[NonEmptyRcptList, NonEmptySeq[ValidationError]] =
   ## Strict client-side constructor (design §2.5 G7): rejects empty list
   ## AND duplicate recipients keyed on ``RFC5321Mailbox``. Accumulates
   ## every violation into one seq — mirrors ``parseSubmissionParams``.
@@ -133,7 +134,8 @@ func parseNonEmptyRcptList*(
     "duplicate recipient mailbox",
   )
   if errs.len > 0:
-    return err(errs)
+    # errs is non-empty here, so parseNonEmptySeq cannot Err.
+    return err(parseNonEmptySeq(errs).get())
   ok(NonEmptyRcptList(rawValue: @items))
 
 func parseNonEmptyRcptListFromServer*(

@@ -259,7 +259,7 @@ func toValidationError(c: Conflict): ValidationError =
 
 func initEmailUpdateSet*(
     updates: openArray[EmailUpdate]
-): Result[EmailUpdateSet, seq[ValidationError]] =
+): Result[EmailUpdateSet, NonEmptySeq[ValidationError]] =
   ## Accumulating smart constructor (Part F design §3.2.4). Rejects:
   ##   * empty input (F22) — the builder's ``update: Opt[Table[Id, _]]``
   ##     has exactly one "no updates for this id" representation: omit
@@ -270,13 +270,20 @@ func initEmailUpdateSet*(
   ##     parent (RFC 8620 §5.3 prefix-pointer prohibition).
   ## All violations surface in a single Err pass.
   if updates.len == 0:
-    return
-      err(@[validationError("EmailUpdateSet", "must contain at least one update", "")])
+    # The literal singleton has length 1, so parseNonEmptySeq cannot Err.
+    return err(
+      parseNonEmptySeq(
+        @[validationError("EmailUpdateSet", "must contain at least one update", "")]
+      )
+        .get()
+    )
 
   let ops = updates.toSeq.mapIt(classify(it))
   let conflicts = samePathConflicts(ops) & parentPrefixConflicts(ops)
   if conflicts.len > 0:
-    return err(conflicts.mapIt(toValidationError(it)))
+    let errs = conflicts.mapIt(toValidationError(it))
+    # conflicts is non-empty here, so errs is too and parseNonEmptySeq cannot Err.
+    return err(parseNonEmptySeq(errs).get())
   ok(EmailUpdateSet(rawValue: @updates))
 
 # =============================================================================
@@ -300,7 +307,7 @@ func toTable*(s: NonEmptyEmailUpdates): Table[Id, EmailUpdateSet] {.inline.} =
 
 func parseNonEmptyEmailUpdates*(
     items: openArray[(Id, EmailUpdateSet)]
-): Result[NonEmptyEmailUpdates, seq[ValidationError]] =
+): Result[NonEmptyEmailUpdates, NonEmptySeq[ValidationError]] =
   ## Accumulating smart constructor. Rejects:
   ##   * empty input — the ``/set`` builder's ``update:`` field has
   ##     exactly one "no updates" representation: omit the entry via
@@ -318,7 +325,8 @@ func parseNonEmptyEmailUpdates*(
     dupMsg = "duplicate email id",
   )
   if errs.len > 0:
-    return err(errs)
+    # errs is non-empty here, so parseNonEmptySeq cannot Err.
+    return err(parseNonEmptySeq(errs).get())
   var t = initTable[Id, EmailUpdateSet](items.len)
   for (id, updateSet) in items:
     t[id] = updateSet

@@ -3,18 +3,22 @@
 
 ## EmailBlueprint creation aggregate (RFC 8621 §4.6). The creation-model
 ## counterpart to ``Email``: a validated payload ready for ``Email/set``.
-## Provides the smart constructor ``parseEmailBlueprint`` with an
-## accumulating error rail, the error triad
-## (``EmailBlueprintConstraint`` / ``EmailBlueprintError`` /
-## ``EmailBlueprintErrors``), the body-shape case object
-## ``EmailBlueprintBody``, body-part locator types
-## (``BodyPartLocation`` / ``BodyPartPath``), Pattern A sealed accessors,
-## and the derived ``bodyValues`` accessor. Layer 1 — pure and total.
+## Provides the smart constructor ``parseEmailBlueprint``, which accumulates
+## every constraint violation onto the shared ``NonEmptySeq[ValidationError]``
+## rail. The constraint classification (``EmailBlueprintConstraint`` /
+## ``EmailBlueprintError``) is module-private: each violation is flattened to
+## a ``ValidationError`` at the boundary via ``toValidationError``, so
+## consumers thread one error vocabulary rather than a bespoke aggregate.
+## Also exposes the body-shape case object ``EmailBlueprintBody``, body-part
+## locator types (``BodyPartLocation`` / ``BodyPartPath``), Pattern A sealed
+## accessors, and the derived ``bodyValues`` accessor. Layer 1 — pure and
+## total.
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
 import std/hashes
+import std/sequtils
 import std/sets
 import std/tables
 
@@ -126,10 +130,10 @@ func `==`*(a, b: BodyPartLocation): bool =
       false
 
 # =============================================================================
-# EmailBlueprintConstraint / EmailBlueprintError
+# EmailBlueprintConstraint / EmailBlueprintError — module-private classification
 # =============================================================================
 
-type EmailBlueprintConstraint* = enum
+type EmailBlueprintConstraint = enum
   ## Runtime constraint-violation variants for ``parseEmailBlueprint``.
   ## Three "HeaderDuplicate" variants cover RFC §4.6's three cross-axis
   ## duplicate rules (Email top-level, bodyStructure root ↔ top-level,
@@ -143,10 +147,12 @@ type EmailBlueprintConstraint* = enum
   ebcAllowedFormRejected
   ebcBodyPartDepthExceeded
 
-type EmailBlueprintError* = object
-  ## A single constraint violation. Payload fields are variant-specific:
-  ## the discriminant selects which field carries the failing-input
-  ## information.
+type EmailBlueprintError = object
+  ## A single constraint violation, used only as internal classification:
+  ## the detection helpers emit these, and ``toValidationError`` flattens
+  ## each onto the shared ``ValidationError`` rail. Payload fields are
+  ## variant-specific: the discriminant selects which field carries the
+  ## failing-input information.
   case constraint*: EmailBlueprintConstraint
   of ebcEmailTopLevelHeaderDuplicate:
     dupName*: string ## Lowercase header name duplicated across top level.
@@ -167,115 +173,8 @@ type EmailBlueprintError* = object
     observedDepth*: int ## Depth of the first subtree exceeding ``MaxBodyPartDepth``.
     depthLocation*: BodyPartLocation ## Location of the offending subtree root.
 
-func `==`*(a, b: EmailBlueprintError): bool =
-  ## Hand-rolled equality for the case object. Discriminant first, then
-  ## variant-specific payload fields. Required because Nim's auto-``==``
-  ## relies on a parallel ``fields`` iterator that cannot traverse case
-  ## objects (same rationale as ``BodyPartLocation.==``).
-  ##
-  ## Nested case on both operands for strictCaseObjects.
-  case a.constraint
-  of ebcEmailTopLevelHeaderDuplicate:
-    case b.constraint
-    of ebcEmailTopLevelHeaderDuplicate:
-      a.dupName == b.dupName
-    else:
-      false
-  of ebcBodyStructureHeaderDuplicate:
-    case b.constraint
-    of ebcBodyStructureHeaderDuplicate:
-      a.bodyStructureDupName == b.bodyStructureDupName
-    else:
-      false
-  of ebcBodyPartHeaderDuplicate:
-    case b.constraint
-    of ebcBodyPartHeaderDuplicate:
-      a.where == b.where and a.bodyPartDupName == b.bodyPartDupName
-    else:
-      false
-  of ebcTextBodyNotTextPlain:
-    case b.constraint
-    of ebcTextBodyNotTextPlain:
-      a.actualTextType == b.actualTextType
-    else:
-      false
-  of ebcHtmlBodyNotTextHtml:
-    case b.constraint
-    of ebcHtmlBodyNotTextHtml:
-      a.actualHtmlType == b.actualHtmlType
-    else:
-      false
-  of ebcAllowedFormRejected:
-    case b.constraint
-    of ebcAllowedFormRejected:
-      a.rejectedName == b.rejectedName and a.rejectedForm == b.rejectedForm
-    else:
-      false
-  of ebcBodyPartDepthExceeded:
-    case b.constraint
-    of ebcBodyPartDepthExceeded:
-      a.observedDepth == b.observedDepth and a.depthLocation == b.depthLocation
-    else:
-      false
-
 # =============================================================================
-# EmailBlueprintErrors (sealed — Pattern A)
-# =============================================================================
-
-type EmailBlueprintErrors* {.ruleOff: "objects".} = object
-  ## Aggregate of constraint violations carried on the ``err`` rail of
-  ## ``parseEmailBlueprint``. Pattern A sealed: the underlying seq is
-  ## module-private so the only construction path is
-  ## ``parseEmailBlueprint``; callers observe read-only via the
-  ## ``len`` / ``items`` / ``pairs`` / ``[]`` / ``==`` / ``$`` surface.
-  ## Non-empty whenever carried on the error rail — enforced by the
-  ## constructor (empty seq would mean "no errors", which is the ok
-  ## rail's job).
-  errors: seq[EmailBlueprintError]
-
-func len*(e: EmailBlueprintErrors): int =
-  ## Number of constraint violations. Always ≥ 1 on the err rail.
-  e.errors.len
-
-iterator items*(e: EmailBlueprintErrors): EmailBlueprintError =
-  ## Yields each error in insertion order.
-  for x in e.errors:
-    yield x
-
-iterator pairs*(e: EmailBlueprintErrors): (int, EmailBlueprintError) =
-  ## Yields (index, error) tuples in insertion order.
-  for p in e.errors.pairs:
-    yield p
-
-func `[]`*(e: EmailBlueprintErrors, i: Idx): EmailBlueprintError =
-  ## Indexed access into the aggregate via sealed non-negative ``Idx``.
-  ## Out-of-range raises ``IndexDefect`` (a ``Defect``, not a
-  ## ``CatchableError``).
-  e.errors[i.toInt]
-
-func head*(e: EmailBlueprintErrors): EmailBlueprintError =
-  ## First error — guaranteed present by the non-empty invariant
-  ## documented on ``EmailBlueprintErrors``. Semantic accessor that
-  ## reads cleaner than ``e[idx(0)]``.
-  e.errors[0]
-
-func `==`*(a, b: EmailBlueprintErrors): bool =
-  ## Ordered element-wise equality. Delegates to the underlying seq.
-  a.errors == b.errors
-
-func `$`*(e: EmailBlueprintErrors): string =
-  ## Delegates to ``$seq[EmailBlueprintError]``. Fine for diagnostics;
-  ## structured rendering is the caller's responsibility.
-  $e.errors
-
-func capacity*(e: EmailBlueprintErrors): int {.inline.} =
-  ## Underlying seq capacity — exposed for amortised-growth regression
-  ## gates (Step 22 scenarios 101a, 101c). Reads through the sealed
-  ## container without exposing a mutable handle.
-  e.errors.capacity
-
-# =============================================================================
-# message — bounded, NUL-stripped rendering
+# Constraint → ValidationError translation (bounded, NUL-stripped rendering)
 # =============================================================================
 
 func clipForMessage(s: string, max: Idx = idx(512)): string =
@@ -297,32 +196,79 @@ func clipForMessage(s: string, max: Idx = idx(512)): string =
     buf.add("...")
   buf
 
-func message*(e: EmailBlueprintError): string =
-  ## Human-readable rendering, derived from the (constraint, payload)
-  ## pair. All user-provided payload slots pass through
-  ## ``clipForMessage`` so the output is bounded and free of NUL bytes
-  ## regardless of caller inputs.
+func renderLocation(loc: BodyPartLocation): string =
+  ## Renders a ``BodyPartLocation`` into a bounded, human-readable coordinate.
+  ## The location is load-bearing — it pinpoints which part of a multipart
+  ## tree tripped the constraint — so the flatten to ``ValidationError`` must
+  ## not drop it. Identifier slots pass through ``clipForMessage`` (the path
+  ## form carries only library-produced integer indices, already bounded).
+  case loc.kind
+  of bplInline:
+    "inline part " & clipForMessage($loc.partId)
+  of bplBlobRef:
+    "blob-ref part " & clipForMessage($loc.blobId)
+  of bplMultipart:
+    "multipart at path " & $loc.path
+
+func toValidationError(e: EmailBlueprintError): ValidationError =
+  ## Flattens one internal ``EmailBlueprintError`` onto the shared
+  ## ``ValidationError`` rail. ``typeName`` brands the aggregate; ``reason``
+  ## renders the constraint INCLUDING any body-part location (so the
+  ## coordinate survives the flatten); ``value`` is the offending header name,
+  ## or the location for the locationless depth/structure arms. All
+  ## user-supplied payload slots pass through ``clipForMessage`` so the output
+  ## stays bounded and NUL-free. Exhaustive over ``EmailBlueprintConstraint``
+  ## — adding a constraint forces a compile error here.
   case e.constraint
   of ebcEmailTopLevelHeaderDuplicate:
-    "duplicate header representation at Email top level: convenience " &
-      "field and extraHeaders entry for " & clipForMessage(e.dupName) &
-      " cannot both be set"
+    validationError(
+      "EmailBlueprint",
+      "duplicate header representation at Email top level: convenience field " &
+        "and extraHeaders entry for " & clipForMessage(e.dupName) & " cannot both be set",
+      e.dupName,
+    )
   of ebcBodyStructureHeaderDuplicate:
-    "bodyStructure root extraHeaders entry for " & clipForMessage(
-      e.bodyStructureDupName
-    ) & " duplicates a header already defined on the Email top level"
+    validationError(
+      "EmailBlueprint",
+      "bodyStructure root extraHeaders entry for " &
+        clipForMessage(e.bodyStructureDupName) &
+        " duplicates a header already defined on the Email top level",
+      e.bodyStructureDupName,
+    )
   of ebcBodyPartHeaderDuplicate:
-    "body part carries duplicate representations of header " &
-      clipForMessage(e.bodyPartDupName) & " (domain field and extraHeaders entry)"
+    validationError(
+      "EmailBlueprint",
+      "body part (" & renderLocation(e.where) &
+        ") carries duplicate representations of header " &
+        clipForMessage(e.bodyPartDupName) & " (domain field and extraHeaders entry)",
+      e.bodyPartDupName,
+    )
   of ebcTextBodyNotTextPlain:
-    "ebkFlat textBody must be text/plain; found " & clipForMessage(e.actualTextType)
+    validationError(
+      "EmailBlueprint",
+      "ebkFlat textBody must be text/plain; found " & clipForMessage(e.actualTextType),
+      e.actualTextType,
+    )
   of ebcHtmlBodyNotTextHtml:
-    "ebkFlat htmlBody must be text/html; found " & clipForMessage(e.actualHtmlType)
+    validationError(
+      "EmailBlueprint",
+      "ebkFlat htmlBody must be text/html; found " & clipForMessage(e.actualHtmlType),
+      e.actualHtmlType,
+    )
   of ebcAllowedFormRejected:
-    "header form " & $e.rejectedForm & " not allowed for header name " &
-      clipForMessage(e.rejectedName)
+    validationError(
+      "EmailBlueprint",
+      "header form " & $e.rejectedForm & " not allowed for header name " &
+        clipForMessage(e.rejectedName),
+      e.rejectedName,
+    )
   of ebcBodyPartDepthExceeded:
-    "body part tree depth " & $e.observedDepth & " exceeds maximum " & $MaxBodyPartDepth
+    validationError(
+      "EmailBlueprint",
+      "body part tree depth " & $e.observedDepth & " at " &
+        renderLocation(e.depthLocation) & " exceeds maximum " & $MaxBodyPartDepth,
+      renderLocation(e.depthLocation),
+    )
 
 # =============================================================================
 # EmailBlueprintBody
@@ -695,10 +641,11 @@ func parseEmailBlueprint*(
     references: Opt[seq[string]] = Opt.none(seq[string]),
     extraHeaders: Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue] =
       initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue](),
-): Result[EmailBlueprint, EmailBlueprintErrors] =
-  ## Accumulating smart constructor: runs every applicable check and
-  ## returns ``err(EmailBlueprintErrors)`` carrying every violation,
-  ## not the first. A caller with three problems sees all three.
+): Result[EmailBlueprint, NonEmptySeq[ValidationError]] =
+  ## Accumulating smart constructor: runs every applicable check and returns
+  ## ``err`` carrying every violation flattened onto the shared
+  ## ``NonEmptySeq[ValidationError]`` rail, not the first. A caller with three
+  ## problems sees all three.
   ##
   ## Signature-level invariants (already guaranteed by input types):
   ##   1  mailboxIds ≥ 1        — ``NonEmptyMailboxIdSet``
@@ -725,17 +672,19 @@ func parseEmailBlueprint*(
     rawExtraHeaders: extraHeaders,
     rawBody: body,
   )
-  var errs: seq[EmailBlueprintError] = @[]
-  errs.add checkFlatBodyContentTypes(body)
-  errs.add checkEmailTopLevelDuplicates(bp)
-  errs.add checkBodyStructureDuplicates(bp)
-  errs.add checkBodyPartDuplicates(body)
-  errs.add checkTopLevelAllowedForms(bp)
-  errs.add checkBodyTreeAllowedForms(body)
-  errs.add checkBodyPartDepth(body)
-  if errs.len == 0:
+  var rawErrs: seq[EmailBlueprintError] = @[]
+  rawErrs.add checkFlatBodyContentTypes(body)
+  rawErrs.add checkEmailTopLevelDuplicates(bp)
+  rawErrs.add checkBodyStructureDuplicates(bp)
+  rawErrs.add checkBodyPartDuplicates(body)
+  rawErrs.add checkTopLevelAllowedForms(bp)
+  rawErrs.add checkBodyTreeAllowedForms(body)
+  rawErrs.add checkBodyPartDepth(body)
+  if rawErrs.len == 0:
     return ok(bp)
-  return err(EmailBlueprintErrors(errors: errs))
+  let errs = rawErrs.mapIt(toValidationError(it))
+  # rawErrs is non-empty here, so errs is too and parseNonEmptySeq cannot Err.
+  return err(parseNonEmptySeq(errs).get())
 
 # =============================================================================
 # UFCS accessors (Pattern A unseal)

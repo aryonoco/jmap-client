@@ -517,7 +517,7 @@ func toSeq*(s: MailboxUpdateSet): seq[MailboxUpdate] {.inline.} =
 
 func initMailboxUpdateSet*(
     updates: openArray[MailboxUpdate]
-): Result[MailboxUpdateSet, seq[ValidationError]] =
+): Result[MailboxUpdateSet, NonEmptySeq[ValidationError]] =
   ## Accumulating smart constructor (Part F design §3.3, §4.4). Rejects:
   ##   * empty input — the builder has exactly one "no updates for this
   ##     id" representation (omit the entry from the outer table);
@@ -533,7 +533,8 @@ func initMailboxUpdateSet*(
     dupMsg = "duplicate target property",
   )
   if errs.len > 0:
-    return err(errs)
+    # errs is non-empty here, so parseNonEmptySeq cannot Err.
+    return err(parseNonEmptySeq(errs).get())
   ok(MailboxUpdateSet(rawValue: @updates))
 
 # =============================================================================
@@ -557,7 +558,7 @@ func toTable*(s: NonEmptyMailboxUpdates): Table[Id, MailboxUpdateSet] {.inline.}
 
 func parseNonEmptyMailboxUpdates*(
     items: openArray[(Id, MailboxUpdateSet)]
-): Result[NonEmptyMailboxUpdates, seq[ValidationError]] =
+): Result[NonEmptyMailboxUpdates, NonEmptySeq[ValidationError]] =
   ## Accumulating smart constructor. Rejects:
   ##   * empty input — the ``/set`` builder's ``update:`` field has
   ##     exactly one "no updates" representation: omit the entry via
@@ -575,7 +576,8 @@ func parseNonEmptyMailboxUpdates*(
     dupMsg = "duplicate mailbox id",
   )
   if errs.len > 0:
-    return err(errs)
+    # errs is non-empty here, so parseNonEmptySeq cannot Err.
+    return err(parseNonEmptySeq(errs).get())
   var t = initTable[Id, MailboxUpdateSet](items.len)
   for (id, updateSet) in items:
     t[id] = updateSet

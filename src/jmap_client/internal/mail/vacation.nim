@@ -199,7 +199,7 @@ func toSeq*(s: VacationResponseUpdateSet): seq[VacationResponseUpdate] {.inline.
 
 func initVacationResponseUpdateSet*(
     updates: openArray[VacationResponseUpdate]
-): Result[VacationResponseUpdateSet, seq[ValidationError]] =
+): Result[VacationResponseUpdateSet, NonEmptySeq[ValidationError]] =
   ## Accumulating smart constructor (Part F design §3.4). Rejects:
   ##   * empty input — the addVacationResponseSet `update` parameter has
   ##     exactly one "no updates" representation (omit the call entirely);
@@ -219,7 +219,8 @@ func initVacationResponseUpdateSet*(
       dupMsg = "duplicate target property",
     ) & windowOrderConflict(updates)
   if errs.len > 0:
-    return err(errs)
+    # errs is non-empty here, so parseNonEmptySeq cannot Err.
+    return err(parseNonEmptySeq(errs).get())
   ok(VacationResponseUpdateSet(rawValue: @updates))
 
 # =============================================================================

@@ -25,17 +25,25 @@ two non-consumer leaf rails go internal.
 ## STATE / HANDOFF  (update this block as each phase lands)
 
 - **Branch:** `api/s1-one-error-rail` (off `main`, after S0 merge).
-- **Current phase:** Phase 1 **complete**; Phase 2 next.
-- **Done:** Recon (workflow `wglqgph5k`, reconciled to the oracle); 4 design
-  forks approved; spec written; **Phase 0** (plan + memory, commit `6712385`);
-  **Phase 1** — `src/jmap_client/internal/protocol/jmap_error.nim` created with
-  the full `JmapError` six-arm sum + sub-types + `MethodOutcome[T]` + all
-  constructors + `toJmapError`/`lift` + `message`/`$` + the relocated
-  `JmapResult`. `nim check` clean; `nph`-formatted. Nothing imports it yet
-  (additive). Note: `==`/`hash` deliberately omitted (matches the errors.nim
-  convention; add reactively if the oracle/tests demand). The generic `lift` is
-  exercised/verified in Phase 3; `MethodOutcome` ctors in Phase 4.
-- **Next:** Phase 2 (validation rail → `NonEmptySeq[ValidationError]`).
+- **Current phase:** Phase 2 **complete**; Phase 3 next.
+- **Done:** Recon; 4 forks approved; spec; **Phase 0** (commit `6712385`);
+  **Phase 1** — `jmap_error.nim` (`JmapError` 6-arm sum + sub-types +
+  `MethodOutcome[T]` + ctors + `toJmapError`/`lift` + `message`/`$` + relocated
+  `JmapResult`); commit `33efadc`; additive, `nim check` clean. `==`/`hash`
+  omitted (errors.nim convention; add reactively). **Phase 2** — added
+  `hash(ValidationError)` (validation.nim) + `defineSealedNonEmptySeqOps(
+  ValidationError)` (primitives.nim); the 14 accumulating validators now return
+  `NonEmptySeq[ValidationError]` (wrapped via `parseNonEmptySeq(errs).get()`
+  with invariant comments); `EmailBlueprintErrors` deleted and
+  `EmailBlueprintConstraint`/`EmailBlueprintError` internalised, flattened to
+  `ValidationError` via a faithful `toValidationError` (preserves
+  `BodyPartLocation`); 12 files; `nim check src/jmap_client.nim` +
+  `convenience.nim` = 0; `just fmt-check` green. (Note for Phase 7: tests
+  referencing the retired `EmailBlueprintError*` types + the old `seq` rails
+  will need updating; `BodyPartLocation`/`BodyPartPath` remain public — candidate
+  for internalisation in S2.)
+- **Next:** Phase 3 (`send`/transport/request → `JmapError`; relocate+re-point
+  `JmapResult`; retire `ClientError`).
 - **Green-checkpoint discipline:** **every phase leaves all of `src/` compiling**
   (root library *and* `convenience.nim`, kept minimally-compiling until its
   Phase-6 rewrite). `tests/` + `examples/` are swept in **Phases 6–7** — so
@@ -55,7 +63,7 @@ two non-consumer leaf rails go internal.
 ### Phase ledger
 - [x] Phase 0 — spec + plan landed on branch; MEMORY.md repointed
 - [x] Phase 1 — `JmapError` (L3) + sub-types + ctors + lifts + `.lift` (additive)
-- [ ] Phase 2 — validation rail → `NonEmptySeq[ValidationError]`; retire `EmailBlueprintErrors`
+- [x] Phase 2 — validation rail → `NonEmptySeq[ValidationError]`; retire `EmailBlueprintErrors`
 - [ ] Phase 3 — `send`/transport/request → `JmapError`; relocate+re-point `JmapResult`; retire `ClientError`
 - [ ] Phase 4 — `get`/`getBoth`/`getAll` → `MethodOutcome`; retire `GetError`
 - [ ] Phase 5 — `jeSession` producer + privatise `TokenViolation`/`SmtpReplyViolation`
