@@ -25,7 +25,21 @@ two non-consumer leaf rails go internal.
 ## STATE / HANDOFF  (update this block as each phase lands)
 
 - **Branch:** `api/s1-one-error-rail` (off `main`, after S0 merge).
-- **Current phase:** Phase 3 **complete**; Phase 4 next.
+- **Current phase:** Phase 4 **complete**; Phase 5 next.
+- **Phase 4 done (commit pending this turn):** `GetError` **retired**. New
+  `classifyInvocation[T]` in `dispatch.nim` splits the located invocation into
+  rail/data: missing→`jeProtocol pfMissingCall`, real `"error"` invocation→
+  `ok(MethodOutcome mokMethodError)` (DATA), malformed `"error"`→`jeProtocol
+  pfMalformedError`, decode-ok→`ok(mokValue)`, decode-fail→`jeProtocol pfDecode`.
+  The synthetic `serverFail` MethodErrors (`extractInvocation`/
+  `extractInvocationByName`) and `serdeToMethodError` are deleted — those library
+  faults now ride the rail honestly. `get`×2 → `Result[MethodOutcome[T],
+  JmapError]` (brand mismatch → `jeMisuse`); `getBoth` (dispatch) +
+  `CompoundResults` carry `MethodOutcome`; `getAll` (mail_builders) + `getBoth`
+  (mail_methods) + `getBoth`×3 (convenience) reshaped likewise (each result-record
+  field is a `MethodOutcome`). Retired `GetError`/`GetErrorKind`/`getErrorMethod`/
+  `getErrorHandleMismatch` from `errors.nim`; dropped from `types.nim` except-list.
+  `just build` green; `convenience.nim` compiles.
 - **Phase 3 done (commit pending in this turn):** `ClientError` **fully retired**
   — `classify.nim` is L4 (`transport/`, `{.push raises: [].}`) so it imports
   `jmap_error` and returns `JmapError` directly (`jeTransport`/`jeRequest`;
@@ -83,7 +97,7 @@ two non-consumer leaf rails go internal.
 - [x] Phase 1 — `JmapError` (L3) + sub-types + ctors + lifts + `.lift` (additive)
 - [x] Phase 2 — validation rail → `NonEmptySeq[ValidationError]`; retire `EmailBlueprintErrors`
 - [x] Phase 3 — `send`/transport/request → `JmapError`; relocate+re-point `JmapResult`; retire `ClientError`
-- [ ] Phase 4 — `get`/`getBoth`/`getAll` → `MethodOutcome`; retire `GetError`
+- [x] Phase 4 — `get`/`getBoth`/`getAll` → `MethodOutcome`; retire `GetError`
 - [ ] Phase 5 — `jeSession` producer + privatise `TokenViolation`/`SmtpReplyViolation`
 - [ ] Phase 6 — fix consumers (`convenience.nim` + `examples/jmap-cli`)
 - [ ] Phase 7 — regenerate oracle contract + sweep tests + AUDIT triage

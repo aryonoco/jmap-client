@@ -47,7 +47,7 @@ export framework
 export errors except
   requestError, methodError, setError, setErrorInvalidProperties, setErrorAlreadyExists,
   setErrorBlobNotFound, setErrorInvalidEmail, setErrorTooManyRecipients,
-  setErrorInvalidRecipients, setErrorTooLarge, getErrorMethod, getErrorHandleMismatch
+  setErrorInvalidRecipients, setErrorTooLarge
 export field_echo
 export credential except authorizationHeaderValue
 export session_endpoint except asDirectUrl, asDiscoveryDomain

@@ -23,6 +23,7 @@ import ../protocol/methods
 import ../protocol/dispatch
 import ../protocol/builder
 import ../protocol/call_meta
+import ../protocol/jmap_error
 import ./mailbox
 import ./mailbox_changes_response
 import ./thread
@@ -456,15 +457,16 @@ type EmailQueryThreadChain* {.ruleOff: "objects".} = object
 type EmailQueryThreadResults* {.ruleOff: "objects".} = object
   ## Paired extraction target of ``getAll(EmailQueryThreadChain)``. Plain
   ## domain names; the enclosing type name already conveys "responses"
-  ## (H11).
-  query*: QueryResponse[Email]
-  threadIdFetch*: GetResponse[PartialEmail]
-  threads*: GetResponse[thread.Thread]
-  display*: GetResponse[PartialEmail]
+  ## (H11). Each field is a ``MethodOutcome`` so one method erroring in the
+  ## chain does not discard the siblings that succeeded (RFC 8620 §3.6.2).
+  query*: MethodOutcome[QueryResponse[Email]]
+  threadIdFetch*: MethodOutcome[GetResponse[PartialEmail]]
+  threads*: MethodOutcome[GetResponse[thread.Thread]]
+  display*: MethodOutcome[GetResponse[PartialEmail]]
 
 func getAll*(
     dr: DispatchedResponse, handles: EmailQueryThreadChain
-): Result[EmailQueryThreadResults, GetError] =
+): Result[EmailQueryThreadResults, JmapError] =
   ## Extract all four responses from the first-login workflow. Monomorphic
   ## over ``EmailQueryThreadChain`` — not a parametric ``getAll[A, B, C, D]``
   ## — because the record it serves is not parametric either (H14).

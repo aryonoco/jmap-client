@@ -25,6 +25,7 @@ import ../protocol/methods
 import ../protocol/dispatch
 import ../protocol/builder
 import ../protocol/call_meta
+import ../protocol/jmap_error
 import ./vacation
 import ./snippet
 import ./email
@@ -344,13 +345,14 @@ type EmailQuerySnippetChain* {.ruleOff: "objects".} = object
 type EmailQuerySnippetResults* {.ruleOff: "objects".} = object
   ## Paired extraction target of ``getBoth(EmailQuerySnippetChain)``. The
   ## enclosing type name already conveys "responses", so the fields take plain
-  ## domain names.
-  query*: QueryResponse[Email]
-  snippets*: SearchSnippetGetResponse
+  ## domain names. Each is a ``MethodOutcome`` so one method erroring does not
+  ## discard the sibling that succeeded (RFC 8620 §3.6.2).
+  query*: MethodOutcome[QueryResponse[Email]]
+  snippets*: MethodOutcome[SearchSnippetGetResponse]
 
 func getBoth*(
     dr: DispatchedResponse, handles: EmailQuerySnippetChain
-): Result[EmailQuerySnippetResults, GetError] =
+): Result[EmailQuerySnippetResults, JmapError] =
   ## Extract both responses from the query-with-snippets chain. Both handles
   ## dispatch through the default ``dr.get`` (distinct call-ids, no method-name
   ## filter), resolving via the handles' stored parser closures.
