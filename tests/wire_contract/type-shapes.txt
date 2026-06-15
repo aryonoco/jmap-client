@@ -194,7 +194,7 @@
 
 ## CompoundResults [jmap_client/internal/protocol/dispatch]
   primary*: MethodOutcome[A]
-  implicit*: MethodOutcome[B]
+  implicit*: Opt[MethodOutcome[B]]
 
 ## ContentDisposition [jmap_client/internal/mail/body]
   case rawKind: ContentDispositionKind

@@ -308,24 +308,35 @@ type CompoundHandles*[A, B] {.ruleOff: "objects".} = object
   implicit*: NameBoundHandle[B]
 
 type CompoundResults*[A, B] {.ruleOff: "objects".} = object
-  ## Paired extraction target for ``getBoth(CompoundHandles[A, B])``. Each side
-  ## carries its own ``MethodOutcome`` so one method erroring does not discard
-  ## the sibling's value (RFC 8620 §3.6.2).
+  ## Paired extraction target for ``getBoth(CompoundHandles[A, B])``. The
+  ## ``primary`` outcome carries the declared method's result as data (a server
+  ## method error rides it as ``mokMethodError``, not the rail — §3.6.2). The
+  ## ``implicit`` outcome is ``Opt``: RFC 8620 §5.4 emits the implicit call only
+  ## when the primary method *succeeds*, so it is absent (``none``) exactly when
+  ## ``primary`` is a method error, and present (``some``) — itself a
+  ## ``MethodOutcome`` — when the primary ran.
   primary*: MethodOutcome[A]
-  implicit*: MethodOutcome[B]
+  implicit*: Opt[MethodOutcome[B]]
 
 func getBoth*[A, B](
     dr: DispatchedResponse, handles: CompoundHandles[A, B]
 ): Result[CompoundResults[A, B], JmapError] =
   ## Extract both responses from a §5.4 implicit-call compound. The ``primary``
-  ## handle dispatches through the default ``get[T]`` overload; ``implicit``
-  ## through the ``NameBoundHandle`` overload (method-name filter from the
-  ## handle). Both share the brand-check semantics — the inner handles must
-  ## have been issued by the builder that produced ``dr`` — and each yields a
-  ## ``MethodOutcome`` on the ok branch; only dispatch faults ride the rail.
+  ## handle dispatches through the default ``get[T]`` overload; both share the
+  ## brand-check semantics (the inner handles must have been issued by the
+  ## builder that produced ``dr``). Because §5.4 emits the implicit call only on
+  ## the primary's success, the implicit is extracted only when ``primary`` is a
+  ## value — a primary method error means the server never ran it, so forcing an
+  ## extraction would (correctly) surface ``jeProtocol`` for a response that is
+  ## absent by design and discard the primary's method error. Only genuine
+  ## dispatch faults ride the rail.
   let primary = ?dr.get(handles.primary)
-  let implicit = ?dr.get(handles.implicit)
-  ok(CompoundResults[A, B](primary: primary, implicit: implicit))
+  case primary.kind
+  of mokMethodError:
+    ok(CompoundResults[A, B](primary: primary, implicit: Opt.none(MethodOutcome[B])))
+  of mokValue:
+    let implicit = ?dr.get(handles.implicit)
+    ok(CompoundResults[A, B](primary: primary, implicit: Opt.some(implicit)))
 
 template registerCompoundMethod*(Primary, Implicit: typedesc) =
   ## Compile-checks that ``Primary`` parametrises ``ResponseHandle``

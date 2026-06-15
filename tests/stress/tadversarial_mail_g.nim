@@ -29,6 +29,7 @@ import std/times
 import results
 
 import jmap_client/internal/protocol/dispatch
+import jmap_client/internal/protocol/jmap_error
 import jmap_client/internal/types/envelope
 import jmap_client/internal/types/identifiers
 import jmap_client/internal/types/methods_enum
@@ -521,9 +522,11 @@ testCase getBothSubmissionAdversarialGroup:
     assertErr res
 
   block getBothOuterIfInStateMismatch:
-    # §8.6 row 6: the outer is an ``error`` tag (a method error — data now,
-    # riding the primary MethodOutcome); the absent inner rails
-    # ``jeProtocol`` / ``pfMissingCall``, so getBoth still errs.
+    # §8.6 row 6: the outer is an ``error`` tag (a method error — data on the
+    # primary MethodOutcome). RFC 8620 §5.4 emits the implicit call only on the
+    # primary's success, so on a primary error getBoth returns ok with
+    # implicit = none: the primary's method error survives as data, not a rail
+    # fault.
     let handles = makeEmailSubmissionHandles()
     let errArgs = %*{"type": "stateMismatch"}
     let resp = initResponse(
@@ -532,7 +535,10 @@ testCase getBothSubmissionAdversarialGroup:
       parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
-    assertErr res
+    assertOk res
+    let pair = res.get()
+    doAssert pair.primary.kind == mokMethodError
+    doAssert pair.implicit.isNone
 
   block getBothCreationRefNotInCreateMap:
     # §8.6 row 7: outer onSuccessUpdateEmail references a creation-id

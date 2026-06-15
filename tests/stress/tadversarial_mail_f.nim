@@ -877,8 +877,8 @@ testCase getBothAdversarialGroup:
     # Symmetric half: when the COPY invocation is an ``error`` envelope,
     # ResponseHandle dispatch (no name filter) parses the MethodError payload
     # and surfaces it as DATA on the primary ``MethodOutcome.mokMethodError``,
-    # server-supplied errorType preserved. The sibling Email/set still
-    # extracts (mokValue) — getBoth does not short-circuit.
+    # server-supplied errorType preserved. Because the primary method-errored,
+    # RFC 8620 §5.4 emits no implicit call, so getBoth leaves the implicit none.
     let sharedId = makeMcid("c0")
     let handles = makeEmailCopyHandles(sharedId)
     let errorArgs = %*{"type": "fromAccountNotFound"}
@@ -895,7 +895,7 @@ testCase getBothAdversarialGroup:
     let r = res.get()
     doAssert r.primary.kind == mokMethodError
     assertEq r.primary.error.kind, metFromAccountNotFound
-    doAssert r.implicit.kind == mokValue
+    doAssert r.implicit.isNone
 
 # =============================================================================
 # Block 5 — Cross-response coherence
@@ -1238,6 +1238,9 @@ testCase scaleInvariantsGroup:
     assertOk res
     let r = res.get()
     doAssert r.primary.kind == mokValue
-    doAssert r.implicit.kind == mokValue
+    let implicitOutcome = r.implicit.valueOr:
+      doAssert false, "compound implicit must be present when the primary succeeds"
+      return
+    doAssert implicitOutcome.kind == mokValue
     assertLen r.primary.value.createResults, 0
-    assertLen r.implicit.value.createResults, 0
+    assertLen implicitOutcome.value.createResults, 0

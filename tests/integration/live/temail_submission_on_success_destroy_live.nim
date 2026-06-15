@@ -122,10 +122,16 @@ testCase tEmailSubmissionOnSuccessDestroyLive:
           compoundOk = true
       do:
         assertOn target, false, "EmailSubmission/set must report a create outcome"
+      # §5.4: the implicit Email/set is emitted only on the submission's
+      # success, so it is present (some) here on the primary mokValue arm.
+      let implicitOutcome = pair.implicit.valueOr:
+        assertOn target,
+          false, "implicit Email/set destroy must be present on a successful submission"
+        continue
       assertOn target,
-        pair.implicit.kind == mokValue,
+        implicitOutcome.kind == mokValue,
         "implicit Email/set destroy must return a value, not a method error"
-      let implicitResp = pair.implicit.value
+      let implicitResp = implicitOutcome.value
       implicitResp.destroyResults.withValue(draftId, outcome):
         assertOn target,
           outcome.isOk,

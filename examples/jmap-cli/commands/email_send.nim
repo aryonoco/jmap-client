@@ -201,16 +201,20 @@ proc sendEmail(toAddress, subject, bodyText: string): JmapResult[int] =
       else:
         stderr.writeLine "submission failed " & $cid & ": " & res.error.message
 
-  case subOutcome.implicit.kind
-  of mokMethodError:
-    stderr.writeLine "implicit Email/set (move): " & subOutcome.implicit.error.message
-    return ok(1)
-  of mokValue:
-    for id, res in subOutcome.implicit.value.updateResults:
-      if res.isOk:
-        echo "moved to Sent: ", $id
-      else:
-        stderr.writeLine "onSuccess move failed " & $id & ": " & res.error.message
+  # The implicit Email/set rides RFC 8620 §5.4: the server emits it only when
+  # the submission succeeds. It is therefore an Opt — present here because the
+  # primary mokMethodError arm returned above; absent only on a primary error.
+  for implicitOutcome in subOutcome.implicit:
+    case implicitOutcome.kind
+    of mokMethodError:
+      stderr.writeLine "implicit Email/set (move): " & implicitOutcome.error.message
+      return ok(1)
+    of mokValue:
+      for id, res in implicitOutcome.value.updateResults:
+        if res.isOk:
+          echo "moved to Sent: ", $id
+        else:
+          stderr.writeLine "onSuccess move failed " & $id & ": " & res.error.message
   ok(0)
 
 proc run*(args: seq[string]): int =

@@ -637,16 +637,20 @@ testCase getBothCopyAndDestroyHappyPath:
   assertOk results
   let r = results.get()
   doAssert r.primary.kind == mokValue
-  doAssert r.implicit.kind == mokValue
+  let implicitOutcome = r.implicit.valueOr:
+    doAssert false, "compound implicit must be present when the primary succeeds"
+    return
+  doAssert implicitOutcome.kind == mokValue
   assertEq r.primary.value.accountId, makeAccountId("dst")
-  assertEq r.implicit.value.accountId, makeAccountId("dst")
+  assertEq implicitOutcome.value.accountId, makeAccountId("dst")
 
 testCase getBothCopyMethodErrorRidesData:
   ## M.2: a copy-side ``MethodError`` is DATA now — it rides the primary
   ## ``MethodOutcome.mokMethodError`` (the typed variant survives round-trip
   ## for every ``MethodErrorKind`` applicable to Email/copy per RFC 8621 §4.7)
-  ## rather than short-circuiting ``getBoth`` onto the rail. The sibling
-  ## destroy (Email/set) at the shared cid is still extracted.
+  ## rather than short-circuiting ``getBoth`` onto the rail. Because the
+  ## primary method-errored, RFC 8620 §5.4 emits no implicit call, so
+  ## ``getBoth`` leaves the implicit ``none``.
   const applicable = {
     metStateMismatch, metFromAccountNotFound, metFromAccountNotSupportedByMethod,
     metServerFail, metForbidden, metAccountNotFound, metAccountReadOnly,
@@ -665,7 +669,7 @@ testCase getBothCopyMethodErrorRidesData:
     let r = results.get()
     doAssert r.primary.kind == mokMethodError, "variant " & $variant & " must be data"
     assertEq r.primary.error.kind, variant
-    doAssert r.implicit.kind == mokValue
+    doAssert r.implicit.isNone
 
 testCase getBothDestroyMissingRidesProtocolRail:
   ## M.3: well-formed copy + NO Email/set invocation at the shared cid. The
@@ -809,10 +813,13 @@ testCase getBothBothSucceed:
   assertOk results
   let r = results.get()
   doAssert r.primary.kind == mokValue
-  doAssert r.implicit.kind == mokValue
+  let implicitOutcome = r.implicit.valueOr:
+    doAssert false, "compound implicit must be present when the primary succeeds"
+    return
+  doAssert implicitOutcome.kind == mokValue
   assertLen r.primary.value.createResults, 1
   doAssert r.primary.value.createResults[makeCreationId("s1")].isOk
-  assertSomeEq r.implicit.value.newState, makeState("em1")
+  assertSomeEq implicitOutcome.value.newState, makeState("em1")
 
 testCase getBothInnerErrorTagRidesProtocolRail:
   ## O.3 — G2 §8.6 row 2: well-formed submission + an ``"error"``-tagged
@@ -930,19 +937,22 @@ testCase getBothOuterNotCreatedSole:
   assertOk results
   let r = results.get()
   doAssert r.primary.kind == mokValue
-  doAssert r.implicit.kind == mokValue
+  let implicitOutcome = r.implicit.valueOr:
+    doAssert false, "compound implicit must be present when the primary succeeds"
+    return
+  doAssert implicitOutcome.kind == mokValue
   assertLen r.primary.value.createResults, 1
   doAssert r.primary.value.createResults[makeCreationId("s1")].isErr
-  assertLen r.implicit.value.createResults, 0
+  assertLen implicitOutcome.value.createResults, 0
 
 testCase getBothOuterMethodErrorRidesData:
   ## O.7 — G2 §8.6 row 6: the outer ``EmailSubmission/set`` invocation is an
   ## ``"error"``-tagged invocation with ``"stateMismatch"`` at the shared
   ## call-id (the ``ifInState`` check failed). A method error is DATA now: the
   ## primary ``ResponseHandle`` matches the error invocation at the cid and
-  ## yields ``mokMethodError(metStateMismatch)`` on the ok branch, while the
-  ## sibling ``Email/set`` is still extracted as ``mokValue`` — ``getBoth``
-  ## no longer short-circuits, so both outcomes are observable.
+  ## yields ``mokMethodError(metStateMismatch)`` on the ok branch. Because the
+  ## primary method-errored, RFC 8620 §5.4 emits no implicit call, so
+  ## ``getBoth`` leaves the implicit ``none``.
   let cid = makeMcid("c0")
   let handles = makeEmailSubmissionHandles(cid, cid)
   let errInv = makeErrorInvocation(cid, "stateMismatch")
@@ -954,7 +964,7 @@ testCase getBothOuterMethodErrorRidesData:
   let r = results.get()
   doAssert r.primary.kind == mokMethodError
   assertEq r.primary.error.kind, metStateMismatch
-  doAssert r.implicit.kind == mokValue
+  doAssert r.implicit.isNone
 
 # ===========================================================================
 # P. addEmailSubmissionGet wire shape (RFC 8621 §7.1)
