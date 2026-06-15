@@ -33,6 +33,8 @@ testCase valueOrBindsEchoOnce:
   ## run exactly once.
   var calls = 0
   proc echoOnce(): FieldEcho[int] =
+    ## Side-effecting producer that counts each call, to prove ``valueOr``
+    ## evaluates its ``fe`` argument exactly once.
     inc calls
     fieldValue(5)
 
@@ -43,6 +45,7 @@ testCase valueOrDoesNotEvaluateDefOnValue:
   ## The fallback ``def`` is lazy — never evaluated when the value is present.
   var evaluated = false
   proc fallback(): int =
+    ## Side-effecting fallback that records whether ``valueOr`` evaluated it.
     evaluated = true
     0
 

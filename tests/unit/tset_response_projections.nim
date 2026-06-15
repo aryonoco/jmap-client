@@ -31,12 +31,15 @@ import jmap_client/internal/types/primitives
 import ../mtestblock
 
 proc cid(s: string): CreationId =
+  ## Build a CreationId from a literal (test helper).
   parseCreationId(s).get()
 
 proc eid(s: string): Id =
+  ## Build an Id from a literal (test helper).
   parseId(s).get()
 
 proc setErr(props: seq[string]): SetError =
+  ## Build an invalidProperties SetError over the given property names.
   setErrorInvalidProperties("invalidProperties", props)
 
 # T and U are arbitrary here: the iterators only walk the tables and never
@@ -45,6 +48,8 @@ proc setErr(props: seq[string]): SetError =
 # constructor rather than through the wire parser.
 
 proc fixture(): SetResponse[int, int] =
+  ## A SetResponse[int, int] with mixed ok/err entries on all three rails
+  ## (create/update/destroy), including an Opt.some and an Opt.none update echo.
   var createResults = initTable[CreationId, Result[int, SetError]]()
   createResults[cid("c-ok-1")] = Result[int, SetError].ok(10)
   createResults[cid("c-ok-2")] = Result[int, SetError].ok(20)
