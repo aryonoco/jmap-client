@@ -99,13 +99,13 @@ testCase mailboxChangesResponseForwardingAccessors:
     "updatedProperties": ["name"],
   }
   let resp = MailboxChangesResponse.fromJson(node).get()
-  assertEq $resp.accountId, "acct1"
-  assertEq $resp.oldState, "s1"
-  assertEq $resp.newState, "s2"
-  doAssert resp.hasMoreChanges
-  assertLen resp.created, 1
-  assertLen resp.updated, 1
-  assertLen resp.destroyed, 1
+  assertEq $resp.base.accountId, "acct1"
+  assertEq $resp.base.oldState, "s1"
+  assertEq $resp.base.newState, "s2"
+  doAssert resp.base.hasMoreChanges
+  assertLen resp.base.created, 1
+  assertLen resp.base.updated, 1
+  assertLen resp.base.destroyed, 1
 
 testCase mailboxChangesResponseMissingBaseField:
   ## Scenario 67: missing required base field → err.
