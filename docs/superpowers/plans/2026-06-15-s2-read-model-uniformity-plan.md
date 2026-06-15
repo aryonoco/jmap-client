@@ -33,7 +33,7 @@ No new deps, no `converter`s, no `requiresInit`.
   - P0 FieldEcho reader ✅ `0d93a4a` · P1 NonEmptyIdSeq relocate ✅ `a4f5a44` · P2 newtypes ✅ `6c9a306` ·
     P3 ceremony flips ✅ `5785fa2` · P4 Thread ✅ `55042d8` · P5 capability arms ✅ `b83f091` · P6 Account ✅ `b2242fc` ·
     P7 Session ✅ `065eb6f` · P8 Email headers + MailboxChangesResponse ✅ `27443be` ·
-    P9 SetResponse projections ✅ `759ab11` · P10 contract regen ⬜ · P11 test sweep ⬜ ·
+    P9 SetResponse projections ✅ `759ab11` · P10 contract regen ✅ `c9f35ff` · P11 test sweep 🔜 ·
     P12 CLI re-bench ⬜ · P13 gates ⬜.
 
 ### RESUME PROTOCOL (for a zero-context successor after compaction)
