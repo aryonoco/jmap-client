@@ -26,14 +26,13 @@
   and Blob upload/download are deferred.**
 - **Status:** Campaign decomposed into 6 sub-projects (S0–S4 + a triage ledger).
   - **S0 (truthful contract) — ✅ DONE & merged to `main`** (PR #5).
-  - **S1 (one error rail, `JmapError`) — ✅ DONE, both gates green, NOT yet
-    pushed.** Branch `api/s1-one-error-rail`, HEAD `c73dbdf`, 13 commits.
+  - **S1 (one error rail, `JmapError`) — ✅ DONE & merged to `main`** (PR #6,
+    merge commit `011830b`, 2026-06-15). Both gates were green at merge.
   - **S2 (read-model uniformity) — ⬜ NEXT.** S3, S4, and the triage ledger
     follow.
-- **Immediate decision pending from the user:** whether to **push
-  `api/s1-one-error-rail` + open a PR** (and/or merge to `main`). The agent was
-  last awaiting that go-ahead — **do not push/PR/merge without explicit user
-  confirmation** (outward-facing action).
+- **You are on `main`** (up to date with origin, S1 merged). The immediate work
+  is **S2** — start it via the `brainstorming` skill and get the user's design
+  approval before coding (§13).
 
 ---
 
@@ -221,7 +220,7 @@ writing-plans → executing-plans). Dependency order:
 | # | Sub-project | Clears | Depends on | Status |
 |---|---|---|---|---|
 | **S0** | **Truthful contract** (compiler-as-library oracle) | R5 | — | ✅ DONE & merged |
-| **S1** | **One error rail** (`JmapError`) | R3 | S0 | ✅ DONE, not pushed |
+| **S1** | **One error rail** (`JmapError`) | R3 | S0 | ✅ DONE & merged (PR #6) |
 | **S2** | **Read-model uniformity** | R6 | S0 | ⬜ NEXT |
 | **S3** | **Complete the core** (readers/ctors/predicates/`requireMail`) | R2 | S1, S2 | ⬜ |
 | **S4** | **One-shots + easy-path + dissolve quarantine** (`connect`, `sendPlainText`, `queryThenGet`, bare-get one-shots, the uncopyable-builder front door) | R1, R4 | S3 | ⬜ |
@@ -333,10 +332,11 @@ collapse every stage to `Result[T, string]` with a hand-rolled `joinErrs`.
   documentation (**D1**: kept the `Opt` implicit — `getBoth` is its sole producer
   and never emits a contradictory pair).
 
-**Git.** Branch `api/s1-one-error-rail`, HEAD `c73dbdf`, **13 commits** (Linux-
-kernel style), 154 files, +3773/−2465. **Both gates green** (`just ci` + the full
-live `test-full` against Cyrus + Stalwart + James). **NOT pushed.** Spec
-(gitignored): `docs/superpowers/specs/2026-06-15-s1-one-error-rail-design.md`.
+**Git.** Branch `api/s1-one-error-rail` (13 commits, Linux-kernel style, 154
+files, +3773/−2465) **merged to `main` via PR #6** (merge commit `011830b`).
+Both gates were green at merge (`just ci` + the full live `test-full` against
+Cyrus + Stalwart + James). Spec (gitignored):
+`docs/superpowers/specs/2026-06-15-s1-one-error-rail-design.md`.
 Plan (tracked, with a STATE header marked DONE):
 `docs/superpowers/plans/2026-06-15-s1-one-error-rail-plan.md`.
 
@@ -344,12 +344,8 @@ Plan (tracked, with a STATE header marked DONE):
 
 ## 9. What is LEFT (the work ahead)
 
-**Immediate (awaiting the user's go-ahead):** push `api/s1-one-error-rail` +
-open a PR (draft: `errors: collapse the five error rails into one JmapError
-(S1)`, body = the one-rail summary + the four locked decisions + the gate results
-+ the adversarial-review note + the S2–S4 deferrals; flag that
-`ClientError`/`GetError`/`EmailBlueprintErrors` removal is intentional, not an
-API loss). **Confirm with the user before pushing/PR/merging** (outward-facing).
+**S1 push/PR/merge — ✅ DONE** (PR #6 merged to `main`, 2026-06-15). No
+immediate outward-facing action pending.
 
 **S2 — Read-model uniformity (NEXT).** Settle the final entity *data-record*
 shapes: one access idiom (recommend direct public fields for data records;
@@ -516,29 +512,26 @@ trips it — wrap such prose in `<!-- REUSE-IgnoreStart -->` / `<!-- REUSE-Ignor
 
 ## 12. Current working state (snapshot, 2026-06-15)
 
-- Branch `api/s1-one-error-rail` checked out, **working tree clean**, HEAD
-  `c73dbdf`, **13 commits ahead of `main`**, **both gates green**. **NOT pushed.**
-- `main` has S0 merged (the oracle); S1 lives only on the branch.
-- Memories present: `api-libcurl-sqlite-refactor` (campaign state, marks S1 DONE),
-  `api-design-only-consumers` (the design lens), plus the older
+- On **`main`**, up to date with `origin/main` (merge commit `011830b`). **S0 and
+  S1 are both merged.** Working tree clean. The `api/s1-one-error-rail` branch
+  still exists (local + remote) — harmless; may be deleted.
+- Memories present: `api-libcurl-sqlite-refactor` (campaign state, marks S1 DONE
+  & merged), `api-design-only-consumers` (the design lens), plus the older
   `api-refactor-section-ab-campaign` (partly superseded).
 
 ---
 
 ## 13. Immediate next action
 
-1. **Confirm with the user** whether to **push `api/s1-one-error-rail` + open a
-   PR** (and/or merge to `main`). Do NOT push/PR/merge without explicit
-   go-ahead (outward-facing). If approved: `git push -u origin
-   api/s1-one-error-rail`, `gh pr create …`, note the rail removals are
-   intentional.
-2. **Then start S2 (read-model uniformity):** invoke the `brainstorming` skill,
-   design the final entity data-record shapes against the design lens (§2) and
-   P8/P19/decision 3 (direct public fields for data records; collapse the
-   `Opt`-vs-`FieldEcho` split; reconcile `Thread`'s `lent seq`), **get the user's
-   approval**, then `writing-plans` → `executing-plans` with per-phase commits and
-   the two gates (§10). Treat any `convenience.nim`/CLI/test breakage as a
-   **finding to fix, never a constraint**.
+**Start S2 — read-model uniformity.** You are on `main` with S0 + S1 merged.
+Branch first (e.g. `api/s2-read-model-uniformity`); never implement on `main`.
+Invoke the `brainstorming` skill and design the final entity *data-record* shapes
+**with the user** against the design lens (§2) and P8/P19/decision 3 (direct
+public fields for data records; collapse the `Email`/`PartialEmail`
+`Opt`-vs-`FieldEcho` split; reconcile `Thread`'s `lent seq`); get the user's
+approval, then `writing-plans` → `executing-plans` with per-phase commits and the
+two gates (§10). Treat any `convenience.nim`/CLI/test breakage as a **finding to
+fix, never a constraint**. Confirm push/PR/merge with the user (outward-facing).
 
 **When in doubt, re-read §2 (the design lens). Optimise for the future
 application developer, comprehensively, no corners cut — libcurl/SQLite, not
