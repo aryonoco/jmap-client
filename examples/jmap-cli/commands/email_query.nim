@@ -10,7 +10,6 @@
 ## owns the hand-wired Email/query -> #ids -> Email/get back-reference.)
 
 import jmap_client
-import jmap_client/convenience # opt-in; NOT re-exported by `import jmap_client`
 import ./cli_session
 
 proc resolveInbox(ctx: CliContext): JmapResult[Opt[Id]] =

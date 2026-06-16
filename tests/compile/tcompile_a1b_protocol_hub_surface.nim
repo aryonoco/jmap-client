@@ -142,8 +142,8 @@ static:
   doAssert not declared(serdeToMethodError)
 
   # dispatch.nim — generic mixin reference helpers retired; the public
-  # back-reference surface is `reference` plus the per-entity convenience
-  # builders in `convenience.nim`
+  # back-reference surface is `reference` plus the per-entity combinators
+  # folded onto the hub (internal/mail/combinators)
   doAssert not declared(idsRef)
   doAssert not declared(listIdsRef)
   doAssert not declared(addedIdsRef)

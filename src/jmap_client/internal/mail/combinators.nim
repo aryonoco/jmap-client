@@ -1,15 +1,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Opt-in per-entity pipeline combinators for the common JMAP
-## multi-method patterns (RFC 8620 §3.7 back-reference chains).
+## Per-entity pipeline combinators for the common JMAP multi-method
+## patterns (RFC 8620 §3.7 back-reference chains).
 ##
-## This module is publicly importable as ``jmap_client/convenience`` but
-## is NOT re-exported by the root ``jmap_client`` module — consumers who
-## want pipeline combinators ``import jmap_client/convenience``
-## explicitly. The physical separation keeps the typed per-entity
-## builder surface the sole always-on API while these combinators stay
-## opt-in (P6 quarantine; lessons from analysing OpenSSL/libgit2).
+## Part of the always-on hub: ``import jmap_client`` reaches these
+## combinators directly alongside the typed per-entity builder surface.
 ##
 ## **The combinators.** ``add<Entity>QueryThenGet`` emits
 ## ``<Entity>/query`` + ``<Entity>/get``; ``add<Entity>ChangesToGet``
@@ -28,7 +24,21 @@
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
-import jmap_client
+import ../types
+import ../protocol/methods
+import ../protocol/dispatch
+import ../protocol/builder
+import ../protocol/jmap_error
+import ./email
+import ./mailbox
+import ./mailbox_changes_response
+import ./identity
+import ./thread
+import ./email_submission
+import ./mail_filters
+import ./mail_builders
+import ./identity_builders
+import ./submission_builders
 
 # =============================================================================
 # Paired handle bundles
@@ -92,8 +102,7 @@ func addEmailQueryThenGet*(
   ## Email/query + full-record Email/get (RFC 8621 §4.4 + §4.2). The get's
   ## ``ids`` back-references the query's ``/ids`` path. For a typed property
   ## projection, compose ``addEmailQuery`` + ``addPartialEmailGet`` with
-  ## ``ids = Opt.some(reference[seq[Id]](qh, mnEmailQuery, rpIds))`` directly
-  ## (A3.6 — projection is a core-surface choice, not convenience sugar).
+  ## ``ids = Opt.some(reference[seq[Id]](qh, mnEmailQuery, rpIds))`` directly.
   let (b1, qh) = addEmailQuery(b, accountId, filter, sort, queryParams, collapseThreads)
   let idsR = reference[seq[Id]](qh, mnEmailQuery, rpIds)
   let (b2, gh) = addEmailGet(
@@ -114,7 +123,7 @@ func addMailboxQueryThenGet*(
   ## Mailbox/query + full-record Mailbox/get (RFC 8621 §2.3 + §2.1). The
   ## get's ``ids`` back-references the query's ``/ids`` path. For a typed
   ## property projection, compose ``addMailboxQuery`` + ``addPartialMailboxGet``
-  ## directly (A3.6).
+  ## directly.
   let (b1, qh) =
     addMailboxQuery(b, accountId, filter, sort, queryParams, sortAsTree, filterAsTree)
   let idsR = reference[seq[Id]](qh, mnMailboxQuery, rpIds)
@@ -132,7 +141,7 @@ func addEmailSubmissionQueryThenGet*(
   ## EmailSubmission/query + full-record EmailSubmission/get (RFC 8621 §7.3 +
   ## §7.1). The get's ``ids`` back-references the query's ``/ids`` path. For a
   ## typed property projection, compose ``addEmailSubmissionQuery`` +
-  ## ``addPartialEmailSubmissionGet`` directly (A3.6).
+  ## ``addPartialEmailSubmissionGet`` directly.
   let (b1, qh) = addEmailSubmissionQuery(b, accountId, filter, sort, queryParams)
   let idsR = reference[seq[Id]](qh, mnEmailSubmissionQuery, rpIds)
   let (b2, gh) = addEmailSubmissionGet(b1, accountId, ids = Opt.some(idsR))
@@ -154,7 +163,7 @@ func addEmailChangesToGet*(
   ## newly created records are fetched. For a typed property projection,
   ## compose ``addEmailChanges`` + ``addPartialEmailGet`` with
   ## ``ids = Opt.some(reference[seq[Id]](ch, mnEmailChanges, rpCreated))``
-  ## directly (A3.6).
+  ## directly.
   let (b1, ch) = addEmailChanges(b, accountId, sinceState, maxChanges)
   let idsR = reference[seq[Id]](ch, mnEmailChanges, rpCreated)
   let (b2, gh) = addEmailGet(
@@ -171,7 +180,7 @@ func addIdentityChangesToGet*(
   ## Identity/changes + full-record Identity/get (RFC 8621 §6.2 + §6.1). The
   ## get's ``ids`` back-references the changes response's ``/created`` path.
   ## For a typed property projection, compose ``addIdentityChanges`` +
-  ## ``addPartialIdentityGet`` directly (A3.6).
+  ## ``addPartialIdentityGet`` directly.
   let (b1, ch) = addIdentityChanges(b, accountId, sinceState, maxChanges)
   let idsR = reference[seq[Id]](ch, mnIdentityChanges, rpCreated)
   let (b2, gh) = addIdentityGet(b1, accountId, ids = Opt.some(idsR))
@@ -182,15 +191,15 @@ func addThreadChangesToGet*(
     accountId: AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
-): (RequestBuilder, ChangesGetHandles[jmap_client.Thread]) =
+): (RequestBuilder, ChangesGetHandles[thread.Thread]) =
   ## Thread/changes + full-record Thread/get (RFC 8621 §3.2 + §3.1). The
   ## get's ``ids`` back-references the changes response's ``/created`` path.
   ## For a typed property projection, compose ``addThreadChanges`` +
-  ## ``addPartialThreadGet`` directly (A3.6).
+  ## ``addPartialThreadGet`` directly.
   let (b1, ch) = addThreadChanges(b, accountId, sinceState, maxChanges)
   let idsR = reference[seq[Id]](ch, mnThreadChanges, rpCreated)
   let (b2, gh) = addThreadGet(b1, accountId, ids = Opt.some(idsR))
-  (b2, ChangesGetHandles[jmap_client.Thread](changes: ch, get: gh))
+  (b2, ChangesGetHandles[thread.Thread](changes: ch, get: gh))
 
 func addEmailSubmissionChangesToGet*(
     b: sink RequestBuilder,
@@ -201,8 +210,7 @@ func addEmailSubmissionChangesToGet*(
   ## EmailSubmission/changes + full-record EmailSubmission/get (RFC 8621 §7.2
   ## + §7.1). The get's ``ids`` back-references the changes response's
   ## ``/created`` path. For a typed property projection, compose
-  ## ``addEmailSubmissionChanges`` + ``addPartialEmailSubmissionGet`` directly
-  ## (A3.6).
+  ## ``addEmailSubmissionChanges`` + ``addPartialEmailSubmissionGet`` directly.
   let (b1, ch) = addEmailSubmissionChanges(b, accountId, sinceState, maxChanges)
   let idsR = reference[seq[Id]](ch, mnEmailSubmissionChanges, rpCreated)
   let (b2, gh) = addEmailSubmissionGet(b1, accountId, ids = Opt.some(idsR))
@@ -220,7 +228,7 @@ func addMailboxChangesToGet*(
   ## yields the extended ``MailboxChangesResponse``, which
   ## ``ChangesGetHandles[Mailbox]`` cannot type. For a typed property
   ## projection, compose ``addMailboxChanges`` + ``addPartialMailboxGet``
-  ## directly (A3.6).
+  ## directly.
   let (b1, ch) = addMailboxChanges(b, accountId, sinceState, maxChanges)
   let idsR = reference[seq[Id]](ch, mnMailboxChanges, rpCreated)
   let (b2, gh) = addMailboxGet(b1, accountId, ids = Opt.some(idsR))

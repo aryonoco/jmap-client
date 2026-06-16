@@ -4,12 +4,12 @@
 ## Compile-only audit of the mail hub's public surface (A1d).
 ##
 ## The audit asserts BOTH presence (must be reachable through
-## ``import jmap_client`` / ``import jmap_client/convenience``) and
-## absence (must NOT be reachable). After A1d the mail hub commits to
-## exactly one surface — typed entity records, smart constructors, the
-## typed per-entity builders, typed handles, and the opt-in convenience
-## combinators. Mail-entity wire ser/de and the entity-registration
-## overloads are L2/L3 implementation detail, hub-private.
+## ``import jmap_client``) and absence (must NOT be reachable). After
+## A1d the mail hub commits to exactly one surface — typed entity
+## records, smart constructors, the typed per-entity builders, typed
+## handles, and the per-entity pipeline combinators. Mail-entity wire
+## ser/de and the entity-registration overloads are L2/L3
+## implementation detail, hub-private.
 ##
 ## A compile failure here is the canonical signal that ``mail.nim`` (or a
 ## builder module) has re-leaked serde or registration scaffolding onto
@@ -24,7 +24,6 @@
 import std/json
 
 import jmap_client
-import jmap_client/convenience
 
 static:
   # ===========================================================================
@@ -125,7 +124,7 @@ static:
   # --- Back-reference primitive (dispatch.nim) ---
   doAssert declared(reference)
 
-  # --- Per-entity convenience wrappers (8) + paired extraction ---
+  # --- Per-entity pipeline combinators (8) + paired extraction ---
   doAssert declared(addEmailQueryThenGet)
   doAssert declared(addMailboxQueryThenGet)
   doAssert declared(addEmailSubmissionQueryThenGet)
@@ -256,7 +255,7 @@ static:
 
 # Runtime anchors — `declared()` / `when` probes do not count as "use"
 # for Nim's UnusedImport check. Reference one symbol from each import at
-# runtime to pin `jmap_client`, `jmap_client/convenience` and `std/json`.
+# runtime to pin `jmap_client` and `std/json`.
 discard sizeof(Email)
 discard sizeof(EmailParseResponse)
 discard sizeof(MailboxChangesGetHandles)

@@ -1,6 +1,6 @@
 # Public-type-shape surface — the public-field shape of every
-# repo-owned type reachable through `import jmap_client` and
-# `import jmap_client/convenience`, rendered from the compiler's
+# repo-owned type reachable through `import jmap_client`, rendered
+# from the compiler's
 # post-sem type AST by scripts/api_oracle.nim. A faithful description
 # of public type shapes (private fields excluded); locked by
 # tests/lint/h17_type_shape_snapshot.nim so any drift is deliberate.
@@ -156,11 +156,11 @@
 
 ## CapabilityUri [jmap_client/internal/types/capabilities]
 
-## ChangesGetHandles [jmap_client/convenience]
+## ChangesGetHandles [jmap_client/internal/mail/combinators]
   changes*: ResponseHandle[ChangesResponse[T]]
   get*: ResponseHandle[GetResponse[T]]
 
-## ChangesGetResults [jmap_client/convenience]
+## ChangesGetResults [jmap_client/internal/mail/combinators]
   changes*: MethodOutcome[ChangesResponse[T]]
   get*: MethodOutcome[GetResponse[T]]
 
@@ -881,11 +881,11 @@
   myRights*: MailboxRights
   isSubscribed*: bool
 
-## MailboxChangesGetHandles [jmap_client/convenience]
+## MailboxChangesGetHandles [jmap_client/internal/mail/combinators]
   changes*: ResponseHandle[MailboxChangesResponse]
   get*: ResponseHandle[GetResponse[Mailbox]]
 
-## MailboxChangesGetResults [jmap_client/convenience]
+## MailboxChangesGetResults [jmap_client/internal/mail/combinators]
   changes*: MethodOutcome[MailboxChangesResponse]
   get*: MethodOutcome[GetResponse[Mailbox]]
 
@@ -1265,11 +1265,11 @@
   removed*: seq[Id]
   added*: seq[AddedItem]
 
-## QueryGetHandles [jmap_client/convenience]
+## QueryGetHandles [jmap_client/internal/mail/combinators]
   query*: ResponseHandle[QueryResponse[T]]
   get*: ResponseHandle[GetResponse[T]]
 
-## QueryGetResults [jmap_client/convenience]
+## QueryGetResults [jmap_client/internal/mail/combinators]
   query*: MethodOutcome[QueryResponse[T]]
   get*: MethodOutcome[GetResponse[T]]
 

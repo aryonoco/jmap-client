@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Tests for the per-entity pipeline combinators in
-## ``jmap_client/convenience`` — the query-then-get / changes-to-get
+## Tests for the per-entity pipeline combinators surfaced through
+## ``import jmap_client`` — the query-then-get / changes-to-get
 ## wrappers and the ``getBoth`` paired extraction. Each test drives a
 ## real entity (Email, Mailbox) through ``initRequestBuilder``, then
 ## asserts the emitted two-invocation wire shape and back-reference, or
@@ -14,7 +14,6 @@ import std/json
 import std/tables
 
 import jmap_client
-import jmap_client/convenience
 import jmap_client/internal/protocol/builder
 import jmap_client/internal/types/envelope
 

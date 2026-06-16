@@ -13,8 +13,6 @@
 ## not trapped inside a live response.
 
 import jmap_client
-import
-  jmap_client/convenience # opt-in; addEmailChangesToGet + getBoth(ChangesGetHandles)
 import ./cli_session
 
 proc reportCurrentState(ctx: CliContext): JmapResult[int] =
