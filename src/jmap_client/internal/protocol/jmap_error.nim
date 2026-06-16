@@ -48,36 +48,19 @@ import ../serialisation/serde_diagnostics
 # strictCaseObjects Rule 4 never bites at the JmapError level)
 # =============================================================================
 
-type SessionFaultKind* = enum
-  ## Why a capability/account preflight failed against the live session.
-  sfCapabilityAbsent ## the session does not advertise the required capability
-
 type SessionFault* = object
   ## ``jeSession`` payload. ``capability`` is the URN the consumer required;
   ## ``CapabilityKind`` is used rather than a raw string so the failure is a
   ## named value an FFI layer can project to one code.
-  kind*: SessionFaultKind
   capability*: CapabilityKind
 
-func sessionFault*(kind: SessionFaultKind, capability: CapabilityKind): SessionFault =
+func sessionFault*(capability: CapabilityKind): SessionFault =
   ## Constructs a ``SessionFault``.
-  SessionFault(kind: kind, capability: capability)
-
-when SessionFaultKind.low != SessionFaultKind.high:
-  {.
-    error:
-      "a new SessionFaultKind variant was added; rewrite message as a case dispatch"
-  .}
+  SessionFault(capability: capability)
 
 func message*(sf: SessionFault): string =
   ## Human-readable diagnostic. Renders the registered URI when known, else
-  ## the enum's symbolic name (``ckUnknown``). The module-scope ``when`` guard
-  ## above breaks the build the moment a second ``SessionFaultKind`` is
-  ## introduced — the signal to rewrite this body as a ``case`` dispatch.
-  ## Today's single-arm form is direct because nimalyzer forbids a ``case``
-  ## with fewer than two branches, and the ``tno_asserts_in_src`` compliance
-  ## test forbids a runtime ``doAssert`` guard in ``src/`` even inside
-  ## ``static:`` (the invariant lives in the type system; RFC 8620 §2 preflight).
+  ## the enum's symbolic name (``ckUnknown``).
   let uri = sf.capability.capabilityUri.valueOr:
     $sf.capability
   "session does not advertise the " & uri & " capability"

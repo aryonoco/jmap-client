@@ -929,7 +929,6 @@ type Misuse
 type ProtocolFault
 type ProtocolFaultKind
 type SessionFault
-type SessionFaultKind
 enumfield jeMisuse
 enumfield jeProtocol
 enumfield jeRequest
@@ -951,8 +950,7 @@ enumfield mokValue
 enumfield pfDecode
 enumfield pfMalformedError
 enumfield pfMissingCall
-func sessionFault (kind: SessionFaultKind, capability: CapabilityKind): SessionFault
-enumfield sfCapabilityAbsent
+func sessionFault (capability: CapabilityKind): SessionFault
 func toJmapError (request: RequestError): JmapError
 func toJmapError (session: SessionFault): JmapError
 func toJmapError (transport: TransportError): JmapError

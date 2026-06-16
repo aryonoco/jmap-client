@@ -45,7 +45,7 @@ nimalyzer, the compiler-as-library wire-contract oracle (`just freeze-*`).
 - **Commits:** Linux-kernel style, subject ≤75 cols, why-focused body; end EVERY
   body with exactly the three trailers (see Conventions). Stage explicit paths;
   never `git add -A`. Flip this STATE block in the same commit as each task.
-- **Status:** ⏳ IN PROGRESS — Task 1 committed + `just ci` green; Task 2 (AUDIT) next.
+- **Status:** ⏳ IN PROGRESS — Tasks 1/2/1b committed + `just ci` green; both gates next.
   - [x] **Plan** — this file committed (`docs/s3: plan the E1 capability-resolution reconcile`).
   - [x] **Task 1** — subtractive code change + ripple + 3 snapshots regenerated; both
     reviewers ✅ (spec-compliant + quality-approved), `just ci` green (controller-run).
@@ -58,9 +58,18 @@ nimalyzer, the compiler-as-library wire-contract oracle (`just freeze-*`).
   - [x] **Task 2** — `examples/jmap-cli/AUDIT.md` session:capability finding → fully
     resolved (+ E1 reconcile note), history kept truthful; CLI rebuilds + public-only
     green. Commit `examples/jmap-cli: close the session:capability finding (E1)`.
-  - [ ] **Gates** — `just ci` ✅ (already green at Task 1; rerun after Task 2 docs);
-    `just clean && just jmap-reset && just test-full` "All shards passed"
-    (Stalwart + James + Cyrus). Record SHAs here.
+  - [x] **Task 1b** — flatten `SessionFault` to `{ capability }` (drop `SessionFaultKind`,
+    `sfCapabilityAbsent`, the Task-1 `when`-guard; plain `message()`), matching the flat
+    single-reason sibling `Misuse`. Surfaced by the final 4-lens adversarial review (the
+    post-Task-1 `kind` discriminator was single-valued + write-only) and **chosen by the
+    user** over keeping+documenting the enum; deliberately overturns the approved design
+    spec §3.2 "no further collapse" for the leaner, principle-aligned end-state. Ghost-grep
+    empty; 3 snapshots regenerated (public-api loses the type + enumfield + the ctor `kind`
+    param; type-shapes loses the `## SessionFaultKind` section + the `kind` field);
+    `just ci` green (controller-run). Commit
+    `protocol: flatten SessionFault to its single capability-absent reason`.
+  - [ ] **Gates** — `just ci` ✅ (green at Task 1b); `just clean && just jmap-reset &&
+    just test-full` "All shards passed" (Stalwart + James + Cyrus). Record SHAs here.
   - [ ] **Hand back** — confirm push/PR with the user (PR body: no Claude footer).
 
 ## Ripple-completeness ledger (every reference to the two removed names — nothing else may move)

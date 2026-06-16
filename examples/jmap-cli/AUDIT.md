@@ -617,9 +617,9 @@ is in the tree and compiles public-surface-only. Mapping (finding → fix):
   finding for those two capabilities.
   The capability-resolution reconcile then removed the interim general-strict
   resolver and its dead `sfPrimaryAccountAbsent` session fault, so the resolver
-  family is uniformly named-soft with one session-fault reason
-  (`sfCapabilityAbsent`); the designated-primary-specific need is served by the
-  public `session.primaryAccount(kind): Opt`.
+  family is uniformly named-soft with a single session-fault condition (the
+  required capability is not advertised); the designated-primary-specific need
+  is served by the public `session.primaryAccount(kind): Opt`.
 
 Still open after S3 (tracked to their sub-projects): the readers and predicates
 are now one-liners, but the request-lifecycle one-shots that still cost the full

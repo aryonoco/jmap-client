@@ -96,7 +96,7 @@ testCase requireMailBogusPrimaryFallsThrough:
 
 testCase requireMailBogusPrimaryNoOtherErrs:
   # The designated primary A1 advertises nothing and no other account advertises
-  # mail: an honest sfCapabilityAbsent, not a bogus ok on the dangling pointer.
+  # mail: an honest capability-absent error, not a bogus ok on the dangling pointer.
   let s = sessionWith(
     @[("A1", makeAccount(accountCapabilities = @[]))],
     @[("urn:ietf:params:jmap:mail", "A1")],

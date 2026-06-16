@@ -1385,11 +1385,7 @@
   sekDiscoveryDomain
 
 ## SessionFault [jmap_client/internal/protocol/jmap_error]
-  kind*: SessionFaultKind
   capability*: CapabilityKind
-
-## SessionFaultKind [jmap_client/internal/protocol/jmap_error]
-  sfCapabilityAbsent
 
 ## SetError [jmap_client/internal/types/errors]
   rawType*: string

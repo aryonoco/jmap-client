@@ -271,10 +271,7 @@ proc samples(): seq[(string, string)] =
     )
   )
   result.add(
-    (
-      "jmapSession(sessionFault(sfCapabilityAbsent, ckMail))",
-      jmapSession(sessionFault(sfCapabilityAbsent, ckMail)).message,
-    )
+    ("jmapSession(sessionFault(ckMail))", jmapSession(sessionFault(ckMail)).message)
   )
   result.add(
     (

@@ -49,17 +49,17 @@ func usableAccount(
   ## resolution falls through. Failing the primary, the advertising account with
   ## the lowest ``$AccountId`` is returned — deterministic when several advertise
   ## and none is the designated primary (configure ``primaryAccounts`` to choose
-  ## explicitly). Errs ``sfCapabilityAbsent`` only when no account advertises the
-  ## capability at all. ``primaryAccounts`` MAY legitimately have no entry for a
-  ## supported capability (§2). Module-private — the public ``require*`` sugar
-  ## names each capability.
+  ## explicitly). Errs (a ``jeSession`` capability-absent fault) only when no
+  ## account advertises the capability at all. ``primaryAccounts`` MAY
+  ## legitimately have no entry for a supported capability (§2). Module-private
+  ## — the public ``require*`` sugar names each capability.
   for accountId in session.primaryAccount(kind):
     for account in session.findAccount(accountId):
       if account.hasCapability(kind):
         return ok(accountId)
   for accountId in lowestAdvertising(session, kind):
     return ok(accountId)
-  err(jmapSession(sessionFault(sfCapabilityAbsent, kind)))
+  err(jmapSession(sessionFault(kind)))
 
 func requireMail*(session: Session): Result[AccountId, JmapError] =
   ## Resolves the account to use for ``urn:ietf:params:jmap:mail`` operations

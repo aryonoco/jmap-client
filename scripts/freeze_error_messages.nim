@@ -218,8 +218,8 @@ proc main() =
     "jmapValidation(validationError(\"AccountId\", \"contains control characters\", \"\"))",
     je3.message,
   )
-  let je4 = jmapSession(sessionFault(sfCapabilityAbsent, ckMail))
-  emit("jmapSession(sessionFault(sfCapabilityAbsent, ckMail))", je4.message)
+  let je4 = jmapSession(sessionFault(ckMail))
+  emit("jmapSession(sessionFault(ckMail))", je4.message)
   let je5 = jmapMisuse(
     initBuilderId(1'u64, 1'u64),
     initBuilderId(1'u64, 2'u64),
