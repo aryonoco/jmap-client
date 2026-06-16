@@ -40,17 +40,18 @@ cannot be expressed with hub-public symbols at all (highest severity).
   (90 inline findings carry a disposition; the other 8 `[open]` substrings
   are prose references to the old observe-only convention), the breakdown is:
   **resolved-S0 7, resolved-S1 9, resolved-S2 11, resolved-S3 9,
-  resolved-S4 24, affirmed 14, accepted-as-trade-off 11, filed-as-Cn 5**.
+  resolved-S4 22, affirmed 14, accepted-as-trade-off 11, filed-as-Cn 7**.
   Many resolutions also carry a RESIDUAL pointer (6 residual
   accepted-as-trade-off, and residual `filed-as-C11/C12/C15/C16`) for a
-  deeper gap left after the common case was fixed. So **60 of 90 inline
+  deeper gap left after the common case was fixed. So **58 of 90 inline
   findings are resolved by S0–S4**, 14 were positives all along, 11 are
-  documented trade-offs, and 5 are tracked as fresh Section C items (C17 the
-  changes-combinator gap; C20 a query filter/sort builder; C21 a per-type
-  state accessor; C22 typing the vacation singleton id). Each filed-as-Cn item
-  is registered as a new entry in Section C of
-  `docs/TODO/pre-1.0-api-alignment.md` (alongside the residual-pointer items
-  C11–C16 and the done-in-triage C18–C19).
+  documented trade-offs, and 7 are filed to Section C — four fresh items (C17
+  the changes-combinator gap; C20 a query filter/sort builder; C21 a per-type
+  state accessor; C22 typing the vacation singleton id) plus two against the
+  existing C3 (the by-ids one-shots collapse the lifecycle but not the
+  `Opt.some(direct(@[id]))` input wrapping). Each filed-as-Cn item is registered
+  in Section C of `docs/TODO/pre-1.0-api-alignment.md` (alongside the
+  residual-pointer items C11–C16 and the done-in-triage C18–C19).
 - **Blocked commands (inexpressible with hub-public symbols): NONE.**
   Every command compiles and round-trips through `import jmap_client` only
   (S4 dissolved the P6 `jmap_client/convenience` quarantine, so the
@@ -223,7 +224,7 @@ Submission + the compound two-creation wiring (the centrepiece):
 
 ### thread
 - thread:th.id / th.emailIds: `Thread` exposes NO public fields (empty type-shape); reads go through accessor funcs `id()`/`emailIds()` (the latter returning `lent seq[Id]`), diverging from `Mailbox`/`Identity` direct-field access — inconsistent entity read ergonomics across the same library [resolved-S2: Thread.id/emailIds are direct public fields (emailIds is NonEmptyIdSeq); lent dropped]
-- thread:addThreadGet ids: fetching explicit ids repeats the `Opt.some(direct(@[id]))` `Referencable`-wrapping ceremony seen in `email read` — no `seq[Id]` convenience overload for the common literal-ids case [resolved-S4: getThreads bare-get one-shot takes a seq[Id] directly]
+- thread:addThreadGet ids: fetching explicit ids repeats the `Opt.some(direct(@[id]))` `Referencable`-wrapping ceremony seen in `email read` — no `seq[Id]` convenience overload for the common literal-ids case [filed-as-C3: the getThreads one-shot collapses the build→dispatch→extract lifecycle but still takes `ids: Opt[Referencable[seq[Id]]]`, so `Opt.some(direct(@[id]))` for literal ids is unchanged — a byIds/`seq[Id]` overload is C3]
 - thread:source: a `threadId` is only obtainable by first fetching it as the `egpThreadId` property of an email (`email query`/`email read`); there is no thread-of-this-email shortcut, so "show me this message's thread" is a two-step dance [accepted-as-trade-off: the threadId is the Thread handle, so the two-step reflects the JMAP id model (RFC 8621 §3); a thread-of-email convenience would be additive sugar]
 
 ### identity
@@ -323,7 +324,10 @@ Submission + the compound two-creation wiring (the centrepiece):
   `addEmailGet`/`addThreadGet` is `Opt.some(direct(@[id]))` (seq + `direct` +
   `Opt.some`) in email read/thread/sync; the in-tree `directIds` shorthand is
   unlisted and `Opt.some(directIds(...))` is a hard double-Opt error — no
-  `seq[Id]` convenience overload [resolved-S4: bare-get one-shots take seq[Id] directly; the snapshot-unlisted directIds is resolved-S0]
+  `seq[Id]` convenience overload [filed-as-C3: the bare-get one-shots collapse the
+  lifecycle but still take `ids: Opt[Referencable[seq[Id]]]`, so the
+  `direct(@[id])` wrapping for literal ids remains — a byIds/`seq[Id]` overload is
+  C3; the snapshot-unlisted `directIds` itself is resolved-S0]
 - email query / email read (same-field optionality split, **medium**): the
   SAME logical field is read two different ways depending on which get was
   issued — `subject` is `FieldEcho[string]` on `PartialEmail` (partial get)
