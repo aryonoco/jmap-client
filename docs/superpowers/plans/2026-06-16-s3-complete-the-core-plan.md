@@ -36,7 +36,7 @@ the compiler-oracle wire-contract snapshot.
   - **Last verified myself:** `nim c -r` test (exit 0), `just build`, `just fmt-check`, `just analyse` (hasdoc clean) all green.
   - [x] Task 2 — Mailbox role predicates (`isInbox`, `hasRole`) — + `mrOther` vendor-extension coverage per review
   - [x] Task 3 — `plainTextBody` send-body constructor — comment/docstring de-cross-referenced (no Pattern-8/S4 refs) per review
-  - [ ] Task 4 — `require*` capability preflight (RFC-verify first)
+  - [x] Task 4 — `require*` capability preflight (RFC 8620 §2 verified by impl + independent reviewer) — + designated-primary-preference test; module docstring de-campaigned; `requirePrimaryAccount` unchanged
   - [ ] Task 5 — `limit` query-window helper
   - [ ] Task 6 — Regenerate the public-API snapshot + `just ci`
   - [ ] Task 7 — Re-bench `examples/jmap-cli/`; update `AUDIT.md` + `docs/design/16`
