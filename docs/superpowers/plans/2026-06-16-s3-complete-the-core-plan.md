@@ -35,7 +35,7 @@ the compiler-oracle wire-contract snapshot.
   - [x] Task 1 — Email body readers (`bodyValue`, `leafTextParts`, `decodedTextBody`, `textBodies`) — case-insensitive text/plain match (RFC 2045 §5.1) folded in per review
   - **Last verified myself:** `nim c -r` test (exit 0), `just build`, `just fmt-check`, `just analyse` (hasdoc clean) all green.
   - [x] Task 2 — Mailbox role predicates (`isInbox`, `hasRole`) — + `mrOther` vendor-extension coverage per review
-  - [ ] Task 3 — `plainTextBody` send-body constructor
+  - [x] Task 3 — `plainTextBody` send-body constructor — comment/docstring de-cross-referenced (no Pattern-8/S4 refs) per review
   - [ ] Task 4 — `require*` capability preflight (RFC-verify first)
   - [ ] Task 5 — `limit` query-window helper
   - [ ] Task 6 — Regenerate the public-API snapshot + `just ci`
