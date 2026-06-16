@@ -45,10 +45,16 @@ nimalyzer, the compiler-as-library wire-contract oracle (`just freeze-*`).
 - **Commits:** Linux-kernel style, subject ≤75 cols, why-focused body; end EVERY
   body with exactly the three trailers (see Conventions). Stage explicit paths;
   never `git add -A`. Flip this STATE block in the same commit as each task.
-- **Status:** ⏳ IN PROGRESS — design approved, plan committed; Task 1 next.
+- **Status:** ⏳ IN PROGRESS — Task 1 committed + `just ci` green; Task 2 (AUDIT) next.
   - [x] **Plan** — this file committed (`docs/s3: plan the E1 capability-resolution reconcile`).
-  - [ ] **Task 1** — subtractive code change + test/script/lint ripple + regenerate
-    the three snapshots; `just ci` green. Commit: `protocol: retire requirePrimaryAccount and its dead session fault`.
+  - [x] **Task 1** — subtractive code change + ripple + 3 snapshots regenerated; both
+    reviewers ✅ (spec-compliant + quality-approved), `just ci` green (controller-run).
+    Commit `protocol: retire requirePrimaryAccount and its dead session fault`.
+    **Deviation accepted:** `message(SessionFault)` could not stay a single-arm
+    `case` (nimalyzer `caseStatements min 2`; `tno_asserts_in_src` forbids a `static
+    doAssert`); used the CI-blessed `when SessionFaultKind.low != .high: {.error.}`
+    guard idiom from `serde_email_submission.nim` — preserves "new variant ⇒ compile
+    error here". `je*` freeze-script locals renumbered contiguous (quality nit).
   - [ ] **Task 2** — `examples/jmap-cli/AUDIT.md` session:capability finding → fully
     resolved (+ E1 note). Commit: `examples/jmap-cli: close the session:capability finding (E1)`.
   - [ ] **Gates** — `just ci` ✅; `just clean && just jmap-reset && just test-full` ✅

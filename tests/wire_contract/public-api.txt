@@ -953,7 +953,6 @@ enumfield pfMalformedError
 enumfield pfMissingCall
 func sessionFault (kind: SessionFaultKind, capability: CapabilityKind): SessionFault
 enumfield sfCapabilityAbsent
-enumfield sfPrimaryAccountAbsent
 func toJmapError (request: RequestError): JmapError
 func toJmapError (session: SessionFault): JmapError
 func toJmapError (transport: TransportError): JmapError
@@ -999,7 +998,6 @@ iterator updated [T; U](r: SetResponse[T, U]): tuple[id: Id, serverEcho: Opt[U]]
 
 ## jmap_client/internal/protocol/preflight
 func requireMail (session: Session): Result[AccountId, JmapError]
-func requirePrimaryAccount (session: Session, kind: CapabilityKind): Result[AccountId, JmapError]
 func requireSubmission (session: Session): Result[AccountId, JmapError]
 func requireVacation (session: Session): Result[AccountId, JmapError]
 

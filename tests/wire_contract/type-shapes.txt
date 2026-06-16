@@ -1390,7 +1390,6 @@
 
 ## SessionFaultKind [jmap_client/internal/protocol/jmap_error]
   sfCapabilityAbsent
-  sfPrimaryAccountAbsent
 
 ## SetError [jmap_client/internal/types/errors]
   rawType*: string

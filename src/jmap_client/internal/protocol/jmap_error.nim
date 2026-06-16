@@ -51,7 +51,6 @@ import ../serialisation/serde_diagnostics
 type SessionFaultKind* = enum
   ## Why a capability/account preflight failed against the live session.
   sfCapabilityAbsent ## the session does not advertise the required capability
-  sfPrimaryAccountAbsent ## no primary account exists for the required capability
 
 type SessionFault* = object
   ## ``jeSession`` payload. ``capability`` is the URN the consumer required;
@@ -64,16 +63,24 @@ func sessionFault*(kind: SessionFaultKind, capability: CapabilityKind): SessionF
   ## Constructs a ``SessionFault``.
   SessionFault(kind: kind, capability: capability)
 
+when SessionFaultKind.low != SessionFaultKind.high:
+  {.
+    error:
+      "a new SessionFaultKind variant was added; rewrite message as a case dispatch"
+  .}
+
 func message*(sf: SessionFault): string =
   ## Human-readable diagnostic. Renders the registered URI when known, else
-  ## the enum's symbolic name (``ckUnknown``).
+  ## the enum's symbolic name (``ckUnknown``). The module-scope ``when`` guard
+  ## above breaks the build the moment a second ``SessionFaultKind`` is
+  ## introduced — the signal to rewrite this body as a ``case`` dispatch.
+  ## Today's single-arm form is direct because nimalyzer forbids a ``case``
+  ## with fewer than two branches, and the ``tno_asserts_in_src`` compliance
+  ## test forbids a runtime ``doAssert`` guard in ``src/`` even inside
+  ## ``static:`` (the invariant lives in the type system; RFC 8620 §2 preflight).
   let uri = sf.capability.capabilityUri.valueOr:
     $sf.capability
-  case sf.kind
-  of sfCapabilityAbsent:
-    "session does not advertise the " & uri & " capability"
-  of sfPrimaryAccountAbsent:
-    "no primary account for the " & uri & " capability"
+  "session does not advertise the " & uri & " capability"
 
 func `$`*(sf: SessionFault): string =
   ## Delegates to ``message`` for the single canonical projection.
@@ -182,7 +189,7 @@ type JmapErrorKind* = enum
   jeValidation ## client-supplied input was invalid (construction)
   jeTransport ## network / TLS / timeout / HTTP status, before any JMAP processing
   jeRequest ## the whole request was rejected (RFC 7807 problem details)
-  jeSession ## an expected capability or primary account is absent
+  jeSession ## an expected session capability is absent
   jeMisuse ## a programming bug — a handle from a different builder was applied
   jeProtocol ## the server's response was malformed or did not conform
 

@@ -2,13 +2,12 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Capability / primary-account preflight against a live ``Session``. Resolves
-## and guards the account to use for a capability before dispatch, folding any
+## and guards the account to use for a capability before dispatch, folding a
 ## failure onto the consumer error rail (``JmapError``, ``jeSession`` arm) when
-## the session does not advertise the capability, or advertises it but has no
-## primary account for it. Account resolution treats ``accountCapabilities`` as
-## authoritative (RFC 8620 §2): it accepts the designated primary only when that
-## account advertises the capability, otherwise the lowest-id advertising
-## account.
+## no account advertises the capability. Account resolution treats
+## ``accountCapabilities`` as authoritative (RFC 8620 §2): it accepts the
+## designated primary only when that account advertises the capability,
+## otherwise the lowest-id advertising account.
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
@@ -21,21 +20,6 @@ import ../types/session
 import ../types/capabilities
 import ../types/identifiers
 import ./jmap_error
-
-func requirePrimaryAccount*(
-    session: Session, kind: CapabilityKind
-): Result[AccountId, JmapError] =
-  ## ``ok(accountId)`` when ``session`` advertises ``kind`` and has a primary
-  ## account for it; otherwise ``err`` on the one rail: ``sfCapabilityAbsent``
-  ## when the capability is not advertised at all, ``sfPrimaryAccountAbsent``
-  ## when it is advertised but carries no primary account. A connect-style flow
-  ## can therefore thread the mail/submission capability check on a single
-  ## ``?`` instead of unpacking an ``Opt`` by hand.
-  if session.findCapability(kind).isNone:
-    return err(jmapSession(sessionFault(sfCapabilityAbsent, kind)))
-  let accountId = session.primaryAccount(kind).valueOr:
-    return err(jmapSession(sessionFault(sfPrimaryAccountAbsent, kind)))
-  ok(accountId)
 
 func lowestAdvertising(session: Session, kind: CapabilityKind): Opt[AccountId] =
   ## Among the accounts whose ``accountCapabilities`` advertises ``kind`` (RFC
