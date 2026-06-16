@@ -2509,7 +2509,12 @@ phantom-typed states through downstream APIs.
 
 Pre-1.0 quality bar. Each missing item is a day-one wrapper trigger.
 
-### C1. Sample CLI consumer — pre-1.0 freeze gate *(P29)* — ⬜ TODO (FREEZE-BLOCKING)
+### C1. Sample CLI consumer — pre-1.0 freeze gate *(P29)* — ✅ DONE
+
+Campaign reconciliation (2026-06): DONE — `examples/jmap-cli/` plus
+`examples/jmap-cli/AUDIT.md` exist, and the Phase-2 triage on
+`api/triage` completes the deliverable (every awkwardness resolved,
+accepted as a trade-off, or filed as a residual Cn).
 
 P29 verbatim: "Before 1.0 lands, write a non-trivial sample app …
 treat its painful spots as bugs against the API, not against the
@@ -2534,6 +2539,12 @@ Tied to F4 (CI smoke test reads from AUDIT.md).
 
 ### C2. Per-entity flatten of four-param `addSet` *(P7)* — ✅ DONE
 
+Campaign reconciliation (2026-06): the per-entity flatten holds; S4
+then REPLACED `addEmailSubmissionAndEmailSet` with one total
+`addEmailSubmissionSet(spec)` over a validated `EmailSubmissionSetSpec`
+value (`src/jmap_client/internal/mail/email_submission.nim`), so the
+submission set builder was unified rather than left as a paired
+wrapper.
 
 The four-parameter generic `addSet[T, C, U, R]` is hub-private (A5;
 filtered via `protocol.nim`'s `export builder except …` clause).
@@ -2546,12 +2557,28 @@ parameter.
 
 ### C3. `byIds` per-entity helpers *(P7)* — 🟡 PARTIAL
 
+Campaign reconciliation (2026-06): S4's bare-get one-shots
+(`getEmails`/`getThreads`/… in `src/jmap_client/internal/one_shot.nim`)
+made the common literal-ids fetch a one-liner, so the `byIds=`
+builder overload is now low-value. (Precision note: these one-shots
+take `ids: Opt[Referencable[seq[Id]]]`, not a bare `seq[Id]` — the
+`directIds` primitive still mints that argument; verified present at
+`src/jmap_client/internal/protocol/builder.nim:652`.) PARTIAL stands:
+`directIds` is the primitive; the per-entity `byIds=` sugar remains
+unbuilt but is now optional polish.
+
 `src/jmap_client/internal/protocol/builder.nim` already provides `directIds` to
 shave `Opt.some(direct(@[…]))` nesting. Extend per-entity:
 `addEmailGet(b, accountId, byIds = @[id1, id2])`. UFCS chains read
 materially better.
 
-### C4. `MailboxRights` summary helpers *(P7)* — ⬜ TODO
+### C4. `MailboxRights` summary helpers *(P7)* — ✅ RESOLVED (S3 — won't-fix by decision)
+
+Campaign reconciliation (2026-06): S3 deliberately shipped NO rights
+roll-up. The nine RFC 8621 §2 `may*` rights stay orthogonal — a
+blessed `canWrite`/`canRead`/`canDelete` digest would freeze one
+library's opinion about which flags constitute each verb into the
+API. See AUDIT `mailbox:rightsSummary` (resolved-S3, won't-fix).
 
 `src/jmap_client/internal/mail/mailbox.nim` (the `MailboxRights`
 type). Nine independent ACL booleans (Decision B6 documented
@@ -2560,7 +2587,13 @@ roll-up helpers: `mb.canMutate(): bool`, `mb.canRead(): bool`,
 `mb.canDelete(): bool`. Otherwise consumers chain
 `mb.myRights.mayAddItems and mb.myRights.mayRemoveItems and …`.
 
-### C5. Capability discovery convenience *(P7)* — ⬜ TODO
+### C5. Capability discovery convenience *(P7)* — ✅ DONE (S3)
+
+Campaign reconciliation (2026-06): S3 shipped `requireMail` /
+`requireSubmission` / `requireVacation`
+(`src/jmap_client/internal/protocol/preflight.nim:64-77`), each a
+soft-resolver over the cached `Session` capability set. See AUDIT
+`session:capability` (resolved-S3).
 
 Currently the capability chain runs through the `Session` that
 `fetchSession` returns — `client.fetchSession().get().coreCapabilities()`
@@ -2569,7 +2602,13 @@ Currently the capability chain runs through the `Session` that
 `client.requireMail(): JmapResult[void]`. Pre-flight "does this
 server support Mail?" should be one line.
 
-### C5b. `HttpTransportConfig` sealed value *(P10, P17)* — ⬜ TODO (post-1.0)
+### C5b. `HttpTransportConfig` sealed value *(P10, P17)* — ⬜ TODO
+
+Campaign reconciliation (2026-06): NOT addressed by S0–S4; remains a
+valid future additive (a validated transport-config value plus a
+`config`-taking `newHttpTransport` overload). Under the campaign's
+version-agnostic lens the "post-1.0" framing is dropped — it is
+simply a future additive pass, not freeze-blocking.
 
 `newHttpTransport*(timeout, maxRedirects, maxResponseBytes, …)` takes
 its tuning as four default-argument parameters. For 1.0 this is
@@ -2584,6 +2623,12 @@ sealing review.
 
 ### C6. Version surface *(P25, P28)* — ⬜ TODO
 
+Campaign reconciliation (2026-06): NOT addressed by S0–S4. Verified
+absent — `grep -rn 'clientVersion\|ClientVersion' src/` returns no
+matches; the only version literal under `src/` is still the
+`userAgent` default in `transport.nim`. A `clientVersion()` accessor
+remains a valid future additive.
+
 `src/jmap_client/internal/transport.nim` carries
 `userAgent: string = "jmap-client-nim/0.1.0"` as the default
 HTTP `User-Agent` for the default transport. That is the only
@@ -2595,7 +2640,13 @@ const ClientVersion* = "0.1.0"  # synced with .nimble
 func clientVersion*(): string = ClientVersion
 ```
 
-### C7. Charter clause on `convenience.nim` *(P6)* — ⬜ TODO
+### C7. Charter clause on `convenience.nim` *(P6)* — ❌ MOOT (S4)
+
+Campaign reconciliation (2026-06): S4 DISSOLVED the P6 quarantine.
+`convenience.nim` no longer exists — its combinators moved to
+`src/jmap_client/internal/mail/combinators.nim`, re-exported on the
+always-on hub. An anti-semantic-convenience charter clause for a
+deleted module is moot; the combinators are now first-class.
 
 `convenience.nim`'s top docstring already states the P6 quarantine in
 general terms (opt-in, not root-re-exported — C10). What is missing
@@ -2613,7 +2664,11 @@ enforcement. Add to the docstring:
 The backing enforcement (F3 reverse-leak grep + H7 charter lint) is
 not yet implemented; both are ⬜ TODO.
 
-### C1.1. Scaffold `examples/jmap-cli/` directory *(P29)* — ⬜ TODO (FREEZE-BLOCKING)
+### C1.1. Scaffold `examples/jmap-cli/` directory *(P29)* — ✅ DONE
+
+Campaign reconciliation (2026-06): the `examples/jmap-cli/` directory
+is scaffolded and benched — the sample CLI plus its `AUDIT.md`
+findings catalogue exist and have been triaged on `api/triage`.
 
 C1 declares the freeze gate but does not specify the file tree.
 Without scaffolding, the gate has no execution path.
@@ -2642,7 +2697,12 @@ Examples to expect: UFCS chains > 3 levels, manual `.get()` chains
 to read `coreCapabilities`, raw `JsonNode` references at call site.
 Each `filed-as-Cn` becomes a new item in Section C of this TODO.
 
-### C8. Capability pre-flight one-liner *(P7)* — ⬜ TODO
+### C8. Capability pre-flight one-liner *(P7)* — ✅ DONE (S3)
+
+Campaign reconciliation (2026-06): `requireMail` IS the one-liner —
+shipped by S3 alongside `requireSubmission`/`requireVacation`
+(`src/jmap_client/internal/protocol/preflight.nim:64-77`). See AUDIT
+`session:capability` (resolved-S3).
 
 C5 lists capability discovery helpers but underspecifies the
 one-liner. The headline call site is "does this server support
@@ -2670,7 +2730,13 @@ Each is a thin wrapper over capability-set lookup. Verified by
 the C1.1 CLI — if `mailbox list` cannot use `requireMail`, file as
 a Cn TODO.
 
-### C9. Charter clause: convenience.nim exports no new public types *(P6, P9)* — ⬜ TODO
+### C9. Charter clause: convenience.nim exports no new public types *(P6, P9)* — ❌ MOOT (S4)
+
+Campaign reconciliation (2026-06): moot for the same reason as C7 —
+S4 dissolved the quarantine and `convenience.nim` no longer exists.
+A structural "exports no new types" restriction on a deleted module
+has nothing to lock; the relocated combinator bundle types in
+`src/jmap_client/internal/mail/combinators.nim` are first-class.
 
 C7 covers the prose charter; this item adds the structural
 restriction. `convenience.nim`'s public surface today is exactly the
@@ -2693,6 +2759,13 @@ name (C10).
 
 ### C10. `convenience.nim` internal-access cleanup *(P5, P6)* — ✅ DONE
 
+Campaign reconciliation (2026-06): S4 relocated the combinators to
+`src/jmap_client/internal/mail/combinators.nim` (re-exported on the
+hub), so the original `grep -n "internal" src/jmap_client/convenience.nim`
+verification gate is obsolete (the module is gone). The H10
+internal-boundary lint now covers the relocated module — a direct
+import of it from outside the tree is forbidden.
+
 `convenience.nim` imports only `jmap_client` — it reaches nothing
 under `internal/`. Its public surface is eight per-entity pipeline
 combinators (`addEmailQueryThenGet`, `addMailboxQueryThenGet`,
@@ -2711,6 +2784,120 @@ call-site scaffolding.
 
 **Verification gate.** `grep -n "internal" src/jmap_client/convenience.nim`
 returns zero matches.
+
+### C11. Read-side `EmailLeaf` view type for `leafTextParts` *(P16)* — ⬜ TODO (future additive)
+
+Residual of AUDIT `email read:isMultipart`. S3 shipped
+`leafTextParts`/`decodedTextBody`
+(`src/jmap_client/internal/mail/email.nim`), but a text leaf's
+`partId`/`blobId` still sit behind the `EmailBodyPart` `isMultipart`
+case — reaching them means matching the `of false` arm. A dedicated
+read-side leaf view type would expose those fields without forcing
+the consumer to match the case. This needs a NEW type, which is
+outside S3's "no new types" scope. Future *additive* pass; not
+freeze-blocking.
+
+### C12. Raw `Blueprint*` part constructors + `leafTextParts`/`limit` naming *(P15)* — ⬜ TODO (future additive)
+
+Residual of AUDIT `email send:raw-case-literals` /
+`email send:parsePartIdFromServer`. S3/S4
+(`plainTextBody`/`sendPlainText`) removed the common need to hand-build
+parts, but `BlueprintLeafPart` and `BlueprintBodyPart`
+(`src/jmap_client/internal/mail/body.nim`) remain public raw
+case-object constructors — counter to "smart constructors only; raw
+constructors private". A P15 tightening makes them private. That is a
+non-additive removal, so it is deferred rather than shipped.
+
+### C13. D5 — broad `toJson` null-for-none serde-fidelity audit *(RFC 8620 §5.3)* — ⬜ TODO (future)
+
+Only Email headers were fixed (RFC-sweep F1). A general audit is
+needed of every `toJson` that emits `null` for an absent `Opt` field
+rather than omitting the key (per RFC 8620 §5.3 `/set` PatchObject and
+creation property-omission semantics; §5.1 `/get` has no such rule).
+This is NOT a blind generalisation of the omit rule — each type needs
+its own §5.3 check, since some fields legitimately serialise `null`.
+No inline AUDIT anchor; surfaced by the S2 RFC audit. Future pass.
+
+### C14. `ParsedEmail` body-reader overloads; `htmlBodies()`/`allBodies()` *(P29)* — ⬜ TODO (future additive)
+
+S3 shipped `decodedTextBody` (text only;
+`src/jmap_client/internal/mail/email.nim`). The HTML and all-bodies
+reader siblings — `htmlBodies()` / `allBodies()` — plus the matching
+`ParsedEmail` body-reader overloads are the obvious additive
+completions of the same read-side family. No inline AUDIT anchor.
+Future *additive* pass.
+
+### C15. Email/set WRITE one-shot *(P7)* — ⬜ TODO (future additive)
+
+Residual of AUDIT `email flag:set-construction` /
+`email move:repetition`. S2 added projection iterators and S4 added
+connect/read/send one-shots, but NOT a write one-shot. The "update
+ONE email" case still pays the
+`initEmailUpdateSet → parseNonEmptyEmailUpdates → addEmailSet` triple
+seal. An `updateEmail`/`addEmailUpdate`-style one-shot (flag/move)
+plus a vacation-set equivalent would fold that chain. This is outside
+S4's connect/read/send scope. Future *additive* pass.
+
+### C16. Query-then-snippets one-shot *(P7)* — ⬜ TODO (future additive)
+
+Residual of AUDIT `search:helper-undiscoverable` /
+`convenience:coverage-gap`. S0 made `addEmailQueryWithSnippets`
+discoverable (api_oracle now lists it) and S4 dissolved the
+quarantine, but no `queryEmailsWithSnippets`-style one-shot exists
+(parallel to `queryEmails`); the search-highlight path still hand-wires
+`getBoth(chain)`. Future *additive* pass.
+
+### C17. Email/changes `/updated` back-reference combinator *(P7)* — ⬜ TODO (future additive)
+
+AUDIT `email sync:changes-to-get-created-only` (**medium**).
+`addEmailChangesToGet` (and siblings;
+`src/jmap_client/internal/mail/combinators.nim`) back-references ONLY
+the `/created` path, yet incremental mail sync overwhelmingly needs
+`/updated` (read/flag/move changes). A combinator — or a path
+parameter on the existing one — that back-references `/updated` would
+cover the common case. Future *additive* pass.
+
+### C18. Unify the sealed-seq projection on `asSeq` *(P9, DRY)* — ✅ DONE (this triage)
+
+Six sealed non-empty wrappers exposed their backing seq as `toSeq`
+(a copy), reintroducing the `std/sequtils.toSeq` clash that the
+generic `NonEmptySeq[T].asSeq` was named to avoid. Unified on
+`asSeq → lent seq[X]`
+(`src/jmap_client/internal/types/primitives.nim`). Landed on this
+branch (`types: unify sealed-seq projection on asSeq (drop toSeq)`).
+
+### C19. Test standalone-compile hygiene *(P26)* — ✅ DONE (this triage)
+
+Two test files failed strict standalone-compile (`UnusedImport`,
+`Uninit`) but passed via the megatest JOIN; made self-contained.
+Landed on this branch (`tests: make two suites standalone-compile
+under the strict battery`).
+
+### C20. Query filter/sort builder DSL *(P7, P16)* — ⬜ TODO (future additive)
+
+AUDIT `email query:filter` / `email query:sort`.
+`EmailFilterCondition` is a raw object literal with `Opt`-wrapped
+fields, so a two-field filter needs `Opt.some` on each; `sort` is
+`Opt[seq[EmailComparator]]`, so one comparator double-wraps. A
+filter/sort builder DSL would remove the per-field `Opt.some`
+ceremony. Future *additive* pass.
+
+### C21. Per-type current-state accessor *(P7)* — ⬜ TODO (future additive)
+
+AUDIT `email sync:state-acquisition`. `Email/changes` diffs against
+the object state (`GetResponse.state`), but no command surfaces the
+current per-type state, so a sync bootstrap must issue an empty-ids
+`Email/get` purely to read `resp.state` as the initial cursor. A
+session- or get-level "current state per type" accessor would remove
+that round-trip. Future *additive* pass.
+
+### C22. Type the VacationResponse singleton id *(P15)* — ⬜ TODO (future additive)
+
+AUDIT `vacation:singleton-id`. `VacationResponseSingletonId` is a raw
+`string` ("singleton"), not a typed `Id`, so looking the singleton up
+in `updateResults` (`Table[Id, _]`) needs `parseId(...).get()` first —
+a newtype leak on the one place the id matters. A typed `Id` constant
+(or a typed accessor) closes the leak. Future *additive* pass.
 
 ## Section D — Process / policy artefacts
 

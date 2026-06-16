@@ -36,7 +36,7 @@ to validate against the RFC.
 - [x] **T1** — `asSeq` family rename + lent view + uplift + re-freeze contract ✅ (commit pending in this step)
 - [x] **T2** — Test-hygiene cleanup (UnusedImport + Uninit) ✅
 - [x] **T3** — AUDIT triage: flip 98 `[open]` tags + author `## S0 resolution` ✅ (12 NEEDS-DECISION adjudicated: 8 accept, 4 filed C20–C22; new Cn C11–C22)
-- [ ] **T4** — Full Section C audit + append new `filed-as-Cn` items
+- [x] **T4** — Full Section C audit + append new `filed-as-Cn` items ✅ (C1–C10 markers reconciled; C11–C22 appended; C13 RFC cite corrected §5.1→§5.3)
 - [ ] **T5** — Final adversarial Workflow over the whole diff
 - [ ] **T6** — BOTH gates green (controller-run), then refresh canonical handoff
 - [ ] **T7** — Confirm push/PR/merge with the human; merge; verify main
