@@ -31,7 +31,13 @@ the compiler-oracle wire-contract snapshot.
 - **Branch:** `api/s3-complete-the-core` (off `main`). Created.
 - **Per-task gate:** `just build` (keeps `src/` green). Both full gates at the end
   (Task 8). Linux-kernel commits, the three trailers (see Conventions).
-- **Status:** 🔄 IN PROGRESS.
+- **Status:** ✅ COMPLETE — BOTH GATES GREEN (2026-06-16). Commits `4637449..af2b664`
+  on `api/s3-complete-the-core` (7 task commits + 2 post-review hardening commits).
+  NOT yet merged — push/PR awaits user OK. A final 5-lens adversarial Workflow drove
+  the hardening (preflight `accountCapabilities`-authoritative + deterministic
+  fallback; decodedTextBody case-insensitive test; textBodies(0) doc). Design-shape
+  findings (require*/requirePrimaryAccount asymmetry; `EmailLeaf` view type;
+  naming/raw-Blueprint publicness) surfaced to user for S4/triage — NOT changed.
   - [x] Task 1 — Email body readers (`bodyValue`, `leafTextParts`, `decodedTextBody`, `textBodies`) — case-insensitive text/plain match (RFC 2045 §5.1) folded in per review
   - **Last verified myself:** `nim c -r` test (exit 0), `just build`, `just fmt-check`, `just analyse` (hasdoc clean) all green.
   - [x] Task 2 — Mailbox role predicates (`isInbox`, `hasRole`) — + `mrOther` vendor-extension coverage per review
@@ -40,7 +46,7 @@ the compiler-oracle wire-contract snapshot.
   - [x] Task 5 — `limit` query-window helper (no field/func ambiguity; both reviews ✅)
   - [x] Task 6 — Regenerate the public-API snapshot + `just ci` — +12 lines public-api.txt only (no type-shape change); full `just ci` GREEN
   - [x] Task 7 — Re-bench `examples/jmap-cli/`; update `AUDIT.md` + `docs/design/16` — 6 CLI files adopt S3 symbols; CLI builds + public-only + REUSE green (I verified). requireSubmission/requireVacation honestly not forced (CLI routes one shared mail account; documented as siblings)
-  - [ ] Task 8 — Both full gates (`just ci`; `just clean && just jmap-reset && just test-full`)
+  - [x] Task 8 — Both full gates GREEN: `just ci` ✅; `just clean && just jmap-reset && just test-full` ✅ "All shards passed" (Stalwart + James + Cyrus). + 2 hardening commits (`9481f88` preflight, `af2b664` mail/email) from the final adversarial review.
 
 ## Conventions (every task)
 
