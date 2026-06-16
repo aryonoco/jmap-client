@@ -34,7 +34,7 @@ to validate against the RFC.
 
 - [x] **T0** — Land the canonical handoff doc (untracked on entry) + commit this plan ✅
 - [x] **T1** — `asSeq` family rename + lent view + uplift + re-freeze contract ✅ (commit pending in this step)
-- [ ] **T2** — Test-hygiene cleanup (UnusedImport + Uninit)
+- [x] **T2** — Test-hygiene cleanup (UnusedImport + Uninit) ✅
 - [ ] **T3** — AUDIT triage: flip 98 `[open]` tags + author `## S0 resolution`
 - [ ] **T4** — Full Section C audit + append new `filed-as-Cn` items
 - [ ] **T5** — Final adversarial Workflow over the whole diff

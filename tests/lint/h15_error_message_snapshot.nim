@@ -337,6 +337,11 @@ proc diffPairs(
   ## Computes the three-way diff between snapshot and live samples.
   ## Returns missing labels (snapshot but not live), extra labels (live
   ## but not snapshot), and changed pairs (both, but messages differ).
+  result = (
+    missing: newSeq[string](),
+    extra: newSeq[string](),
+    changed: newSeq[tuple[label, expected, actual: string]](),
+  )
   var snapshotMap = initTable[string, string]()
   for (k, v) in snapshotPairs:
     snapshotMap[k] = v
