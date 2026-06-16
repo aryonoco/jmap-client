@@ -420,7 +420,7 @@ freeze-module-paths:
     @echo "Regenerating tests/wire_contract/module-paths.txt..."
     @mkdir -p tests/wire_contract
     @{ echo jmap_client; \
-       ls src/jmap_client/*.nim 2>/dev/null \
+       { ls src/jmap_client/*.nim 2>/dev/null || true; } \
          | sed 's|^src/||; s|\.nim$||'; \
      } | sort -u > tests/wire_contract/module-paths.txt
     @echo "Snapshot regenerated. Review the diff before committing."

@@ -167,6 +167,41 @@ testCase tProtocolFaultMalformedError:
   let pf = protocolMalformedError(parseMethodCallId("c0").get())
   doAssert pf.message == "malformed error response for call ID c0"
 
+# --- MethodFault / jeMethod one-shot collapse (RFC 8620 §3.6.2) ------------
+
+testCase tMethodFaultMessage:
+  ## ``MethodFault`` reads "method <name> failed: <underlying error>" and ``$``
+  ## delegates to ``message``.
+  let mf =
+    methodFault(mnEmailGet, methodError("serverFail", Opt.some("internal error")))
+  doAssert mf.message == "method Email/get failed: serverFail: internal error"
+  doAssert $mf == mf.message
+
+testCase tJmapErrorMethodArm:
+  ## The ``jeMethod`` rail arm projects through to the underlying
+  ## ``MethodFault`` message.
+  let mf =
+    methodFault(mnEmailGet, methodError("serverFail", Opt.some("internal error")))
+  let je = jmapMethod(mf)
+  doAssert je.kind == jeMethod
+  doAssert je.message == mf.message
+  doAssert $je == je.message
+
+testCase tFulfilValueIsOk:
+  ## A one-shot ``mokValue`` outcome collapses onto the ok rail verbatim.
+  let r = fulfil(methodValue(42), mnEmailGet)
+  doAssert r.isOk
+  doAssert r.get() == 42
+
+testCase tFulfilMethodErrorIsRail:
+  ## A one-shot ``mokMethodError`` outcome collapses onto the err rail as a
+  ## ``jeMethod`` fault naming the method.
+  let me = methodError("serverFail", Opt.some("x"))
+  let r = fulfil(methodFailure[int](me), mnEmailGet)
+  doAssert r.isErr
+  doAssert r.error.kind == jeMethod
+  doAssert "method Email/get failed" in r.error.message
+
 # --- $ delegates to message across every error type ----------------------
 
 testCase tDollarParityAllTypes:

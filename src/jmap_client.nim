@@ -13,14 +13,16 @@
 ## reservation types (RFC 8620 §7 / RFC 8887 — types named pre-1.0;
 ## implementations land additively per P20).
 ##
-## ``jmap_client/convenience`` is publicly importable but opt-in:
-## NOT re-exported here. Consumers who want pipeline combinators
-## must ``import jmap_client/convenience`` explicitly.
+## The per-entity pipeline combinators (``add<Entity>QueryThenGet``,
+## ``add<Entity>ChangesToGet``, ``getBoth``) are part of this always-on
+## hub — surfaced through the mail re-export, reachable from the single
+## ``import jmap_client``.
 
 import jmap_client/internal/types
 import jmap_client/internal/protocol
 import jmap_client/internal/transport
 import jmap_client/internal/client
+import jmap_client/internal/one_shot
 import jmap_client/internal/mail
 import jmap_client/internal/push
 import jmap_client/internal/websocket
@@ -29,6 +31,7 @@ export types
 export protocol
 export transport
 export client
+export one_shot
 export mail
 export push
 export websocket

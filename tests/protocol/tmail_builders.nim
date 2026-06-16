@@ -558,8 +558,13 @@ testCase addEmailCopyAndDestroyEmitsTrue:
   let req = b1.freeze().request
   doAssert req.methodCalls[0].arguments{"onSuccessDestroyOriginal"}.getBool(false) ==
     true
-  assertEq handles.implicit.methodName, mnEmailSet
-  assertEq handles.implicit.callId, handles.primary.callId()
+  # addEmailCopyAndDestroy always requests the implicit destroy (RFC 8620
+  # §5.4), so the implicit handle is unconditionally present.
+  let implicitHandle = handles.implicit.valueOr:
+    doAssert false, "addEmailCopyAndDestroy must request the implicit Email/set"
+    return
+  assertEq implicitHandle.methodName, mnEmailSet
+  assertEq implicitHandle.callId, handles.primary.callId()
 
 testCase addEmailCopyAndDestroyDestroyFromIfInStateSome:
   ## L.2: ``destroyFromIfInState: Opt.some`` → key emitted with value.
@@ -739,10 +744,10 @@ testCase addMailboxSetEmptyUpdateSetRejectedAtConstruction:
   assertErr res
 
 # ===========================================================================
-# O. addEmailSubmissionAndEmailSet wire anchor (RFC 8621 §7.5 ¶3)
+# O. addEmailSubmissionSet compound wire anchor (RFC 8621 §7.5 ¶3)
 # ===========================================================================
 
-testCase addEmailSubmissionAndEmailSetWireAnchor:
+testCase addEmailSubmissionSetWireAnchor:
   ## Pins the wire shape of the compound EmailSubmission/set + implicit
   ## Email/set (RFC 8621 §7.5 ¶3). ``onSuccessUpdateEmail`` serialises
   ## into a JObject keyed by ``idOrCreationRefWireKey``, with each entry
@@ -750,7 +755,7 @@ testCase addEmailSubmissionAndEmailSetWireAnchor:
   ## ``onSuccessDestroyEmail`` extension is a JArray of wire-key strings.
   let identityId = makeId("idt1")
   let emailId = makeId("m-abc")
-  let bp = parseEmailSubmissionBlueprint(identityId, emailId).get()
+  let bp = parseEmailSubmissionBlueprint(identityId, directRef(emailId)).get()
   let updKey = directRef(emailId)
   let us = initEmailUpdateSet(@[markRead()]).get()
   let onUpd = parseNonEmptyOnSuccessUpdateEmail(@[(updKey, us)]).get()
@@ -758,14 +763,13 @@ testCase addEmailSubmissionAndEmailSetWireAnchor:
   var createTbl = initTable[CreationId, EmailSubmissionBlueprint]()
   createTbl[makeCreationId("s1")] = bp
   let b0 = initRequestBuilder(makeBuilderId())
-  let res = b0.addEmailSubmissionAndEmailSet(
-    accountId = makeAccountId("a1"),
-    create = Opt.some(createTbl),
-    onSuccessUpdateEmail = Opt.some(onUpd),
-    onSuccessDestroyEmail = Opt.some(onDst),
-  )
-  doAssert res.isOk
-  let (b1, _) = res.unsafeValue
+  let spec = parseEmailSubmissionSet(
+      create = Opt.some(createTbl),
+      onSuccessUpdateEmail = Opt.some(onUpd),
+      onSuccessDestroyEmail = Opt.some(onDst),
+    )
+    .get()
+  let (b1, _) = b0.addEmailSubmissionSet(makeAccountId("a1"), spec)
   let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailSubmissionSet
@@ -904,8 +908,8 @@ testCase getBothOuterNotCreatedSole:
   ## omits-inner path ("no invocation per RFC §7.5 when no creation
   ## succeeded and no update/destroy targets existed") and says
   ## ``getBoth`` returns ``Ok`` with an empty implicit. The shipped
-  ## generic ``getBoth[A, B]`` (``dispatch.nim:254-264``) chains ``?``
-  ## on ``resp.get(handles.implicit)`` and cannot synthesise an empty
+  ## generic ``getBoth[A, B]`` chains ``?`` on the requested implicit
+  ## handle and cannot synthesise an empty
   ## inner when the invocation is absent — absence surfaces as
   ## ``serverFail`` (see O.4). To satisfy both the design-doc's ``Ok``
   ## outcome and the shipped dispatch semantics, this block constructs
@@ -964,6 +968,29 @@ testCase getBothOuterMethodErrorRidesData:
   let r = results.get()
   doAssert r.primary.kind == mokMethodError
   assertEq r.primary.error.kind, metStateMismatch
+  doAssert r.implicit.isNone
+
+testCase getBothSimpleSetNoImplicitRequested:
+  ## O.8: a SIMPLE submission (no onSuccess*) requested no implicit, so the
+  ## handle's implicit is ``Opt.none``. A successful ``EmailSubmission/set``
+  ## with NO ``Email/set`` invocation round-trips through ``getBoth`` to ``Ok``
+  ## with a ``mokValue`` primary and ``r.implicit.isNone`` — no §5.4 fault,
+  ## because none was expected (RFC 8620 §5.4). This is the case-3 leg that
+  ## makes ``getBoth`` total: contrast O.4, where an implicit WAS requested
+  ## (``implicitRequested = true``) and its absence rails ``pfMissingCall``.
+  let cid = makeMcid("c0")
+  let handles = makeEmailSubmissionHandles(cid, cid, implicitRequested = false)
+  doAssert handles.implicit.isNone
+  let subJson = %*{"accountId": "a1", "newState": "sub1"}
+  let resp = initResponse(
+    @[initInvocation(mnEmailSubmissionSet, subJson, cid)],
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
+  )
+  let results = makeDispatchedResponse(resp).getBoth(handles)
+  assertOk results
+  let r = results.get()
+  doAssert r.primary.kind == mokValue
   doAssert r.implicit.isNone
 
 # ===========================================================================
@@ -1070,14 +1097,17 @@ testCase addEmailSubmissionSetSimpleInvocation:
   ## set produces ``EmailSubmission/set`` (RFC 8621 §7.5) with just
   ## that key plus ``accountId``. Pins that the simple overload's
   ## argument key set is a strict subset of the compound overload's
-  ## (compare O.1 ``addEmailSubmissionAndEmailSetWireAnchor``): the
+  ## (compare O.1 ``addEmailSubmissionSetWireAnchor``): the
   ## ``onSuccessUpdateEmail`` / ``onSuccessDestroyEmail`` keys the
   ## compound builder emits MUST NOT appear in the simple overload's
   ## output, and ``create`` / ``update`` / ``destroy`` are omitted
   ## when their ``Opt`` parameters default to ``none``.
   let b0 = initRequestBuilder(makeBuilderId())
-  let (b1, _) =
-    b0.addEmailSubmissionSet(makeAccountId("a1"), ifInState = Opt.some(makeState("s0")))
+  let spec = parseEmailSubmissionSet(ifInState = Opt.some(makeState("s0"))).get()
+  let (b1, handles) = b0.addEmailSubmissionSet(makeAccountId("a1"), spec)
+  # No onSuccess* extension was requested, so the builder leaves the implicit
+  # handle absent (RFC 8620 §5.4) — ``getBoth`` stays total over this simple set.
+  doAssert handles.implicit.isNone
   let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailSubmissionSet

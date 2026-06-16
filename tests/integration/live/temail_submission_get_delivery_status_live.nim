@@ -68,21 +68,24 @@ testCase tEmailSubmissionGetDeliveryStatusLive:
       .expect("seedDraftEmail[" & $target.kind & "]")
 
     let blueprint = parseEmailSubmissionBlueprint(
-        identityId = identityId, emailId = draftId, envelope = Opt.some(envelope)
+        identityId = identityId,
+        emailId = directRef(draftId),
+        envelope = Opt.some(envelope),
       )
       .expect("parseEmailSubmissionBlueprint[" & $target.kind & "]")
     let subCid =
       parseCreationId("sub33").expect("parseCreationId[" & $target.kind & "]")
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
-    let (b3, subHandle) = addEmailSubmissionSet(
-      initRequestBuilder(makeBuilderId()),
-      submissionAccountId,
-      create = Opt.some(subTbl),
+    let spec = parseEmailSubmissionSet(create = Opt.some(subTbl)).expect(
+        "parseEmailSubmissionSet[" & $target.kind & "]"
+      )
+    let (b3, handles) = addEmailSubmissionSet(
+      initRequestBuilder(makeBuilderId()), submissionAccountId, spec
     )
     let resp3 =
       client.send(b3.freeze()).expect("send EmailSubmission/set[" & $target.kind & "]")
-    let subSetExtract = resp3.get(subHandle)
+    let subSetExtract = resp3.getBoth(handles).primaryOutcome
     var submissionId: Id
     var createOk = false
     assertSuccessOrTypedError(target, subSetExtract, {metUnknownMethod}):

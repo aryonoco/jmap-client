@@ -14,8 +14,8 @@
 ##
 ## **Scope.** Walks every ``.nim`` file under
 ## ``src/jmap_client/internal/protocol/`` and
-## ``src/jmap_client/internal/mail/``, plus ``src/jmap_client.nim`` and
-## ``src/jmap_client/convenience.nim``.
+## ``src/jmap_client/internal/mail/`` (which now covers the relocated
+## pipeline combinators), plus ``src/jmap_client.nim``.
 ##
 ## **What it flags.** Any exported ``func`` / ``proc`` / ``template``
 ## declaration whose name matches ``^add[A-Z][A-Za-z]+\*`` and whose
@@ -37,7 +37,7 @@ const
     "src" / "jmap_client" / "internal" / "protocol",
     "src" / "jmap_client" / "internal" / "mail",
   ]
-  ScannedFiles = ["src" / "jmap_client.nim", "src" / "jmap_client" / "convenience.nim"]
+  ScannedFiles = ["src" / "jmap_client.nim"]
   Allowlist = ["addEcho", "addCapabilityInvocation", "addInvocation"]
 
 func isUnderScanned(rel: string): bool =

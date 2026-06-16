@@ -2054,17 +2054,28 @@ proc makeEmailImportResponse*(
 # ---------------------------------------------------------------------------
 
 proc makeEmailCopyHandles*(
-    sharedCallId: MethodCallId = makeMcid("c0"), builderId: BuilderId = makeBuilderId()
+    sharedCallId: MethodCallId = makeMcid("c0"),
+    builderId: BuilderId = makeBuilderId(),
+    implicitRequested: bool = true,
 ): EmailCopyHandles =
   ## Both handles share one ``MethodCallId`` per RFC 8620 §5.4 — the
   ## implicit Email/set destroy response shares its call-id with the
-  ## parent Email/copy invocation. Phase 4 protocol tests may add a
-  ## distinct-MCID overload later if the mismatch case needs exercising.
+  ## parent Email/copy invocation. ``implicitRequested`` (default ``true``,
+  ## the expected-implicit case ``addEmailCopyAndDestroy`` always emits)
+  ## drives whether the implicit handle is ``Opt.some`` (present,
+  ## requested) or ``Opt.none`` (no implicit requested — ``getBoth`` stays
+  ## total over its absence).
   EmailCopyHandles(
     primary: makeResponseHandle[CopyResponse[EmailCreatedItem]](sharedCallId, builderId),
-    implicit: makeNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
-      sharedCallId, mnEmailSet, builderId
-    ),
+    implicit:
+      if implicitRequested:
+        Opt.some(
+          makeNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
+            sharedCallId, mnEmailSet, builderId
+          )
+        )
+      else:
+        Opt.none(NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]]),
   )
 
 # ---------------------------------------------------------------------------
@@ -2400,7 +2411,7 @@ proc makeEmailSubmissionBlueprint*(
     envelope: Opt[Envelope] = Opt.none(Envelope),
 ): EmailSubmissionBlueprint =
   parseEmailSubmissionBlueprint(
-    identityId = identityId, emailId = emailId, envelope = envelope
+    identityId = identityId, emailId = directRef(emailId), envelope = envelope
   )
     .get()
 
@@ -2411,7 +2422,7 @@ proc makeFullEmailSubmissionBlueprint*(): EmailSubmissionBlueprint =
   ## than having to compose ``makeEmailSubmissionBlueprint`` by hand.
   parseEmailSubmissionBlueprint(
     identityId = makeId("idenFull"),
-    emailId = makeId("emailFull"),
+    emailId = directRef(makeId("emailFull")),
     envelope = Opt.some(makeFullEnvelope()),
   )
     .get()
@@ -2422,6 +2433,7 @@ proc makeEmailSubmissionHandles*(
     submissionMcid: MethodCallId = makeMcid("c0"),
     emailSetMcid: MethodCallId = makeMcid("c0"),
     builderId: BuilderId = makeBuilderId(),
+    implicitRequested: bool = true,
 ): EmailSubmissionHandles =
   ## Both handles share one ``MethodCallId`` by default per RFC 8620 §5.4 —
   ## the implicit ``Email/set`` triggered by ``onSuccessUpdateEmail`` /
@@ -2429,9 +2441,19 @@ proc makeEmailSubmissionHandles*(
   ## ``EmailSubmission/set`` invocation. The two parameters are separate so
   ## adversarial tests (§8.2.3 Block 6 ``getBothInnerMcIdMismatch``) can
   ## pass divergent ids to exercise the dispatch mismatch branch.
+  ## ``implicitRequested`` (default ``true``, modelling a spec that carried
+  ## an onSuccess* extension) drives whether the implicit handle is
+  ## ``Opt.some`` (present, requested) or ``Opt.none`` (a simple submission
+  ## requested no implicit — ``getBoth`` stays total over its absence).
   EmailSubmissionHandles(
     primary: makeResponseHandle[EmailSubmissionSetResponse](submissionMcid, builderId),
-    implicit: makeNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
-      emailSetMcid, mnEmailSet, builderId
-    ),
+    implicit:
+      if implicitRequested:
+        Opt.some(
+          makeNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
+            emailSetMcid, mnEmailSet, builderId
+          )
+        )
+      else:
+        Opt.none(NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]]),
   )

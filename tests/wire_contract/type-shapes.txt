@@ -1,6 +1,6 @@
 # Public-type-shape surface — the public-field shape of every
-# repo-owned type reachable through `import jmap_client` and
-# `import jmap_client/convenience`, rendered from the compiler's
+# repo-owned type reachable through `import jmap_client`, rendered
+# from the compiler's
 # post-sem type AST by scripts/api_oracle.nim. A faithful description
 # of public type shapes (private fields excluded); locked by
 # tests/lint/h17_type_shape_snapshot.nim so any drift is deliberate.
@@ -156,11 +156,11 @@
 
 ## CapabilityUri [jmap_client/internal/types/capabilities]
 
-## ChangesGetHandles [jmap_client/convenience]
+## ChangesGetHandles [jmap_client/internal/mail/combinators]
   changes*: ResponseHandle[ChangesResponse[T]]
   get*: ResponseHandle[GetResponse[T]]
 
-## ChangesGetResults [jmap_client/convenience]
+## ChangesGetResults [jmap_client/internal/mail/combinators]
   changes*: MethodOutcome[ChangesResponse[T]]
   get*: MethodOutcome[GetResponse[T]]
 
@@ -200,7 +200,7 @@
 
 ## CompoundHandles [jmap_client/internal/protocol/dispatch]
   primary*: ResponseHandle[A]
-  implicit*: NameBoundHandle[B]
+  implicit*: Opt[NameBoundHandle[B]]
 
 ## CompoundResults [jmap_client/internal/protocol/dispatch]
   primary*: MethodOutcome[A]
@@ -606,6 +606,8 @@
 ## EmailSubmissionSetResponse [jmap_client/internal/mail/email_submission]
   SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]
 
+## EmailSubmissionSetSpec [jmap_client/internal/mail/email_submission]
+
 ## EmailSubmissionSortProperty [jmap_client/internal/mail/email_submission]
   esspEmailId = "emailId"
   esspThreadId = "threadId"
@@ -830,6 +832,10 @@
     misuse*: Misuse
   of jeProtocol:
     protocol*: ProtocolFault
+  of jeMethod:
+    methodFault*: MethodFault
+  of jeSet:
+    setFault*: SetFault
 
 ## JmapErrorKind [jmap_client/internal/protocol/jmap_error]
   jeValidation
@@ -838,6 +844,8 @@
   jeSession
   jeMisuse
   jeProtocol
+  jeMethod
+  jeSet
 
 ## JmapInt [jmap_client/internal/types/primitives]
 
@@ -876,11 +884,11 @@
   myRights*: MailboxRights
   isSubscribed*: bool
 
-## MailboxChangesGetHandles [jmap_client/convenience]
+## MailboxChangesGetHandles [jmap_client/internal/mail/combinators]
   changes*: ResponseHandle[MailboxChangesResponse]
   get*: ResponseHandle[GetResponse[Mailbox]]
 
-## MailboxChangesGetResults [jmap_client/convenience]
+## MailboxChangesGetResults [jmap_client/internal/mail/combinators]
   changes*: MethodOutcome[MailboxChangesResponse]
   get*: MethodOutcome[GetResponse[Mailbox]]
 
@@ -1022,6 +1030,10 @@
   metFromAccountNotFound = "fromAccountNotFound"
   metFromAccountNotSupportedByMethod = "fromAccountNotSupportedByMethod"
   metUnknown
+
+## MethodFault [jmap_client/internal/protocol/jmap_error]
+  methodName*: MethodName
+  error*: MethodError
 
 ## MethodName [jmap_client/internal/types/methods_enum]
   mnUnknown
@@ -1231,6 +1243,14 @@
   pspSubject = "subject"
   pspSentAt = "sentAt"
 
+## PlainTextMessage [jmap_client/internal/one_shot]
+  fromAddr*: string
+  to*: seq[string]
+  subject*: string
+  body*: string
+  cc*: seq[string]
+  bcc*: seq[string]
+
 ## PropertyName [jmap_client/internal/types/framework]
 
 ## ProtocolFault [jmap_client/internal/protocol/jmap_error]
@@ -1256,11 +1276,11 @@
   removed*: seq[Id]
   added*: seq[AddedItem]
 
-## QueryGetHandles [jmap_client/convenience]
+## QueryGetHandles [jmap_client/internal/mail/combinators]
   query*: ResponseHandle[QueryResponse[T]]
   get*: ResponseHandle[GetResponse[T]]
 
-## QueryGetResults [jmap_client/convenience]
+## QueryGetResults [jmap_client/internal/mail/combinators]
   query*: MethodOutcome[QueryResponse[T]]
   get*: MethodOutcome[GetResponse[T]]
 
@@ -1279,6 +1299,10 @@
   ids*: seq[Id]
   total*: Opt[UnsignedInt]
   limit*: Opt[UnsignedInt]
+
+## QueryThenGet [jmap_client/internal/one_shot]
+  query*: QueryResponse[T]
+  get*: GetResponse[T]
 
 ## RFC5321Keyword [jmap_client/internal/types/submission_atoms]
 
@@ -1342,8 +1366,16 @@
   list*: seq[SearchSnippet]
   notFound*: seq[Id]
 
+## SendMailboxes [jmap_client/internal/one_shot]
+  drafts*: Id
+  sent*: Id
+
 ## SendProc [jmap_client/internal/transport]
   proc (req: HttpRequest): Result[HttpResponse, TransportError] {.closure, raises: [].}
+
+## SentEmail [jmap_client/internal/one_shot]
+  emailId*: Id
+  submissionId*: Id
 
 ## ServerCapability [jmap_client/internal/types/capabilities]
   uri*: string
@@ -1433,6 +1465,10 @@
   setForbiddenToSend = "forbiddenToSend"
   setCannotUnsend = "cannotUnsend"
   setUnknown
+
+## SetFault [jmap_client/internal/protocol/jmap_error]
+  methodName*: MethodName
+  error*: SetError
 
 ## SetRequest [jmap_client/internal/protocol/methods]
   accountId*: AccountId

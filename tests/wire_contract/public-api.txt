@@ -1,28 +1,9 @@
 # Public-API surface — every symbol reachable through
-# `import jmap_client` and `import jmap_client/convenience`, enumerated
+# `import jmap_client`, enumerated
 # from the compiler's post-sem symbol table by scripts/api_oracle.nim.
 # A faithful description of the consumer-reachable surface; locked by
 # tests/lint/h16_public_api_snapshot.nim so any drift is deliberate.
 # Regenerate with: just freeze-api
-## jmap_client/convenience
-type ChangesGetHandles [T]
-type ChangesGetResults [T]
-type MailboxChangesGetHandles
-type MailboxChangesGetResults
-type QueryGetHandles [T]
-type QueryGetResults [T]
-func addEmailChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges), bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): (RequestBuilder, ChangesGetHandles[Email])
-func addEmailQueryThenGet (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]), sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]), queryParams: QueryParams = QueryParams(), collapseThreads: bool = false, bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): (RequestBuilder, QueryGetHandles[Email])
-func addEmailSubmissionChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, ChangesGetHandles[AnyEmailSubmission])
-func addEmailSubmissionQueryThenGet (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[EmailSubmissionFilterCondition]] = Opt.none(Filter[EmailSubmissionFilterCondition]), sort: Opt[seq[EmailSubmissionComparator]] = Opt.none(seq[EmailSubmissionComparator]), queryParams: QueryParams = QueryParams()): (RequestBuilder, QueryGetHandles[AnyEmailSubmission])
-func addIdentityChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, ChangesGetHandles[Identity])
-func addMailboxChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, MailboxChangesGetHandles)
-func addMailboxQueryThenGet (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]), sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]), queryParams: QueryParams = QueryParams(), sortAsTree: bool = false, filterAsTree: bool = false): (RequestBuilder, QueryGetHandles[Mailbox])
-func addThreadChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, ChangesGetHandles[Thread])
-func getBoth (dr: DispatchedResponse, handles: MailboxChangesGetHandles): Result[MailboxChangesGetResults, JmapError]
-func getBoth [T](dr: DispatchedResponse, handles: ChangesGetHandles[T]): Result[ChangesGetResults[T], JmapError]
-func getBoth [T](dr: DispatchedResponse, handles: QueryGetHandles[T]): Result[QueryGetResults[T], JmapError]
-
 ## jmap_client/internal/client
 type DebugCallback
 type JmapClient
@@ -69,6 +50,25 @@ func identifier (d: ContentDisposition): string
 func kind (d: ContentDisposition): ContentDispositionKind
 func parseContentDisposition (raw: string): Result[ContentDisposition, ValidationError]
 func parsePartIdFromServer (raw: string): Result[PartId, ValidationError]
+
+## jmap_client/internal/mail/combinators
+type ChangesGetHandles [T]
+type ChangesGetResults [T]
+type MailboxChangesGetHandles
+type MailboxChangesGetResults
+type QueryGetHandles [T]
+type QueryGetResults [T]
+func addEmailChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges), bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): (RequestBuilder, ChangesGetHandles[Email])
+func addEmailQueryThenGet (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]), sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]), queryParams: QueryParams = QueryParams(), collapseThreads: bool = false, bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): (RequestBuilder, QueryGetHandles[Email])
+func addEmailSubmissionChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, ChangesGetHandles[AnyEmailSubmission])
+func addEmailSubmissionQueryThenGet (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[EmailSubmissionFilterCondition]] = Opt.none(Filter[EmailSubmissionFilterCondition]), sort: Opt[seq[EmailSubmissionComparator]] = Opt.none(seq[EmailSubmissionComparator]), queryParams: QueryParams = QueryParams()): (RequestBuilder, QueryGetHandles[AnyEmailSubmission])
+func addIdentityChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, ChangesGetHandles[Identity])
+func addMailboxChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, MailboxChangesGetHandles)
+func addMailboxQueryThenGet (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]), sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]), queryParams: QueryParams = QueryParams(), sortAsTree: bool = false, filterAsTree: bool = false): (RequestBuilder, QueryGetHandles[Mailbox])
+func addThreadChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, ChangesGetHandles[Thread])
+func getBoth (dr: DispatchedResponse, handles: MailboxChangesGetHandles): Result[MailboxChangesGetResults, JmapError]
+func getBoth [T](dr: DispatchedResponse, handles: ChangesGetHandles[T]): Result[ChangesGetResults[T], JmapError]
+func getBoth [T](dr: DispatchedResponse, handles: QueryGetHandles[T]): Result[QueryGetResults[T], JmapError]
 
 ## jmap_client/internal/mail/email
 func $ (p: EmailBodyProperty): string
@@ -272,6 +272,7 @@ type EmailSubmissionGetPropertyKind
 type EmailSubmissionHandles
 type EmailSubmissionResults
 type EmailSubmissionSetResponse
+type EmailSubmissionSetSpec
 type EmailSubmissionSortProperty
 type EmailSubmissionUpdate
 type EmailSubmissionUpdateVariantKind
@@ -287,9 +288,11 @@ func asDirectRef (x: IdOrCreationRef): Opt[Id]
 func asFinal (s: AnyEmailSubmission): Opt[EmailSubmission[usFinal]]
 func asPending (s: AnyEmailSubmission): Opt[EmailSubmission[usPending]]
 func cancelUpdate (s: EmailSubmission[usPending]): EmailSubmissionUpdate
+func create (s: EmailSubmissionSetSpec): Opt[Table[CreationId, EmailSubmissionBlueprint]]
 func creationRef (cid: CreationId): IdOrCreationRef
+func destroy (s: EmailSubmissionSetSpec): Opt[Referencable[seq[Id]]]
 func directRef (id: Id): IdOrCreationRef
-func emailId (bp: EmailSubmissionBlueprint): Id
+func emailId (bp: EmailSubmissionBlueprint): IdOrCreationRef
 func envelope (bp: EmailSubmissionBlueprint): Opt[Envelope]
 enumfield esgkDeliveryStatus
 enumfield esgkDsnBlobIds
@@ -322,12 +325,16 @@ func hash (p: EmailSubmissionGetProperty): Hash
 enumfield icrCreation
 enumfield icrDirect
 func identityId (bp: EmailSubmissionBlueprint): Id
+func ifInState (s: EmailSubmissionSetSpec): Opt[JmapState]
 func kind (p: EmailSubmissionGetProperty): EmailSubmissionGetPropertyKind
 func kind (x: IdOrCreationRef): IdOrCreationRefKind
 func len (a: NonEmptyEmailSubmissionUpdates): int
-func parseEmailSubmissionBlueprint (identityId: Id, emailId: Id, envelope: Opt[Envelope] = Opt.none(Envelope)): Result[EmailSubmissionBlueprint, NonEmptySeq[ValidationError]]
+func onSuccessDestroyEmail (s: EmailSubmissionSetSpec): Opt[NonEmptyOnSuccessDestroyEmail]
+func onSuccessUpdateEmail (s: EmailSubmissionSetSpec): Opt[NonEmptyOnSuccessUpdateEmail]
+func parseEmailSubmissionBlueprint (identityId: Id, emailId: IdOrCreationRef, envelope: Opt[Envelope] = Opt.none(Envelope)): Result[EmailSubmissionBlueprint, NonEmptySeq[ValidationError]]
 func parseEmailSubmissionComparator (rawProperty: string, direction: SortDirection = sdServerDefault, collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm)): Result[EmailSubmissionComparator, ValidationError]
 func parseEmailSubmissionGetProperty (raw: string): Result[EmailSubmissionGetProperty, ValidationError]
+func parseEmailSubmissionSet (create: Opt[Table[CreationId, EmailSubmissionBlueprint]] = Opt.none(Table[CreationId, EmailSubmissionBlueprint]), update: Opt[NonEmptyEmailSubmissionUpdates] = Opt.none(NonEmptyEmailSubmissionUpdates), destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), onSuccessUpdateEmail: Opt[NonEmptyOnSuccessUpdateEmail] = Opt.none(NonEmptyOnSuccessUpdateEmail), onSuccessDestroyEmail: Opt[NonEmptyOnSuccessDestroyEmail] = Opt.none(NonEmptyOnSuccessDestroyEmail), ifInState: Opt[JmapState] = Opt.none(JmapState)): Result[EmailSubmissionSetSpec, NonEmptySeq[ValidationError]]
 func parseNonEmptyEmailSubmissionUpdates (items: openArray[(Id, EmailSubmissionUpdate)]): Result[NonEmptyEmailSubmissionUpdates, NonEmptySeq[ValidationError]]
 func parseNonEmptyOnSuccessDestroyEmail (items: openArray[IdOrCreationRef]): Result[NonEmptyOnSuccessDestroyEmail, NonEmptySeq[ValidationError]]
 func parseNonEmptyOnSuccessUpdateEmail (items: openArray[(IdOrCreationRef, EmailUpdateSet)]): Result[NonEmptyOnSuccessUpdateEmail, NonEmptySeq[ValidationError]]
@@ -338,6 +345,7 @@ func toAny (s: EmailSubmission[usPending]): AnyEmailSubmission
 func toSeq (s: NonEmptyOnSuccessDestroyEmail): seq[IdOrCreationRef]
 func toTable (s: NonEmptyEmailSubmissionUpdates): Table[Id, EmailSubmissionUpdate]
 func toTable (s: NonEmptyOnSuccessUpdateEmail): Table[IdOrCreationRef, EmailUpdateSet]
+func update (s: EmailSubmissionSetSpec): Opt[NonEmptyEmailSubmissionUpdates]
 func wireName (p: EmailSubmissionGetProperty): string
 
 ## jmap_client/internal/mail/email_update
@@ -658,12 +666,11 @@ type MailboxChangesResponse
 type SearchSnippet
 
 ## jmap_client/internal/mail/submission_builders
-func addEmailSubmissionAndEmailSet (b: sink RequestBuilder, accountId: AccountId, create: Opt[Table[CreationId, EmailSubmissionBlueprint]] = Opt.none(Table[CreationId, EmailSubmissionBlueprint]), update: Opt[NonEmptyEmailSubmissionUpdates] = Opt.none(NonEmptyEmailSubmissionUpdates), destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), onSuccessUpdateEmail: Opt[NonEmptyOnSuccessUpdateEmail] = Opt.none(NonEmptyOnSuccessUpdateEmail), onSuccessDestroyEmail: Opt[NonEmptyOnSuccessDestroyEmail] = Opt.none(NonEmptyOnSuccessDestroyEmail), ifInState: Opt[JmapState] = Opt.none(JmapState)): Result[(RequestBuilder, EmailSubmissionHandles), ValidationError]
 func addEmailSubmissionChanges (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, ResponseHandle[ChangesResponse[AnyEmailSubmission]])
 func addEmailSubmissionGet (b: sink RequestBuilder, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])): (RequestBuilder, ResponseHandle[GetResponse[AnyEmailSubmission]])
 func addEmailSubmissionQuery (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[EmailSubmissionFilterCondition]] = Opt.none(Filter[EmailSubmissionFilterCondition]), sort: Opt[seq[EmailSubmissionComparator]] = Opt.none(seq[EmailSubmissionComparator]), queryParams: QueryParams = QueryParams()): (RequestBuilder, ResponseHandle[QueryResponse[AnyEmailSubmission]])
 func addEmailSubmissionQueryChanges (b: sink RequestBuilder, accountId: AccountId, sinceQueryState: JmapState, filter: Opt[Filter[EmailSubmissionFilterCondition]] = Opt.none(Filter[EmailSubmissionFilterCondition]), sort: Opt[seq[EmailSubmissionComparator]] = Opt.none(seq[EmailSubmissionComparator]), maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges), upToId: Opt[Id] = Opt.none(Id), calculateTotal: bool = false): (RequestBuilder, ResponseHandle[QueryChangesResponse[AnyEmailSubmission]])
-func addEmailSubmissionSet (b: sink RequestBuilder, accountId: AccountId, ifInState: Opt[JmapState] = Opt.none(JmapState), create: Opt[Table[CreationId, EmailSubmissionBlueprint]] = Opt.none(Table[CreationId, EmailSubmissionBlueprint]), update: Opt[NonEmptyEmailSubmissionUpdates] = Opt.none(NonEmptyEmailSubmissionUpdates), destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])): (RequestBuilder, ResponseHandle[EmailSubmissionSetResponse])
+func addEmailSubmissionSet (b: sink RequestBuilder, accountId: AccountId, spec: EmailSubmissionSetSpec): (RequestBuilder, EmailSubmissionHandles)
 func addPartialEmailSubmissionGet (b: sink RequestBuilder, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), properties: NonEmptySeq[EmailSubmissionGetProperty]): (RequestBuilder, ResponseHandle[GetResponse[PartialEmailSubmission]])
 
 ## jmap_client/internal/mail/submission_envelope
@@ -873,6 +880,24 @@ enumfield vruSetTextBody
 enumfield vruSetToDate
 func wireName (p: VacationResponseGetProperty): string
 
+## jmap_client/internal/one_shot
+type PlainTextMessage
+type QueryThenGet [T]
+type SendMailboxes
+type SentEmail
+proc connect (url, username, password: string): Result[JmapClient, JmapError]
+proc connect (url, username, password: string, transport: Transport): Result[JmapClient, JmapError]
+proc getEmailSubmissions (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])): Result[GetResponse[AnyEmailSubmission], JmapError]
+proc getEmails (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): Result[GetResponse[Email], JmapError]
+proc getIdentities (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])): Result[GetResponse[Identity], JmapError]
+proc getMailboxes (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])): Result[GetResponse[Mailbox], JmapError]
+proc getThreads (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])): Result[GetResponse[Thread], JmapError]
+proc getVacationResponse (client: JmapClient, accountId: AccountId): Result[GetResponse[VacationResponse], JmapError]
+proc queryEmailSubmissions (client: JmapClient, accountId: AccountId, filter: Opt[Filter[EmailSubmissionFilterCondition]] = Opt.none(Filter[EmailSubmissionFilterCondition]), sort: Opt[seq[EmailSubmissionComparator]] = Opt.none(seq[EmailSubmissionComparator]), queryParams: QueryParams = QueryParams()): Result[QueryThenGet[AnyEmailSubmission], JmapError]
+proc queryEmails (client: JmapClient, accountId: AccountId, filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]), sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]), queryParams: QueryParams = QueryParams(), collapseThreads: bool = false, bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): Result[QueryThenGet[Email], JmapError]
+proc queryMailboxes (client: JmapClient, accountId: AccountId, filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]), sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]), queryParams: QueryParams = QueryParams(), sortAsTree: bool = false, filterAsTree: bool = false): Result[QueryThenGet[Mailbox], JmapError]
+proc sendPlainText (client: JmapClient, accountId: AccountId, identityId: Id, mailboxes: SendMailboxes, message: PlainTextMessage): Result[SentEmail, JmapError]
+
 ## jmap_client/internal/protocol/builder
 type BuiltRequest
 type RequestBuilder
@@ -918,21 +943,28 @@ template registerSettableEntity (T: typedesc)
 ## jmap_client/internal/protocol/jmap_error
 func $ (err: JmapError): string
 func $ (m: Misuse): string
+func $ (mf: MethodFault): string
 func $ (p: ProtocolFault): string
 func $ (sf: SessionFault): string
+func $ (sf: SetFault): string
 type JmapError
 type JmapErrorKind
 type JmapResult [T]
+type MethodFault
 type MethodOutcome [T]
 type MethodOutcomeKind
 type Misuse
 type ProtocolFault
 type ProtocolFaultKind
 type SessionFault
+type SetFault
+func fulfil [T](outcome: MethodOutcome[T], methodName: MethodName): Result[T, JmapError]
+enumfield jeMethod
 enumfield jeMisuse
 enumfield jeProtocol
 enumfield jeRequest
 enumfield jeSession
+enumfield jeSet
 enumfield jeTransport
 enumfield jeValidation
 func jmapRequest (request: RequestError): JmapError
@@ -943,8 +975,10 @@ func jmapValidation (violations: NonEmptySeq[ValidationError]): JmapError
 func lift [T; E](r: Result[T, E]): Result[T, JmapError]
 func message (err: JmapError): string
 func message (m: Misuse): string
+func message (mf: MethodFault): string
 func message (p: ProtocolFault): string
 func message (sf: SessionFault): string
+func message (sf: SetFault): string
 enumfield mokMethodError
 enumfield mokValue
 enumfield pfDecode

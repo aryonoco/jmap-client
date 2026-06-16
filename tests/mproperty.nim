@@ -3987,14 +3987,14 @@ proc genEmailSubmissionBlueprint*(
     of 0:
       return parseEmailSubmissionBlueprint(
           identityId = parseIdFromServer("iden1").get(),
-          emailId = parseIdFromServer("email1").get(),
+          emailId = directRef(parseIdFromServer("email1").get()),
           envelope = Opt.none(Envelope),
         )
         .get()
     else:
       return parseEmailSubmissionBlueprint(
           identityId = parseIdFromServer("idenFull").get(),
-          emailId = parseIdFromServer("emailFull").get(),
+          emailId = directRef(parseIdFromServer("emailFull").get()),
           envelope = Opt.some(genFullEnvelopePin()),
         )
         .get()
@@ -4005,7 +4005,8 @@ proc genEmailSubmissionBlueprint*(
       Opt.none(Envelope)
   parseEmailSubmissionBlueprint(
     identityId = parseIdFromServer(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
-    emailId = parseIdFromServer(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
+    emailId =
+      directRef(parseIdFromServer(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()),
     envelope = envelope,
   )
     .get()

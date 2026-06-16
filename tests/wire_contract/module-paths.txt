@@ -1,2 +1,1 @@
 jmap_client
-jmap_client/convenience

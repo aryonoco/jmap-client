@@ -158,7 +158,7 @@ testCase blueprintToJsonOnlyNoFromJson:
   doAssert node.kind == JObject
   assertLen node, 3
   assertJsonFieldEq node, "identityId", %($bp.identityId)
-  assertJsonFieldEq node, "emailId", %($bp.emailId)
+  assertJsonFieldEq node, "emailId", %idOrCreationRefWireKey(bp.emailId)
   let envNode = node{"envelope"}
   doAssert envNode != nil and envNode.kind == JObject,
     "envelope must emit as a JObject composite"

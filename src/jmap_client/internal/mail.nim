@@ -14,9 +14,11 @@ import ./mail/mail_methods
 import ./mail/mail_builders
 import ./mail/identity_builders
 import ./mail/submission_builders
+import ./mail/combinators
 
 export types except fromJson
 export mail_methods
 export mail_builders
 export identity_builders
 export submission_builders
+export combinators

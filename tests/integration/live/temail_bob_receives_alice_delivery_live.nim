@@ -60,22 +60,25 @@ testCase tEmailBobReceivesAliceDeliveryLive:
       )
       .expect("seedDraftEmail[" & $target.kind & "]")
     let blueprint = parseEmailSubmissionBlueprint(
-        identityId = identityId, emailId = draftId, envelope = Opt.some(envelope)
+        identityId = identityId,
+        emailId = directRef(draftId),
+        envelope = Opt.some(envelope),
       )
       .expect("parseEmailSubmissionBlueprint[" & $target.kind & "]")
     let subCid =
       parseCreationId("sub38").expect("parseCreationId[" & $target.kind & "]")
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
-    let (b3, subHandle) = addEmailSubmissionSet(
-      initRequestBuilder(makeBuilderId()),
-      aliceSubmissionAccountId,
-      create = Opt.some(subTbl),
+    let spec = parseEmailSubmissionSet(create = Opt.some(subTbl)).expect(
+        "parseEmailSubmissionSet[" & $target.kind & "]"
+      )
+    let (b3, handles) = addEmailSubmissionSet(
+      initRequestBuilder(makeBuilderId()), aliceSubmissionAccountId, spec
     )
     let resp3 = aliceClient.send(b3.freeze()).expect(
         "send EmailSubmission/set[" & $target.kind & "]"
       )
-    let subSetResp = resp3.get(subHandle).expectValue(
+    let subSetResp = resp3.getBoth(handles).primaryOutcome.expectValue(
         "EmailSubmission/set extract[" & $target.kind & "]"
       )
     var submissionId: Id

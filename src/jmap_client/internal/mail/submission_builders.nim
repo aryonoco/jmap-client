@@ -4,15 +4,15 @@
 ## Custom builder functions for EmailSubmission (RFC 8621 §7). Mirrors
 ## the F1 pattern in ``mail_builders.nim``: per-verb builders thin-wrap
 ## the generic ``addGet`` / ``addChanges`` / ``addQuery`` /
-## ``addQueryChanges``, and ``addEmailSubmissionSet`` adapts the typed
-## ``NonEmptyEmailSubmissionUpdates`` container to the RFC 8620 §5.3
-## wire shape.
+## ``addQueryChanges``, and the single total ``addEmailSubmissionSet``
+## projects a pre-validated ``EmailSubmissionSetSpec`` onto the RFC 8621
+## §7.5 wire shape — the RFC 8620 §5.3 onSuccess-to-create cross-reference
+## was proven at spec construction, so the builder is total.
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
 import std/json
-import std/sets
 import std/tables
 
 import ../types
@@ -110,143 +110,62 @@ func addEmailSubmissionQueryChanges*(
   ](b, accountId, sinceQueryState, filter, sort, maxChanges, upToId, calculateTotal)
 
 # =============================================================================
-# addEmailSubmissionSet — EmailSubmission/set (RFC 8621 §7.5) — simple overload
+# addEmailSubmissionSet — EmailSubmission/set (RFC 8621 §7.5) + implicit
+# Email/set (RFC 8621 §7.5 ¶3, RFC 8620 §5.4)
 # =============================================================================
 
 func addEmailSubmissionSet*(
-    b: sink RequestBuilder,
-    accountId: AccountId,
-    ifInState: Opt[JmapState] = Opt.none(JmapState),
-    create: Opt[Table[CreationId, EmailSubmissionBlueprint]] =
-      Opt.none(Table[CreationId, EmailSubmissionBlueprint]),
-    update: Opt[NonEmptyEmailSubmissionUpdates] =
-      Opt.none(NonEmptyEmailSubmissionUpdates),
-    destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-): (RequestBuilder, ResponseHandle[EmailSubmissionSetResponse]) =
-  ## EmailSubmission/set (RFC 8621 §7.5). Simple overload — no
-  ## ``onSuccessUpdateEmail`` / ``onSuccessDestroyEmail`` extensions; for
-  ## those, use ``addEmailSubmissionAndEmailSet``. Thin wrapper over
-  ## ``addSet[AnyEmailSubmission, EmailSubmissionBlueprint,
-  ## NonEmptyEmailSubmissionUpdates, EmailSubmissionSetResponse]``.
-  addSet[
-    AnyEmailSubmission, EmailSubmissionBlueprint, NonEmptyEmailSubmissionUpdates,
-    EmailSubmissionSetResponse,
-  ](b, accountId, ifInState, create, update, destroy)
-
-# =============================================================================
-# addEmailSubmissionAndEmailSet — compound EmailSubmission/set + implicit
-# Email/set (RFC 8621 §7.5 ¶3, Design §9.1)
-# =============================================================================
-
-iterator onSuccessRefs(
-    updates: Opt[NonEmptyOnSuccessUpdateEmail],
-    destroys: Opt[NonEmptyOnSuccessDestroyEmail],
-): IdOrCreationRef =
-  ## Yields every ``IdOrCreationRef`` appearing as a key/element in
-  ## either onSuccess parameter. Unwrap-casts the ``distinct`` wrappers
-  ## to iterate the underlying containers.
-  for u in updates:
-    for key in u.toTable.keys:
-      yield key
-  for d in destroys:
-    for key in d.toSeq:
-      yield key
-
-func validateOnSuccessCids(
-    create: Opt[Table[CreationId, EmailSubmissionBlueprint]],
-    onSuccessUpdateEmail: Opt[NonEmptyOnSuccessUpdateEmail],
-    onSuccessDestroyEmail: Opt[NonEmptyOnSuccessDestroyEmail],
-): Result[void, ValidationError] =
-  ## RFC 8620 §5.3: every ``icrCreation(cid)`` in either onSuccess*
-  ## parameter MUST reference a ``CreationId`` present as a key in
-  ## ``create``. ``icrDirect`` references are exempt (those are
-  ## server-persisted ids, validated separately). Runs once at the
-  ## builder boundary; pure (no IO, no mutation visible to caller).
-  var creates = initHashSet[CreationId]()
-  for tab in create:
-    for k in tab.keys:
-      creates.incl k
-  for key in onSuccessRefs(onSuccessUpdateEmail, onSuccessDestroyEmail):
-    case key.kind
-    of icrDirect:
-      discard
-    of icrCreation:
-      # invariant: kind == icrCreation proves Ok
-      let cid = key.asCreationRef.get()
-      if cid notin creates:
-        return err(
-          validationError(
-            "addEmailSubmissionAndEmailSet",
-            "onSuccess* creation reference does not match any create key",
-            $cid,
-          )
-        )
-  ok()
-
-func addEmailSubmissionAndEmailSet*(
-    b: sink RequestBuilder,
-    accountId: AccountId,
-    create: Opt[Table[CreationId, EmailSubmissionBlueprint]] =
-      Opt.none(Table[CreationId, EmailSubmissionBlueprint]),
-    update: Opt[NonEmptyEmailSubmissionUpdates] =
-      Opt.none(NonEmptyEmailSubmissionUpdates),
-    destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-    onSuccessUpdateEmail: Opt[NonEmptyOnSuccessUpdateEmail] =
-      Opt.none(NonEmptyOnSuccessUpdateEmail),
-    onSuccessDestroyEmail: Opt[NonEmptyOnSuccessDestroyEmail] =
-      Opt.none(NonEmptyOnSuccessDestroyEmail),
-    ifInState: Opt[JmapState] = Opt.none(JmapState),
-): Result[(RequestBuilder, EmailSubmissionHandles), ValidationError] =
-  ## Compound EmailSubmission/set with implicit Email/set on success
-  ## (RFC 8621 §7.5 ¶3, Design §9.1). Single wire invocation; the server
-  ## emits the implicit Email/set response sharing the parent call ID
-  ## (RFC 8620 §5.4). ``handles.implicit`` carries the ``mnEmailSet``
-  ## filter so ``getBoth`` can disambiguate without a call-site argument.
-  ## The two compound extras (``onSuccessUpdateEmail`` and
-  ## ``onSuccessDestroyEmail``) arrive as ``NonEmpty*`` wrappers — empty
-  ## and duplicate-key shapes are unrepresentable at the type level, so
-  ## ``Opt.none`` is the sole "no extras" encoding.
-  ##
-  ## **Extracting the Ok value.** The Ok tuple carries the uncopyable
-  ## ``RequestBuilder`` (A7d), so move it out rather than copying via
-  ## ``.get`` / ``.expect``:
-  ## ``var r = b.addEmailSubmissionAndEmailSet(…); doAssert r.isOk;``
-  ## ``let (next, handles) = move(r.value)``.
-  ##
-  ## **Per-call cid invariant (A6.6).** RFC 8620 §5.3 ties every
-  ## ``icrCreation(cid)`` reference in ``onSuccessUpdateEmail`` and
-  ## ``onSuccessDestroyEmail`` to a ``CreationId`` appearing as a key in
-  ## ``create`` on the same call. ``validateOnSuccessCids`` enforces
-  ## this at the builder boundary; failure surfaces as a
-  ## ``ValidationError`` before any wire serialisation, instead of as a
-  ## server-side ``SetError(setNotFound)`` round-trip.
-  ?validateOnSuccessCids(create, onSuccessUpdateEmail, onSuccessDestroyEmail)
+    b: sink RequestBuilder, accountId: AccountId, spec: EmailSubmissionSetSpec
+): (RequestBuilder, EmailSubmissionHandles) =
+  ## EmailSubmission/set (RFC 8621 §7.5). RFC 8621 §7.5 ¶3 has the server make a
+  ## single implicit Email/set after the submission "to perform any changes
+  ## requested in these two arguments"; in observed server behaviour (Stalwart /
+  ## Cyrus / Apache James) that response is returned only when an onSuccess*
+  ## argument requested a change. The implicit Email/set is therefore surfaced
+  ## through ``handles.implicit`` as an outcome when the spec carried an
+  ## onSuccess*, ``Opt.none`` at extraction otherwise. Total: the spec proved the
+  ## RFC 8620 §5.3 cross-reference at construction.
   let req = SetRequest[
     AnyEmailSubmission, EmailSubmissionBlueprint, NonEmptyEmailSubmissionUpdates
   ](
     accountId: accountId,
-    ifInState: ifInState,
-    create: create,
-    update: update,
-    destroy: destroy,
+    ifInState: spec.ifInState,
+    create: spec.create,
+    update: spec.update,
+    destroy: spec.destroy,
   )
   var args = req.toJson()
-  for v in onSuccessUpdateEmail:
+  for v in spec.onSuccessUpdateEmail:
     args["onSuccessUpdateEmail"] = v.toJson()
-  for v in onSuccessDestroyEmail:
+  for v in spec.onSuccessDestroyEmail:
     args["onSuccessDestroyEmail"] = v.toJson()
   let (b1, callId) = addInvocation(
     b,
     mnEmailSubmissionSet,
     args,
     capabilityUri(AnyEmailSubmission),
-    setMeta(create, update, destroy),
+    setMeta(spec.create, spec.update, spec.destroy),
   )
   let brand = b1.builderId
+  # RFC 8621 §7.5 ¶3 mandates a single implicit Email/set "to perform any
+  # changes requested in these two arguments"; in observed server behaviour
+  # (Stalwart / Cyrus / Apache James) the response is returned only when an
+  # onSuccess* argument requested a change. The implicit handle is therefore
+  # present iff one was requested, so a simple submission yields a ``none``
+  # implicit and ``getBoth`` stays total over its absence (RFC 8620 §5.4).
+  let implicitRequested =
+    spec.onSuccessUpdateEmail.isSome or spec.onSuccessDestroyEmail.isSome
+  let implicit =
+    if implicitRequested:
+      Opt.some(
+        initNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
+          callId, mnEmailSet, brand
+        )
+      )
+    else:
+      Opt.none(NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]])
   let handles = EmailSubmissionHandles(
     primary: initResponseHandle[EmailSubmissionSetResponse](callId, brand),
-    implicit: initNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
-      callId, mnEmailSet, brand
-    ),
+    implicit: implicit,
   )
-  ok((b1, handles))
+  (b1, handles)

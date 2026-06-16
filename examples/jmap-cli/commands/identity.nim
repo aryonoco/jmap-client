@@ -10,17 +10,12 @@ import ./cli_session
 
 proc listIdentities(): JmapResult[int] =
   let ctx = ?connect()
-  let (b, handle) = ctx.client.newBuilder().addIdentityGet(ctx.mailAccount)
-  let dr = ?ctx.client.send(b.freeze())
-  let outcome = ?dr.get(handle)
-  case outcome.kind
-  of mokMethodError:
-    stderr.writeLine "Identity/get: " & outcome.error.message
-    ok(1)
-  of mokValue:
-    for ident in outcome.value.list:
-      echo $ident.id, "  ", ident.name, "  <", ident.email, ">"
-    ok(0)
+  # getIdentities folds the whole get lifecycle and collapses the single
+  # Identity/get outcome onto the rail; the body reads the GetResponse's `.list`.
+  let resp = ?ctx.client.getIdentities(ctx.mailAccount)
+  for ident in resp.list:
+    echo $ident.id, "  ", ident.name, "  <", ident.email, ">"
+  ok(0)
 
 proc run*(args: seq[string]): int =
   listIdentities().valueOr:

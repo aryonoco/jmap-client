@@ -1,65 +1,55 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## `jmap-cli session` — the unhidden first-run path: env -> credential
-## -> endpoint -> client -> fetchSession -> capability preflight -> account,
-## and one proving Mailbox/get round-trip. Written verbosely on purpose
-## to document the first-fifteen-minutes experience (P29); this command
-## deliberately does NOT use the cli_session helper. Friction here goes
-## straight to AUDIT.md.
+## `jmap-cli session` — the first-run path: env -> connect -> fetchSession
+## -> capability preflight -> account, and one proving Mailbox/get round-trip.
+## Written to document the first-fifteen-minutes experience; this command
+## deliberately does NOT use the cli_session helper, so the onboarding steps are
+## visible inline. Friction here goes straight to AUDIT.md.
 ##
-## With the unified rail the whole probe threads one ``JmapError`` on a single
-## ``?``: the two smart constructors take one ``.lift`` each; ``initJmapClient``,
-## ``fetchSession``, ``requireMail`` and ``send`` thread bare.
+## With the one-shots the on-ramp is short: ``connect`` folds the endpoint +
+## credential constructors and ``initJmapClient``; ``getMailboxes`` folds the
+## whole build -> send -> get lifecycle (and collapses the single method's
+## outcome onto the rail). The whole probe threads one ``JmapError`` on a single
+## ``?`` — ``connect``, ``fetchSession``, ``requireMail`` and ``getMailboxes``
+## all thread bare.
 
 import std/os
 import jmap_client
 
 proc connectAndProbe(sessionUrl, user, pass: string): JmapResult[int] =
-  # 2. Smart constructors (each on the ValidationError rail) — one `.lift` each
-  #    folds the construction failure onto the one JmapError rail.
-  let endpoint = ?directEndpoint(sessionUrl).lift
-  let credential = ?basicCredential(user, pass).lift
+  # 2. The connect one-shot folds endpoint + credential + initJmapClient onto
+  #    the one rail (the 2-arg client form, with the default HTTP transport, is
+  #    what the default-transport connect uses internally; the 4-arg connect
+  #    takes a custom Transport). The RFC 8620 §2 session stays lazy.
+  let client = ?connect(sessionUrl, user, pass)
 
-  # 3. Construct the client (2-arg overload supplies the default HTTP
-  #    transport via newHttpTransport; the 3-arg form takes a custom one).
-  #    This already returns JmapError, so it threads with a bare `?`.
-  let client = ?initJmapClient(endpoint, credential)
-
-  # 4. Fetch the session (the first network call; JmapError on the rail).
+  # 3. Fetch the session (the first network call; JmapError on the rail).
   let session = ?client.fetchSession()
 
   echo "connected as: ", session.username
   echo "api url:      ", session.apiUrl
 
-  # 5. Capability pre-flight + mail account in one rail step: requireMail (the
-  #    S3 sugar) resolves the JMAP Mail account, primary-preferred with a
-  #    per-account fallback (RFC 8620 §2), or fails with a jeSession fault — no
-  #    ckMail enum to discover, no hand-rolled Opt unwrap, no fabricated string.
+  # 4. Capability pre-flight + mail account in one rail step: requireMail
+  #    resolves the JMAP Mail account, primary-preferred with a per-account
+  #    fallback (RFC 8620 §2), or fails with a jeSession fault — no ckMail enum
+  #    to discover, no hand-rolled Opt unwrap, no fabricated string.
   let mailAccount = ?session.requireMail()
   echo "mail account: ", $mailAccount
 
-  # 6. Surface a few core limits. ``core`` is a direct public field of the
+  # 5. Surface a few core limits. ``core`` is a direct public field of the
   #    Session, and each limit a direct ``UnsignedInt`` field (toInt64 to read).
   let core = session.core
   echo "maxCallsInRequest: ", $core.maxCallsInRequest.toInt64
   echo "maxObjectsInGet:   ", $core.maxObjectsInGet.toInt64
 
-  # 7. Prove the full request lifecycle once: newBuilder -> add*Get (returns a
-  #    (RequestBuilder, ResponseHandle) tuple) -> freeze (sink) -> send -> get.
-  #    A server method error is data on the ok branch; only a dispatch fault
-  #    rides the rail through `?`.
-  let b = client.newBuilder()
-  let (b2, mailboxesHandle) = b.addMailboxGet(mailAccount)
-  let dr = ?client.send(b2.freeze())
-  let outcome = ?dr.get(mailboxesHandle)
-  case outcome.kind
-  of mokMethodError:
-    stderr.writeLine "Mailbox/get: " & outcome.error.message
-    ok(1)
-  of mokValue:
-    echo "mailboxes visible: ", $outcome.value.list.len
-    ok(0)
+  # 6. Prove the session with one bare-get one-shot: getMailboxes folds the
+  #    build -> send -> get lifecycle and collapses the single Mailbox/get
+  #    outcome onto the rail, so a method error arrives through `?` (reported by
+  #    run*); the full GetResponse keeps `state`/`notFound` if needed.
+  let mailboxes = ?client.getMailboxes(mailAccount)
+  echo "mailboxes visible: ", $mailboxes.list.len
+  ok(0)
 
 proc run*(args: seq[string]): int =
   # 1. Read connection params (no config-file loader exists in the API).

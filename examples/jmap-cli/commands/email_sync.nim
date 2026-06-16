@@ -13,28 +13,18 @@
 ## not trapped inside a live response.
 
 import jmap_client
-import
-  jmap_client/convenience # opt-in; addEmailChangesToGet + getBoth(ChangesGetHandles)
 import ./cli_session
 
 proc reportCurrentState(ctx: CliContext): JmapResult[int] =
   ## Email/changes diffs against the Email OBJECT state (GetResponse.state),
-  ## not the query state, so the cursor is read from an Email/get. An empty
+  ## not the query state, so the cursor is read from an Email/get. The getEmails
+  ## one-shot folds that get and collapses its outcome onto the rail; an empty
   ## ids list returns the state with no records to ship.
-  let (b, h) = ctx.client.newBuilder().addEmailGet(
-      ctx.mailAccount, ids = Opt.some(direct(newSeq[Id]()))
-    )
-  let dr = ?ctx.client.send(b.freeze())
-  let outcome = ?dr.get(h)
-  case outcome.kind
-  of mokMethodError:
-    stderr.writeLine "Email/get: " & outcome.error.message
-    ok(1)
-  of mokValue:
-    let st = outcome.value.state
-    echo "current Email state: ", $st
-    echo "re-run after a change:  jmap-cli email sync ", $st
-    ok(0)
+  let resp =
+    ?ctx.client.getEmails(ctx.mailAccount, ids = Opt.some(direct(newSeq[Id]())))
+  echo "current Email state: ", $resp.state
+  echo "re-run after a change:  jmap-cli email sync ", $resp.state
+  ok(0)
 
 proc syncSince(ctx: CliContext, sinceArg: string): JmapResult[int] =
   # parseJmapState reconstructs the cursor from the CLI string — the same state

@@ -26,7 +26,7 @@ proc usage() =
 usage:
   jmap-cli session
   jmap-cli mailbox list
-  jmap-cli email query [--unread] [--via-convenience]
+  jmap-cli email query [--unread] [--one-shot]
   jmap-cli email read <emailId>
   jmap-cli email flag <emailId>
   jmap-cli email move <emailId> <mailboxId>

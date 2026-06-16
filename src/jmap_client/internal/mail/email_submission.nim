@@ -13,6 +13,7 @@
 {.experimental: "strictCaseObjects".}
 
 import std/hashes
+import std/sets
 import std/tables
 
 import ../types/primitives
@@ -20,6 +21,7 @@ import ../types/identifiers
 import ../types/validation
 import ../types/framework
 import ../types/field_echo
+import ../types/envelope
 import ../protocol/methods
 import ../protocol/dispatch
 import ./submission_envelope
@@ -127,53 +129,6 @@ func asCanceled*(s: AnyEmailSubmission): Opt[EmailSubmission[usCanceled]] =
     Opt.some(s.rawCanceled)
   of usPending, usFinal:
     Opt.none(EmailSubmission[usCanceled])
-
-# -----------------------------------------------------------------------------
-# EmailSubmissionBlueprint — creation model (RFC 8621 §7.5)
-#
-# Shape: Pattern A sealing (raw* private fields + same-name UFCS accessors)
-# combined with Result[T, NonEmptySeq[ValidationError]] error rail.
-# -----------------------------------------------------------------------------
-
-type EmailSubmissionBlueprint* {.ruleOff: "objects".} = object
-  ## Creation model for ``EmailSubmission/set`` create operations. Carries
-  ## the three client-settable fields per RFC 8621 §7.5: ``identityId``,
-  ## ``emailId``, and an optional ``envelope``.
-  ##
-  ## Fields are module-private with a ``raw`` prefix; construction is gated
-  ## by ``parseEmailSubmissionBlueprint`` and read access is via same-name
-  ## UFCS accessors below.
-  ##
-  ## When ``envelope`` is ``Opt.none``, the server synthesises the envelope
-  ## from the referenced Email's headers per RFC §7.5 ¶4.
-  rawIdentityId: Id
-  rawEmailId: Id
-  rawEnvelope: Opt[Envelope]
-
-func parseEmailSubmissionBlueprint*(
-    identityId: Id, emailId: Id, envelope: Opt[Envelope] = Opt.none(Envelope)
-): Result[EmailSubmissionBlueprint, NonEmptySeq[ValidationError]] =
-  ## Accumulating-error smart constructor. The three fields are already
-  ## fully validated by their own L1 types, so no violation can arise here;
-  ## the accumulating error rail is retained for signature symmetry with the
-  ## sibling blueprint constructors and forwards compatibility.
-  ok(
-    EmailSubmissionBlueprint(
-      rawIdentityId: identityId, rawEmailId: emailId, rawEnvelope: envelope
-    )
-  )
-
-func identityId*(bp: EmailSubmissionBlueprint): Id =
-  ## UFCS accessor — ``bp.identityId`` reads as a field access.
-  bp.rawIdentityId
-
-func emailId*(bp: EmailSubmissionBlueprint): Id =
-  ## UFCS accessor — ``bp.emailId`` reads as a field access.
-  bp.rawEmailId
-
-func envelope*(bp: EmailSubmissionBlueprint): Opt[Envelope] =
-  ## UFCS accessor — ``bp.envelope`` reads as a field access.
-  bp.rawEnvelope
 
 # -----------------------------------------------------------------------------
 # EmailSubmissionUpdate — update algebra (RFC 8621 §7.5 ¶3)
@@ -457,8 +412,8 @@ type IdOrCreationRef* {.ruleOff: "objects".} = object
   ## Either an existing EmailSubmission ``Id`` or a ``CreationId``-shaped
   ## forward reference to a submission being created in the same ``/set``
   ## call. Used as the map key in ``onSuccessUpdateEmail`` and as the
-  ## list element in ``onSuccessDestroyEmail`` on the compound builder
-  ## ``addEmailSubmissionAndEmailSet`` (RFC 8621 §7.5 ¶3).
+  ## list element in ``onSuccessDestroyEmail`` on ``EmailSubmissionSetSpec``
+  ## (RFC 8621 §7.5 ¶3).
   ##
   ## Sealed Pattern-A object: discriminator (``rawKind``) and payloads
   ## (``rawId``, ``rawCreationId``) are module-private; external
@@ -545,6 +500,61 @@ func creationRef*(cid: CreationId): IdOrCreationRef =
   ## ``toJson`` time, not stored on the ``CreationId``.
   IdOrCreationRef(rawKind: icrCreation, rawCreationId: cid)
 
+# -----------------------------------------------------------------------------
+# EmailSubmissionBlueprint — creation model (RFC 8621 §7.5)
+#
+# Shape: Pattern A sealing (raw* private fields + same-name UFCS accessors)
+# combined with Result[T, NonEmptySeq[ValidationError]] error rail.
+# -----------------------------------------------------------------------------
+
+type EmailSubmissionBlueprint* {.ruleOff: "objects".} = object
+  ## Creation model for ``EmailSubmission/set`` create operations. Carries
+  ## the three client-settable fields per RFC 8621 §7.5: ``identityId``,
+  ## ``emailId``, and an optional ``envelope``.
+  ##
+  ## ``emailId`` is an ``IdOrCreationRef``: it references either an Email
+  ## already persisted on the server (``directRef``) or one being created
+  ## in the same ``/set`` request through a ``"#"``-prefixed creation
+  ## reference (``creationRef``) per RFC 8620 §5.3.
+  ##
+  ## Fields are module-private with a ``raw`` prefix; construction is gated
+  ## by ``parseEmailSubmissionBlueprint`` and read access is via same-name
+  ## UFCS accessors below.
+  ##
+  ## When ``envelope`` is ``Opt.none``, the server synthesises the envelope
+  ## from the referenced Email's headers per RFC §7.5 ¶4.
+  rawIdentityId: Id
+  rawEmailId: IdOrCreationRef
+  rawEnvelope: Opt[Envelope]
+
+func parseEmailSubmissionBlueprint*(
+    identityId: Id,
+    emailId: IdOrCreationRef,
+    envelope: Opt[Envelope] = Opt.none(Envelope),
+): Result[EmailSubmissionBlueprint, NonEmptySeq[ValidationError]] =
+  ## Accumulating-error smart constructor. The three fields are already
+  ## fully validated by their own L1 types, so no violation can arise here;
+  ## the accumulating error rail is retained for signature symmetry with the
+  ## sibling blueprint constructors and forwards compatibility.
+  ok(
+    EmailSubmissionBlueprint(
+      rawIdentityId: identityId, rawEmailId: emailId, rawEnvelope: envelope
+    )
+  )
+
+func identityId*(bp: EmailSubmissionBlueprint): Id =
+  ## UFCS accessor — ``bp.identityId`` reads as a field access.
+  bp.rawIdentityId
+
+func emailId*(bp: EmailSubmissionBlueprint): IdOrCreationRef =
+  ## UFCS accessor — ``bp.emailId`` reads as a field access. The result is
+  ## a direct or creation reference per RFC 8620 §5.3.
+  bp.rawEmailId
+
+func envelope*(bp: EmailSubmissionBlueprint): Opt[Envelope] =
+  ## UFCS accessor — ``bp.envelope`` reads as a field access.
+  bp.rawEnvelope
+
 # =============================================================================
 # NonEmptyOnSuccessUpdateEmail / NonEmptyOnSuccessDestroyEmail
 # (RFC 8621 §7.5 ¶3 — compound EmailSubmission/set + implicit Email/set)
@@ -619,14 +629,136 @@ func parseNonEmptyOnSuccessDestroyEmail*(
   ok(NonEmptyOnSuccessDestroyEmail(rawValue: @items))
 
 # -----------------------------------------------------------------------------
+# EmailSubmissionSetSpec — validated EmailSubmission/set request body
+# (RFC 8621 §7.5 + the RFC 8620 §5.3 onSuccess↔create cross-reference)
+# -----------------------------------------------------------------------------
+
+type EmailSubmissionSetSpec* {.ruleOff: "objects".} = object
+  ## A validated EmailSubmission/set request body (RFC 8621 §7.5): create /
+  ## update / destroy plus the onSuccessUpdateEmail / onSuccessDestroyEmail
+  ## extensions, with the RFC 8620 §5.3 onSuccess-to-create cross-reference
+  ## invariant already proven. Copyable, so the builder that consumes it is
+  ## total.
+  rawIfInState: Opt[JmapState]
+  rawCreate: Opt[Table[CreationId, EmailSubmissionBlueprint]]
+  rawUpdate: Opt[NonEmptyEmailSubmissionUpdates]
+  rawDestroy: Opt[Referencable[seq[Id]]]
+  rawOnSuccessUpdateEmail: Opt[NonEmptyOnSuccessUpdateEmail]
+  rawOnSuccessDestroyEmail: Opt[NonEmptyOnSuccessDestroyEmail]
+
+func ifInState*(s: EmailSubmissionSetSpec): Opt[JmapState] =
+  ## UFCS accessor — the optimistic-concurrency ``ifInState`` (RFC 8621 §7.5).
+  s.rawIfInState
+
+func create*(
+    s: EmailSubmissionSetSpec
+): Opt[Table[CreationId, EmailSubmissionBlueprint]] =
+  ## UFCS accessor — the ``create`` map of submission blueprints.
+  s.rawCreate
+
+func update*(s: EmailSubmissionSetSpec): Opt[NonEmptyEmailSubmissionUpdates] =
+  ## UFCS accessor — the ``update`` batch of per-submission patches.
+  s.rawUpdate
+
+func destroy*(s: EmailSubmissionSetSpec): Opt[Referencable[seq[Id]]] =
+  ## UFCS accessor — the ``destroy`` id list (RFC 8620 §3.7 referencable).
+  s.rawDestroy
+
+func onSuccessUpdateEmail*(
+    s: EmailSubmissionSetSpec
+): Opt[NonEmptyOnSuccessUpdateEmail] =
+  ## UFCS accessor — the ``onSuccessUpdateEmail`` extension (RFC 8621 §7.5 ¶3).
+  s.rawOnSuccessUpdateEmail
+
+func onSuccessDestroyEmail*(
+    s: EmailSubmissionSetSpec
+): Opt[NonEmptyOnSuccessDestroyEmail] =
+  ## UFCS accessor — the ``onSuccessDestroyEmail`` extension (RFC 8621 §7.5 ¶3).
+  s.rawOnSuccessDestroyEmail
+
+iterator onSuccessRefs(
+    updates: Opt[NonEmptyOnSuccessUpdateEmail],
+    destroys: Opt[NonEmptyOnSuccessDestroyEmail],
+): IdOrCreationRef =
+  ## Yields every ``IdOrCreationRef`` appearing as a key/element in either
+  ## onSuccess parameter. Unwrap-casts the ``distinct`` wrappers to iterate
+  ## the underlying containers.
+  for u in updates:
+    for key in u.toTable.keys:
+      yield key
+  for d in destroys:
+    for key in d.toSeq:
+      yield key
+
+func badOnSuccessRefs(
+    create: Opt[Table[CreationId, EmailSubmissionBlueprint]],
+    onSuccessUpdateEmail: Opt[NonEmptyOnSuccessUpdateEmail],
+    onSuccessDestroyEmail: Opt[NonEmptyOnSuccessDestroyEmail],
+): seq[ValidationError] =
+  ## RFC 8620 §5.3: every ``icrCreation(cid)`` reference in either onSuccess*
+  ## parameter MUST name a ``CreationId`` present as a key in ``create``.
+  ## Accumulates one violation per offending reference; ``icrDirect`` refs are
+  ## server-persisted ids, exempt.
+  result = @[]
+  var creates = initHashSet[CreationId]()
+  for tab in create:
+    for k in tab.keys:
+      creates.incl k
+  for key in onSuccessRefs(onSuccessUpdateEmail, onSuccessDestroyEmail):
+    case key.kind
+    of icrDirect:
+      discard
+    of icrCreation:
+      # invariant: kind == icrCreation proves the Opt is Some.
+      let cid = key.asCreationRef.get()
+      if cid notin creates:
+        result.add validationError(
+          "EmailSubmissionSetSpec",
+          "onSuccess* creation reference does not match any create key",
+          $cid,
+        )
+
+func parseEmailSubmissionSet*(
+    create: Opt[Table[CreationId, EmailSubmissionBlueprint]] =
+      Opt.none(Table[CreationId, EmailSubmissionBlueprint]),
+    update: Opt[NonEmptyEmailSubmissionUpdates] =
+      Opt.none(NonEmptyEmailSubmissionUpdates),
+    destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    onSuccessUpdateEmail: Opt[NonEmptyOnSuccessUpdateEmail] =
+      Opt.none(NonEmptyOnSuccessUpdateEmail),
+    onSuccessDestroyEmail: Opt[NonEmptyOnSuccessDestroyEmail] =
+      Opt.none(NonEmptyOnSuccessDestroyEmail),
+    ifInState: Opt[JmapState] = Opt.none(JmapState),
+): Result[EmailSubmissionSetSpec, NonEmptySeq[ValidationError]] =
+  ## Validates the RFC 8620 §5.3 cross-reference — every ``icrCreation(cid)`` in
+  ## either onSuccess* map MUST name a key in ``create`` — accumulating EVERY
+  ## bad reference, then seals the spec. ``icrDirect`` refs are server-persisted
+  ## ids, exempt. With no onSuccess* args there is nothing to check and the call
+  ## cannot fail.
+  let violations = badOnSuccessRefs(create, onSuccessUpdateEmail, onSuccessDestroyEmail)
+  if violations.len > 0:
+    # violations is non-empty here, so parseNonEmptySeq cannot Err.
+    return err(parseNonEmptySeq(violations).get())
+  ok(
+    EmailSubmissionSetSpec(
+      rawIfInState: ifInState,
+      rawCreate: create,
+      rawUpdate: update,
+      rawDestroy: destroy,
+      rawOnSuccessUpdateEmail: onSuccessUpdateEmail,
+      rawOnSuccessDestroyEmail: onSuccessDestroyEmail,
+    )
+  )
+
+# -----------------------------------------------------------------------------
 # EmailSubmissionHandles / EmailSubmissionResults (RFC 8621 §7.5, RFC 8620 §5.4)
 #
-# Compound handle pair for ``addEmailSubmissionAndEmailSet``. Aliases of the
+# Compound handle pair for ``addEmailSubmissionSet``. Aliases of the
 # generic ``CompoundHandles[A, B]`` / ``CompoundResults[A, B]`` from
-# ``dispatch.nim``; the generic ``getBoth[A, B]`` extractor at
-# ``dispatch.nim:254-264`` dispatches by phantom-instantiation, with
-# ``mixin fromJson`` deferring serde lookup until call-site instantiation
-# (where ``SetResponse[EmailCreatedItem].fromJson`` and
+# ``dispatch.nim``; the generic ``getBoth[A, B]`` extractor there
+# dispatches by phantom-instantiation, with ``mixin fromJson`` deferring
+# serde lookup until call-site instantiation (where
+# ``SetResponse[EmailCreatedItem].fromJson`` and
 # ``EmailSubmissionSetResponse.fromJson`` are in scope).
 # -----------------------------------------------------------------------------
 
@@ -634,7 +766,7 @@ type EmailSubmissionHandles* = CompoundHandles[
   EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]
 ]
   ## Domain-named specialisation of ``CompoundHandles[A, B]`` for
-  ## ``addEmailSubmissionAndEmailSet`` (EmailSubmission/set + implicit
+  ## ``addEmailSubmissionSet`` (EmailSubmission/set + implicit
   ## Email/set per RFC 8620 §5.4 + RFC 8621 §7.5 ¶3). Fields ``primary``
   ## / ``implicit`` inherit from the generic at ``dispatch.nim``. The
   ## implicit handle's ``SetResponse`` carries typed ``PartialEmail``

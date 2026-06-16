@@ -3,10 +3,9 @@
 
 ## H16 — public-API snapshot lock lint (backs A26, F6; P1, P5).
 ##
-## The set of symbols reachable through ``import jmap_client`` and
-## ``import jmap_client/convenience`` (A10) is a consumer-facing commitment:
-## adding or removing a re-exported symbol changes the surface a consumer
-## observes. This lint compares the committed
+## The set of symbols reachable through ``import jmap_client`` (A10) is a
+## consumer-facing commitment: adding or removing a re-exported symbol
+## changes the surface a consumer observes. This lint compares the committed
 ## ``tests/wire_contract/public-api.txt`` against the live surface produced by
 ## the compiler-as-library oracle (``scripts/api_oracle.nim``), which the
 ## ``lint-public-api`` recipe runs and passes here as the first argument.

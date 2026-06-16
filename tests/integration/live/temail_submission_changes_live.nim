@@ -139,20 +139,24 @@ testCase tEmailSubmissionChangesLive:
         )
         .expect("seedDraftEmail " & label)
       let blueprint = parseEmailSubmissionBlueprint(
-          identityId = identityId, emailId = draftId, envelope = Opt.some(envelope)
+          identityId = identityId,
+          emailId = directRef(draftId),
+          envelope = Opt.some(envelope),
         )
         .expect("parseEmailSubmissionBlueprint " & label)
       let cid = parseCreationId(label).expect("parseCreationId " & label)
       var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
       subTbl[cid] = blueprint
-      let (b, setHandle) = addEmailSubmissionSet(
-        initRequestBuilder(makeBuilderId()),
-        submissionAccountId,
-        create = Opt.some(subTbl),
+      let spec = parseEmailSubmissionSet(create = Opt.some(subTbl)).expect(
+          "parseEmailSubmissionSet " & label
+        )
+      let (b, handles) = addEmailSubmissionSet(
+        initRequestBuilder(makeBuilderId()), submissionAccountId, spec
       )
       let resp = client.send(b.freeze()).expect("send EmailSubmission/set " & label)
-      let setOutcome =
-        resp.get(setHandle).expect("EmailSubmission/set dispatch " & label)
+      let setOutcome = resp.getBoth(handles).primaryOutcome.expect(
+          "EmailSubmission/set dispatch " & label
+        )
       if setOutcome.kind == mokMethodError:
         return err("EmailSubmission/set method error: " & setOutcome.error.rawType)
       let setResp = setOutcome.value
@@ -261,10 +265,10 @@ testCase tEmailSubmissionChangesLive:
     # deliver to bob's inbox. Servers that retain pending records
     # honour the destroy; eviction-on-cancel servers (Cyrus) accept
     # it as a no-op.
-    let (bDestroy, destroyHandle) = addEmailSubmissionSet(
-      initRequestBuilder(makeBuilderId()),
-      submissionAccountId,
-      destroy = directIds(@[subId1, subId2]),
+    let destroySpec = parseEmailSubmissionSet(destroy = directIds(@[subId1, subId2]))
+      .expect("parseEmailSubmissionSet destroy")
+    let (bDestroy, destroyHandles) = addEmailSubmissionSet(
+      initRequestBuilder(makeBuilderId()), submissionAccountId, destroySpec
     )
     discard client.send(bDestroy.freeze())
-    discard destroyHandle
+    discard destroyHandles

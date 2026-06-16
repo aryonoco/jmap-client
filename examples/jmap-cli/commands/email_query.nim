@@ -3,64 +3,46 @@
 
 ## `jmap-cli email query [--unread]` — query the Inbox (optionally unread
 ## only), newest-first, then back-reference the matching ids into a partial
-## Email/get for id/sender/subject/preview. The Inbox is resolved by
-## fetching mailboxes and matching `mb.isInbox` (the S3 role predicate).
+## Email/get for id/sender/subject/preview. The Inbox is resolved by the
+## getMailboxes one-shot and matching `mb.isInbox` (the role predicate).
 ##
-## (`--via-convenience` selects the opt-in combinator path; this module also
-## owns the hand-wired Email/query -> #ids -> Email/get back-reference.)
+## The default path keeps the hand-wired Email/query -> #ids -> partial
+## Email/get back-reference on purpose: it documents the typed server-side
+## back-reference and the PartialEmail FieldEcho read, neither of which a
+## one-shot exposes. `--one-shot` selects the `queryEmails` one-shot instead —
+## Email/query -> full-record Email/get folded into one call, read as
+## `.query.ids` / `.get.list`.
 
 import jmap_client
-import jmap_client/convenience # opt-in; NOT re-exported by `import jmap_client`
 import ./cli_session
 
 proc resolveInbox(ctx: CliContext): JmapResult[Opt[Id]] =
-  ## Mailbox/get scanned for the Inbox role. A dispatch fault rides the rail; a
-  ## method error is reported here and surfaces as `none` (no Inbox resolvable),
-  ## which the caller treats as a soft failure.
-  let (b, h) = ctx.client.newBuilder().addMailboxGet(ctx.mailAccount)
-  let dr = ?ctx.client.send(b.freeze())
-  let outcome = ?dr.get(h)
-  case outcome.kind
-  of mokMethodError:
-    stderr.writeLine "Mailbox/get: " & outcome.error.message
-    ok(Opt.none(Id))
-  of mokValue:
-    for mb in outcome.value.list:
-      if mb.isInbox: # S3 predicate — replaces the role.kind == mrInbox idiom
-        return ok(Opt.some(mb.id))
-    ok(Opt.none(Id))
+  ## getMailboxes scanned for the Inbox role. The one-shot collapses the
+  ## Mailbox/get outcome onto the rail (a method error rides through `?`); an
+  ## absent Inbox surfaces as `none`, which the caller treats as a soft failure.
+  let resp = ?ctx.client.getMailboxes(ctx.mailAccount)
+  for mb in resp.list:
+    if mb.isInbox: # role predicate — replaces the role.kind == mrInbox idiom
+      return ok(Opt.some(mb.id))
+  ok(Opt.none(Id))
 
-proc viaConvenience(ctx: CliContext, unreadOnly: bool): JmapResult[int] =
-  ## Contrast with the hand-wired back-reference below: the opt-in convenience
-  ## combinator builds Email/query -> Email/get (FULL Email, not PartialEmail)
-  ## in ONE call and ONE getBoth. `--unread` is honoured here too (account-wide,
-  ## since this path does not resolve the Inbox).
+proc viaOneShot(ctx: CliContext, unreadOnly: bool): JmapResult[int] =
+  ## Contrast with the hand-wired back-reference below: the queryEmails one-shot
+  ## builds Email/query -> Email/get (FULL Email, not PartialEmail) in ONE call,
+  ## collapsing both method outcomes onto the rail, and returns a QueryThenGet
+  ## read as `.query.ids` / `.get.list`. `--unread` is honoured here too
+  ## (account-wide, since this path does not resolve the Inbox).
   let filter =
     if unreadOnly:
       Opt.some(filterCondition(EmailFilterCondition(notKeyword: Opt.some(kwSeen))))
     else:
       Opt.none(Filter[EmailFilterCondition])
-  let qp = limit(parseUnsignedInt(10).get()) # S3 window helper, no field name / Opt wrap
-  let (b, handles) = ctx.client.newBuilder().addEmailQueryThenGet(
-      ctx.mailAccount, filter = filter, queryParams = qp
-    )
-  let dr = ?ctx.client.send(b.freeze())
-  let both = ?dr.getBoth(handles) # QueryGetResults{query, get}, each a MethodOutcome
-  case both.query.kind
-  of mokMethodError:
-    stderr.writeLine "Email/query: " & both.query.error.message
-    ok(1)
-  of mokValue:
-    case both.get.kind
-    of mokMethodError:
-      stderr.writeLine "Email/get: " & both.get.error.message
-      ok(1)
-    of mokValue:
-      echo "query matched ",
-        $both.query.value.ids.len, ", got ", $both.get.value.list.len, " emails"
-      for e in both.get.value.list: # full Email — subject is Opt[string]
-        echo e.subject.valueOr("(no subject)")
-      ok(0)
+  let qp = limit(parseUnsignedInt(10).get()) # limit window, no field name / Opt wrap
+  let res = ?ctx.client.queryEmails(ctx.mailAccount, filter = filter, queryParams = qp)
+  echo "query matched ", $res.query.ids.len, ", got ", $res.get.list.len, " emails"
+  for e in res.get.list: # full Email — subject is Opt[string]
+    echo e.subject.valueOr("(no subject)")
+  ok(0)
 
 proc queryInbox(ctx: CliContext, unreadOnly: bool): JmapResult[int] =
   let inbox = ?resolveInbox(ctx)
@@ -74,7 +56,7 @@ proc queryInbox(ctx: CliContext, unreadOnly: bool): JmapResult[int] =
     cond.notKeyword = Opt.some(kwSeen) # kwSeen: hub-reachable Keyword const
   let filter = filterCondition(cond)
   let sort = @[plainComparator(pspReceivedAt, sdDescending)]
-  let qp = limit(parseUnsignedInt(20).get()) # S3 window helper, no field name / Opt wrap
+  let qp = limit(parseUnsignedInt(20).get()) # limit window, no field name / Opt wrap
 
   let (b1, queryH) = ctx.client.newBuilder().addEmailQuery(
       ctx.mailAccount,
@@ -133,8 +115,8 @@ proc queryInbox(ctx: CliContext, unreadOnly: bool): JmapResult[int] =
 proc queryImpl(args: seq[string]): JmapResult[int] =
   let unreadOnly = "--unread" in args
   let ctx = ?connect()
-  if "--via-convenience" in args:
-    viaConvenience(ctx, unreadOnly)
+  if "--one-shot" in args:
+    viaOneShot(ctx, unreadOnly)
   else:
     queryInbox(ctx, unreadOnly)
 

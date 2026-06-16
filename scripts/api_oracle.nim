@@ -215,7 +215,7 @@ proc collectRows(graph: ModuleGraph, conf: ConfigRef, m: PSym): seq[Row] =
 
 proc emitApi(rows: seq[Row]) =
   echo "# Public-API surface — every symbol reachable through"
-  echo "# `import jmap_client` and `import jmap_client/convenience`, enumerated"
+  echo "# `import jmap_client`, enumerated"
   echo "# from the compiler's post-sem symbol table by scripts/api_oracle.nim."
   echo "# A faithful description of the consumer-reachable surface; locked by"
   echo "# tests/lint/h16_public_api_snapshot.nim so any drift is deliberate."
@@ -401,8 +401,8 @@ proc collectShapes(graph: ModuleGraph, conf: ConfigRef, m: PSym): seq[Shape] =
 
 proc emitTypeShapes(shapes: seq[Shape]) =
   echo "# Public-type-shape surface — the public-field shape of every"
-  echo "# repo-owned type reachable through `import jmap_client` and"
-  echo "# `import jmap_client/convenience`, rendered from the compiler's"
+  echo "# repo-owned type reachable through `import jmap_client`, rendered"
+  echo "# from the compiler's"
   echo "# post-sem type AST by scripts/api_oracle.nim. A faithful description"
   echo "# of public type shapes (private fields excluded); locked by"
   echo "# tests/lint/h17_type_shape_snapshot.nim so any drift is deliberate."

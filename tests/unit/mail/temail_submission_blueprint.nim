@@ -9,8 +9,12 @@
 
 {.push raises: [].}
 
+import std/json
+
 import jmap_client/internal/mail/email_submission
+import jmap_client/internal/mail/serde_email_submission
 import jmap_client/internal/mail/submission_envelope
+import jmap_client/internal/types/identifiers
 import jmap_client/internal/types/primitives
 import jmap_client/internal/types/validation
 
@@ -24,12 +28,12 @@ testCase symbolsExported:
 testCase minimalBlueprint:
   let idI = parseIdFromServer("identity-123").get()
   let idE = parseIdFromServer("email-456").get()
-  let res = parseEmailSubmissionBlueprint(idI, idE)
+  let res = parseEmailSubmissionBlueprint(idI, directRef(idE))
   assertOk res
   let bp = res.get()
   # UFCS accessor calls — read-identical to field access.
   assertEq bp.identityId, idI
-  assertEq bp.emailId, idE
+  doAssert bp.emailId == directRef(idE), "emailId should round-trip as a direct ref"
   doAssert bp.envelope.isNone, "envelope should default to Opt.none"
 
 testCase accessorContract:
@@ -38,7 +42,7 @@ testCase accessorContract:
   # funcs are visible from this module.
   let idI = parseIdFromServer("i-acc").get()
   let idE = parseIdFromServer("e-acc").get()
-  let bp = parseEmailSubmissionBlueprint(idI, idE).get()
+  let bp = parseEmailSubmissionBlueprint(idI, directRef(idE)).get()
   doAssert compiles(bp.identityId)
   doAssert compiles(bp.emailId)
   doAssert compiles(bp.envelope)
@@ -72,7 +76,7 @@ testCase blueprintWithEnvelope:
   let rcpt = SubmissionAddress(mailbox: mbox, parameters: Opt.none(SubmissionParams))
   let env =
     Envelope(mailFrom: nullReversePath(), rcptTo: parseNonEmptyRcptList(@[rcpt]).get())
-  let res = parseEmailSubmissionBlueprint(idI, idE, Opt.some(env))
+  let res = parseEmailSubmissionBlueprint(idI, directRef(idE), Opt.some(env))
   assertOk res
   let bp = res.get()
   doAssert bp.envelope.isSome, "envelope Opt.some should round-trip"
@@ -81,15 +85,15 @@ testCase blueprintWithEnvelope:
 testCase defaultEnvelopeIsNone:
   let idI = parseIdFromServer("i3").get()
   let idE = parseIdFromServer("e3").get()
-  let bp = parseEmailSubmissionBlueprint(idI, idE).get()
+  let bp = parseEmailSubmissionBlueprint(idI, directRef(idE)).get()
   doAssert bp.envelope.isNone
 
 testCase inequalityOnIdentity:
   let idI1 = parseIdFromServer("iA").get()
   let idI2 = parseIdFromServer("iB").get()
   let idE = parseIdFromServer("e5").get()
-  let bp1 = parseEmailSubmissionBlueprint(idI1, idE).get()
-  let bp2 = parseEmailSubmissionBlueprint(idI2, idE).get()
+  let bp1 = parseEmailSubmissionBlueprint(idI1, directRef(idE)).get()
+  let bp2 = parseEmailSubmissionBlueprint(idI2, directRef(idE)).get()
   doAssert bp1 != bp2
 
 testCase blueprintInvalidIdentityId:
@@ -135,7 +139,7 @@ testCase blueprintAccumulatesBothIdErrors:
   # compiles() probe fails, flagging the regression.
   let idI = parseIdFromServer("validA").get()
   let idE = parseIdFromServer("validB").get()
-  let okRes = parseEmailSubmissionBlueprint(idI, idE)
+  let okRes = parseEmailSubmissionBlueprint(idI, directRef(idE))
   assertOk okRes
   doAssert compiles(okRes.error.len),
     "blueprint error rail must remain seq[ValidationError] for accumulation forward-compat"
@@ -161,7 +165,25 @@ testCase blueprintPatternASealExplicitRawField:
   )
   # (2) Per-field read-access from outside the module is also sealed.
   # An accidental future `rawIdentityId*` export would surface here.
-  let bp = parseEmailSubmissionBlueprint(idI, idE).get()
+  let bp = parseEmailSubmissionBlueprint(idI, directRef(idE)).get()
   assertNotCompiles(bp.rawIdentityId)
   assertNotCompiles(bp.rawEmailId)
   assertNotCompiles(bp.rawEnvelope)
+
+testCase emailIdCreationRefWireShape:
+  # RFC 8620 §5.3: an ``emailId`` that forward-references a sibling Email
+  # created in the same ``/set`` request serialises as ``"#"`` concatenated
+  # with the creation id; a direct reference serialises as the bare id
+  # string. Pins the typed forward-reference round-trip through ``toJson``.
+  let idI = parseIdFromServer("i-cref").get()
+  let cid = parseCreationId("draft1").get()
+  let bp = parseEmailSubmissionBlueprint(idI, creationRef(cid)).get()
+  doAssert bp.emailId == creationRef(cid),
+    "emailId should round-trip as the creation reference"
+  let node = bp.toJson()
+  doAssert node{"emailId"} == %"#draft1",
+    "creation-ref emailId must serialise as #<cid> on the wire"
+  # A direct reference emits the bare id with no ``#`` prefix.
+  let directNode = parseEmailSubmissionBlueprint(idI, directRef(idI)).get().toJson()
+  doAssert directNode{"emailId"} == %"i-cref",
+    "direct-ref emailId must serialise as the bare id string"
