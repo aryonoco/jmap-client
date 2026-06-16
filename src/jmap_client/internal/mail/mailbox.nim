@@ -364,6 +364,21 @@ type Mailbox* {.ruleOff: "objects".} = object
   myRights*: MailboxRights ## ACL flags for the authenticated user.
   isSubscribed*: bool ## Whether the user has subscribed to this mailbox.
 
+func hasRole*(mb: Mailbox, kind: MailboxRoleKind): bool =
+  ## ``true`` iff ``mb`` carries the given well-known role (RFC 8621 §2). The
+  ## general form: "is this Drafts/Sent/Trash/…?" all reduce to ``hasRole``.
+  ## ``hasRole(mb, mrOther)`` matches any vendor-extension role.
+  for role in mb.role:
+    return role.kind == kind
+  false
+
+func isInbox*(mb: Mailbox): bool =
+  ## ``true`` iff ``mb`` is the Inbox (RFC 8621 §2 / §10.5.1 ``inbox`` role) —
+  ## the one blessed spelling for the most common mailbox question, replacing
+  ## the three divergent idioms (``role.kind == mrInbox`` / ``roleInbox`` /
+  ## ``parseMailboxRole("inbox")``).
+  hasRole(mb, mrInbox)
+
 # =============================================================================
 # PartialMailbox
 # =============================================================================
