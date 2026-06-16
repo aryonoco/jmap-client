@@ -9,10 +9,10 @@
 ## The whole preamble now threads the library's one error rail on a single
 ## ``?``. The two construction calls (``directEndpoint`` / ``basicCredential``,
 ## each on the ``ValidationError`` rail) compose with one explicit ``.lift``;
-## the pipeline calls (``initJmapClient`` / ``fetchSession`` /
-## ``requirePrimaryAccount``) already return ``JmapError`` and thread bare. The
-## former string rail — and the finding that a consumer could not return
-## library-typed errors from its own helpers — is gone: ``connect`` returns
+## the pipeline calls (``initJmapClient`` / ``fetchSession`` / ``requireMail``)
+## already return ``JmapError`` and thread bare. The former string rail —
+## and the finding that a consumer could not return library-typed errors
+## from its own helpers — is gone: ``connect`` returns
 ## ``JmapResult[CliContext]`` directly.
 ##
 ## Connection vars are read straight from the environment. An empty/unset var
@@ -29,11 +29,12 @@ type CliContext* = object
   mailAccount*: AccountId
 
 proc connect*(): JmapResult[CliContext] =
-  ## env -> endpoint -> credential -> client -> session -> primary mail account,
-  ## end to end on the one rail. The capability/account preflight is
-  ## ``requirePrimaryAccount`` (a ``jeSession`` fault when JMAP Mail or its
-  ## primary account is absent) — no hand-rolled ``Opt`` unwrap, no fabricated
-  ## string.
+  ## env -> endpoint -> credential -> client -> session -> mail account, end to
+  ## end on the one rail. The capability/account preflight is the S3
+  ## ``requireMail`` sugar — a bare-``AccountId`` resolve (a ``jeSession`` fault
+  ## when no account advertises JMAP Mail), primary-preferred with a per-account
+  ## fallback (RFC 8620 §2), so neither the ``ckMail`` enum nor a hand-rolled
+  ## ``Opt`` unwrap surfaces here.
   let sessionUrl = getEnv("JMAP_TEST_STALWART_SESSION_URL")
   let user = getEnv("JMAP_TEST_STALWART_ALICE_USER")
   let pass = getEnv("JMAP_TEST_STALWART_ALICE_PASSWORD")
@@ -41,5 +42,5 @@ proc connect*(): JmapResult[CliContext] =
   let credential = ?basicCredential(user, pass).lift
   let client = ?initJmapClient(endpoint, credential)
   let session = ?client.fetchSession()
-  let mailAccount = ?session.requirePrimaryAccount(ckMail)
+  let mailAccount = ?session.requireMail()
   ok(CliContext(client: client, mailAccount: mailAccount))

@@ -6,32 +6,16 @@
 ## returns a full `Email` (no `properties` arg — that is the separate
 ## `addPartialEmailGet`).
 ##
-## `import std/tables` is required: the hub re-exports `results` but NOT
-## std/tables, and `Email.bodyValues` is a `Table[PartId, EmailBodyValue]`
-## whose `withValue` accessor lives there.
+## S3 readers carry the whole body path: `textBodies(cap)` builds the fetch
+## options (no `EmailBodyFetchOptions` literal, no `bvsText` scope discovery,
+## no `Opt` wrap on the cap); `decodedTextBody` joins the text/plain leaves;
+## and `bodyValue`, reached through the `leafTextParts` iterator, surfaces the
+## per-part truncation signal. The command no longer hand-rolls the
+## textBody-walk + bodyValues-by-partId join, so the `std/tables` import that
+## join required is gone.
 
 import jmap_client
-import std/tables
 import ./cli_session
-
-func textBodyFetchOptions(): EmailBodyFetchOptions =
-  ## Fetch decoded body values for the text bodies, capped at 64 KiB. The
-  ## literal cap must round-trip through the smart constructor + Opt.some.
-  EmailBodyFetchOptions(
-    fetchBodyValues: bvsText, maxBodyValueBytes: Opt.some(parseUnsignedInt(65536).get())
-  )
-
-func decodeTextBody(email: Email): string =
-  ## Join the decoded value of each non-multipart text body part. textBody
-  ## parts reference values by partId; the values live in the separate
-  ## bodyValues table (RFC 8621 §4.1.4). The consumer does not enable
-  ## strictCaseObjects (a src/-only per-file pragma), so a plain `if` over
-  ## the bool discriminator reads `part.partId` on the leaf arm fine.
-  result = ""
-  for part in email.textBody:
-    if not part.isMultipart: # leaf part — partId/blobId live on this arm
-      email.bodyValues.withValue(part.partId, bv):
-        result.add bv.value
 
 proc readEmail(emailIdArg: string): JmapResult[int] =
   # The id originates server-side (copied from `email query`), so use the
@@ -41,7 +25,10 @@ proc readEmail(emailIdArg: string): JmapResult[int] =
   let (b, handle) = ctx.client.newBuilder().addEmailGet(
       ctx.mailAccount,
       ids = Opt.some(direct(@[emailId])), # NOT Opt.some(directIds(...)) — double Opt
-      bodyFetchOptions = textBodyFetchOptions(),
+      # textBodies(cap) sets the bvsText scope and the 64 KiB truncation cap in
+      # one call; the cap is still minted through parseUnsignedInt (no integer
+      # literal helper), but the scope and the Opt wrap are gone.
+      bodyFetchOptions = textBodies(parseUnsignedInt(65536).get()),
     )
   let dr = ?ctx.client.send(b.freeze())
   let outcome = ?dr.get(handle)
@@ -61,7 +48,17 @@ proc readEmail(emailIdArg: string): JmapResult[int] =
         echo "From: ", addrs[0].email
     echo "Preview: ", e.preview # plain string on the full Email
     echo "----"
-    echo decodeTextBody(e)
+    # decodedTextBody joins every text/plain leaf into one string; `none` only
+    # when no text/plain was fetched. No partId join, no std/tables.
+    echo e.decodedTextBody().valueOr("(no text body fetched)")
+    # The happy path above ignores truncation; the rich primitive carries it.
+    # leafTextParts yields the display leaves; bodyValue reads each part's value
+    # (Opt — absent when unfetched) and its isTruncated flag — which the
+    # textBodies cap may have tripped.
+    for part in e.leafTextParts:
+      for bv in e.bodyValue(part.partId):
+        if bv.isTruncated:
+          stderr.writeLine "note: text part " & $part.partId & " truncated at 64 KiB"
     ok(0)
 
 proc run*(args: seq[string]): int =

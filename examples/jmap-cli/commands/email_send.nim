@@ -3,19 +3,17 @@
 
 ## `jmap-cli email send <toAddress> <subject> <bodyText>` — create a draft
 ## Email and submit it in ONE request, moving it to Sent on success. This
-## is the gnarliest public path. Three things the API forces on the caller,
-## each a recorded finding:
+## is the gnarliest public path. The body is now a single `plainTextBody(text)`
+## call — the S3 shorthand mints the inline text/plain leaf and its creation-time
+## partId, retiring the 4-layer hand-build. Two findings remain on the
+## submission wiring (S4 scope), each recorded:
 ##
-##  1. No plain-text body shorthand: the body is hand-built through the
-##     4-layer chain BlueprintBodyValue -> BlueprintLeafPart{bpsInline} ->
-##     BlueprintBodyPart{text/plain} -> flatBody. The inline partId can only
-##     be minted via parsePartIdFromServer (a receive-side-named parser).
-##  2. addEmailSubmissionAndEmailSet does NOT create the email — its `create`
+##  1. addEmailSubmissionAndEmailSet does NOT create the email — its `create`
 ##     is the submission table only. The draft is created by a SEPARATE
 ##     addEmailSet(create=...) on the SAME builder; the "AndEmailSet" is the
 ##     server's IMPLICIT onSuccess Email/set (an update). One request = three
 ##     method calls.
-##  3. EmailSubmissionBlueprint.emailId is a plain Id with no typed
+##  2. EmailSubmissionBlueprint.emailId is a plain Id with no typed
 ##     forward-reference, so the same-request link to the draft is smuggled
 ##     via parseIdFromServer("#" & $draftCid) (strict parseId rejects '#').
 ##
@@ -64,11 +62,11 @@ proc resolveRoles(ctx: CliContext): JmapResult[Opt[(Id, Id)]] =
     var draftsId = Opt.none(Id)
     var sentId = Opt.none(Id)
     for mb in outcome.value.list:
-      for role in mb.role:
-        if role.kind == mrDrafts:
-          draftsId = Opt.some(mb.id)
-        elif role.kind == mrSent:
-          sentId = Opt.some(mb.id)
+      # S3 role predicate — replaces the role.kind == mr* unwrap per mailbox.
+      if mb.hasRole(mrDrafts):
+        draftsId = Opt.some(mb.id)
+      elif mb.hasRole(mrSent):
+        sentId = Opt.some(mb.id)
     let drafts = draftsId.valueOr:
       stderr.writeLine "Drafts mailbox not found"
       return ok(Opt.none((Id, Id)))
@@ -83,19 +81,11 @@ proc buildDraftBlueprint(
   let mboxIds = ?parseNonEmptyMailboxIdSet(@[draftsId]).lift
   let fromA = ?parseEmailAddress(fromEmail).lift
   let toA = ?parseEmailAddress(toAddress).lift
-  # No plain-text body helper: hand-build value -> leaf -> part -> flatBody.
-  let bodyPartId = ?parsePartIdFromServer("text").lift
-  let textLeaf = BlueprintLeafPart(
-    source: bpsInline, partId: bodyPartId, value: BlueprintBodyValue(value: body)
-  )
-  let textPart = BlueprintBodyPart(
-    # contentType MUST be exactly "text/plain" or parseEmailBlueprint rejects
-    # with ebcTextBodyNotTextPlain.
-    contentType: "text/plain",
-    isMultipart: false,
-    leaf: textLeaf,
-  )
-  let draftBody = flatBody(textBody = Opt.some(textPart))
+  # plainTextBody mints the inline text/plain leaf and its creation-time partId
+  # in one call — the 4-layer value -> leaf -> part -> flatBody chain (and the
+  # parsePartIdFromServer("text") it needed) is gone. The result satisfies
+  # parseEmailBlueprint's flat-body text/plain constraint directly.
+  let draftBody = plainTextBody(body)
   # parseEmailBlueprint accumulates onto NonEmptySeq[ValidationError]; `.lift`
   # folds the whole set onto the one rail (no joinErrs flattening).
   let bp = ?parseEmailBlueprint(

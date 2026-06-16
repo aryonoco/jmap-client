@@ -49,7 +49,13 @@ lifecycle encoded in types). The capability pre-flight is honest —
 `primaryAccount(ckMail)` returns `Opt[AccountId]`, refusing to pretend a
 non-mail server has a mail account — though it forces the newcomer to
 discover the `ckMail` enum value rather than offering a
-`session.mailAccountId()`. Verdict: a competent developer reaches the
+`session.mailAccountId()`. **S3 update.** The mail-specific shorthand
+shipped, uniform across capabilities: `requireMail(session)` resolves a bare
+`AccountId` on the one `JmapError` rail (primary-preferred with a per-account
+fallback, RFC 8620 §2), with `requireSubmission` / `requireVacation` its
+siblings — no `ckMail` enum at the call site, no `Opt` unwrap. The CLI's
+`connect()` and the verbose onboarding probe both resolve through `requireMail`
+now. Verdict: a competent developer reaches the
 first answer in well under fifteen minutes and trusts it, but writes a
 connect helper on the way and grumbles at the missing `ClientError`
 constructor. The lifecycle is sound; the on-ramp wants one convenience
@@ -78,7 +84,15 @@ nine independent ACL booleans with no roll-up: the CLI had to invent a
 `rwas` digest and *guess* that "can write" means
 `mayAddItems and mayRemoveItems and maySetSeen and maySetKeywords`
 (tracker C4). A `canWrite`/`canAdminister` predicate would turn a guess
-into a contract. The dispatch ceremony — `newBuilder → add*Get → freeze →
+into a contract. **S3 update.** The role half shipped: `isInbox(mb)` is the
+one blessed spelling and `hasRole(mb, kind)` generalises it, so the three
+divergent idioms collapse to one (the CLI now writes `mb.isInbox` and
+`mb.hasRole(mrDrafts)`). The rights half deliberately did *not*: S3 ships no
+roll-up, because the nine RFC 8621 §2 `may*` rights are orthogonal and a blessed
+`canWrite` would freeze one library's opinion of "write" into the type — the
+OpenSSL-style over-abstraction the bench rejects. The `rwas` digest stays a
+consumer choice; the API exposes the primitives and lets the consumer decide.
+The dispatch ceremony — `newBuilder → add*Get → freeze →
 send → get` — is identical to every other read; type-safe, but repeated
 verbatim each time.
 
@@ -106,7 +120,10 @@ reader — `valueOr` (a template mirroring `Opt.valueOr`),
 reads `pe.subject.valueOr("(no subject)")`, identical to a plain-`Opt` read,
 and the CLI deleted its hand-written `fieldEchoOr`. Both types are kept (the
 echo's absent-vs-null bit is genuine RFC 8620 §5.3 fidelity), but the
-principle is no longer taxed at the call site. Net: the power is real and safe; the
+principle is no longer taxed at the call site. **S3 update.** The limit
+shorthand shipped too: `limit(n)` returns the `QueryParams` window, dropping the
+`QueryParams(limit: Opt.some(…))` field name and `Opt` wrap (the CLI now writes
+`limit(parseUnsignedInt(20).get())`). Net: the power is real and safe; the
 on-ramp is a sequence of small sealing ceremonies that a thin combinator
 layer (a query-then-get helper, a `fieldEchoOr`, a limit shorthand) would
 smooth without losing any safety.
@@ -152,11 +169,17 @@ reading a returned field forces `import std/tables`
 (the hub re-exports `results` but not `tables`), and the `isTruncated` /
 `isEncodingProblem` flags on a body value are easy to forget. None of this
 is wrong — it is RFC fidelity — but `email.decodedTextBody()` is the one
-convenience whose absence every mail client will feel immediately. **S2
-note.** S2 settled read *shapes*, not new convenience; these body readers —
-`decodedTextBody` / `leafTextParts`, and a `bodyValues` reader that does not
-make the consumer `import std/tables` — are NEW readers, so they are deferred
-to S3, not yet delivered.
+convenience whose absence every mail client will feel immediately. **S3
+update.** These body readers shipped, in the libcurl/SQLite split: a rich
+primitive — `bodyValue(e, partId): Opt[EmailBodyValue]`, a total,
+`std/tables`-free lookup that carries the `isTruncated` / `isEncodingProblem`
+signals — beside a simple convenience, `decodedTextBody(e): Opt[string]`, which
+joins the `text/plain` leaves for the one read every mail client needs;
+`leafTextParts` iterates the display leaves between them, and `textBodies(maxBytes)`
+builds the fetch options. The CLI deleted both its hand-rolled `textBody`-walk
+and the `import std/tables` it required (an unused import is a hard error here,
+so the deletion is proof the leak is gone), and now reads truncation through
+`bodyValue` rather than forgetting it.
 
 **Threads and identities** expose the read-model's *inconsistency*.
 `Identity` is flat and direct — `id`/`name`/`email` are public fields, and
@@ -377,12 +400,17 @@ rail on single constructions; the two-error-rail split between `send`
 (direct fields vs accessor funcs vs Opt-vs-FieldEcho for the same field).
 A small, blessed convenience layer — `connect`, `sendPlainText`,
 `addEmailUpdate`, `fieldEchoOr`, `decodedTextBody` — would erase the
-friction without touching the principled core. **S2 has since closed the
+friction without touching the principled core. **S2 then closed the
 read-model half of this:** the `FieldEcho` reader is shipped (`valueOr` and
 friends) and the unevenness is gone — every immutable data record reads by
-direct public field, accessors are reserved for stateful handles — so of the
-wishlist above, `fieldEchoOr` is already delivered, and `decodedTextBody` (a
-new body-walk reader) is deferred to S3.
+direct public field, accessors are reserved for stateful handles. **S3 then
+shipped the readers and predicates:** `decodedTextBody` (with the `bodyValue`
+primitive and `leafTextParts` iterator), the `isInbox` / `hasRole` role
+predicate, the `limit` window, the `requireMail` / `requireSubmission` /
+`requireVacation` preflight, and `plainTextBody` — the body half of the wished-for
+`sendPlainText`. Of the wishlist above, `fieldEchoOr`, `decodedTextBody` and a
+plain-text body helper are delivered; `connect`, a bare-Get combinator and the
+full `sendPlainText` one-shot (body + submission + onSuccess move) remain S4.
 
 **The most consequential finding is not ergonomic at all.** The frozen
 `public-api.txt` contract — the thing meant to lock the surface at 1.0
