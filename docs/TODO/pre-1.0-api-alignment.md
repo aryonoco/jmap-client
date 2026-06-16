@@ -2520,8 +2520,9 @@ P29 verbatim: "Before 1.0 lands, write a non-trivial sample app …
 treat its painful spots as bugs against the API, not against the
 user." This is a hard pre-1.0 freeze gate, not a 1.x feature.
 
-No `examples/`, `samples/`, or `jmap-cli` exists. The closest existing
-"how do I start" is `tests/integration/live/tcore_echo_live.nim`,
+At the time this gate was written, no `examples/`, `samples/`, or
+`jmap-cli` existed; the closest "how do I start" was
+`tests/integration/live/tcore_echo_live.nim`,
 buried behind `forEachLiveTarget` macros. Build a CLI:
 `jmap-cli mailbox list`, `jmap-cli email query --in inbox --unread`,
 `jmap-cli email flag --add seen`. Use only the public Nim API.
@@ -2797,7 +2798,7 @@ the consumer to match the case. This needs a NEW type, which is
 outside S3's "no new types" scope. Future *additive* pass; not
 freeze-blocking.
 
-### C12. Raw `Blueprint*` part constructors + `leafTextParts`/`limit` naming *(P15)* — ⬜ TODO (future additive)
+### C12. Raw `Blueprint*` part constructors made private *(P15)* — ⬜ TODO (future additive)
 
 Residual of AUDIT `email send:raw-case-literals` /
 `email send:parsePartIdFromServer`. S3/S4

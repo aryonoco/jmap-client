@@ -39,19 +39,22 @@ cannot be expressed with hub-public symbols at all (highest severity).
   per-command, cross-cutting and Phase-0 lines. After **Phase 2 triage**
   (90 inline findings carry a disposition; the other 8 `[open]` substrings
   are prose references to the old observe-only convention), the breakdown is:
-  **resolved-S0 7, resolved-S1 9, resolved-S2 11, resolved-S3 9,
-  resolved-S4 22, affirmed 14, accepted-as-trade-off 11, filed-as-Cn 7**.
+  **resolved-S0 7, resolved-S1 9, resolved-S2 9, resolved-S3 9,
+  resolved-S4 22, affirmed 14, accepted-as-trade-off 11, filed-as-Cn 9**.
   Many resolutions also carry a RESIDUAL pointer (6 residual
-  accepted-as-trade-off, and residual `filed-as-C11/C12/C15/C16`) for a
-  deeper gap left after the common case was fixed. So **58 of 90 inline
+  accepted-as-trade-off, and residual `filed-as-C11/C12/C16`) for a
+  deeper gap left after the common case was fixed. So **56 of 90 inline
   findings are resolved by S0–S4**, 14 were positives all along, 11 are
-  documented trade-offs, and 7 are filed to Section C — four fresh items (C17
-  the changes-combinator gap; C20 a query filter/sort builder; C21 a per-type
-  state accessor; C22 typing the vacation singleton id) plus two against the
-  existing C3 (the by-ids one-shots collapse the lifecycle but not the
-  `Opt.some(direct(@[id]))` input wrapping). Each filed-as-Cn item is registered
-  in Section C of `docs/TODO/pre-1.0-api-alignment.md` (alongside the
-  residual-pointer items C11–C16 and the done-in-triage C18–C19).
+  documented trade-offs, and 9 are filed to Section C — seven to fresh items
+  created this triage (C15 the Email/set write one-shot, C17 the
+  changes-combinator gap, C20 a query filter/sort builder, C21 a per-type
+  state accessor, C22 typing the vacation singleton id) and two to the existing
+  C3 (the by-ids one-shots collapse the lifecycle but not the
+  `Opt.some(direct(@[id]))` input wrapping). Each
+  filed-as-Cn item is registered in Section C of
+  `docs/TODO/pre-1.0-api-alignment.md` (alongside the residual-pointer items
+  C11/C12/C16, the no-inline-anchor items C13/C14, and the done-in-triage
+  C18/C19).
 - **Blocked commands (inexpressible with hub-public symbols): NONE.**
   Every command compiles and round-trips through `import jmap_client` only
   (S4 dissolved the P6 `jmap_client/convenience` quarantine, so the
@@ -185,13 +188,13 @@ These are about the *build contract*, not a specific call site.
 - email read:id-parser-choice: the command must choose between strict `parseId` and lenient `parseIdFromServer` for a CLI-supplied id with no guidance — the strict/lenient pair (a sensible internal Postel's-law split) leaks to the consumer as a decision [accepted-as-trade-off: a principled Postel strict/lenient split]
 
 ### email flag
-- email flag:set-construction: a single-email flag pays a two-layer sealing ceremony — `initEmailUpdateSet(ops).valueOr` then `parseNonEmptyEmailUpdates(@[(eid, updSet)]).valueOr` — so the "update ONE email" case still wraps the whole-container `NonEmptyEmailUpdates`; a one-shot `addEmailUpdate(acc, id, @[ops])` shorthand is missing [resolved-S2: projection iterators; residual filed-as-C15: no Email/set write one-shot]
+- email flag:set-construction: a single-email flag pays a two-layer sealing ceremony — `initEmailUpdateSet(ops).valueOr` then `parseNonEmptyEmailUpdates(@[(eid, updSet)]).valueOr` — so the "update ONE email" case still wraps the whole-container `NonEmptyEmailUpdates`; a one-shot `addEmailUpdate(acc, id, @[ops])` shorthand is missing [filed-as-C15: no Email/set write one-shot — the `initEmailUpdateSet → parseNonEmptyEmailUpdates` construction sealing chain is intact; S2's projection iterators are read-side and resolve only the separate `updateResults` read]
 - email flag:accumulating-rail: both `initEmailUpdateSet` and `parseNonEmptyEmailUpdates` return `Result[_, seq[ValidationError]]` for what is conceptually one construct, forcing `error.mapIt(it.message).join("; ")` rendering instead of the single `.message` that `parseId`/`parseKeyword`/`parseAccountId` give — two error-rail shapes in one command [resolved-S1: NonEmptySeq[ValidationError] folds into jeValidation; one err.message joins every violation]
 - email flag:updateResults: the per-item success payload is `Result[Opt[PartialEmail], SetError]` — a Result-of-Opt double layer whose inner `Opt[PartialEmail]` is almost always `none` for a flag, so callers check `res.isOk` and discard the Opt; the three-layer unwrap reads awkwardly [resolved-S2: created/updated projection iterators; residual accepted-as-trade-off: the per-item Result-of-Opt read for callers needing SetError]
 - email flag:SetError: only `se.message`/`se.description`/`se.rawType` are flat; structured detail (invalid property names, etc.) needs a `kind` case-match or the separate `mail_errors` helpers, which are easy to miss [accepted-as-trade-off: the structured detail is available via the kind case / mail_errors helpers; the flat message/description/rawType cover the common render]
 
 ### email move
-- email move:repetition: identical triple-sealing chain to `email flag` (`initEmailUpdateSet` -> `parseNonEmptyEmailUpdates` -> `addEmailSet(update = Opt.some(...))`) — the only difference is `moveToMailbox(id)` vs `markRead()`; the recurring boilerplate is a cross-cutting wrapper trigger [resolved-S2: projection iterators; residual filed-as-C15: no Email/set write one-shot]
+- email move:repetition: identical triple-sealing chain to `email flag` (`initEmailUpdateSet` -> `parseNonEmptyEmailUpdates` -> `addEmailSet(update = Opt.some(...))`) — the only difference is `moveToMailbox(id)` vs `markRead()`; the recurring boilerplate is a cross-cutting wrapper trigger [filed-as-C15: no Email/set write one-shot — the same `initEmailUpdateSet → parseNonEmptyEmailUpdates → addEmailSet` construction triple-seal as email flag, intact; S2's projection iterators are read-side]
 - email move:Opt-vs-value: `addEmailSet.update` is `Opt[NonEmptyEmailUpdates]` (needs an explicit `Opt.some(updates)`), whereas `addVacationResponseSet.update` takes its update set BY VALUE — the two `/set` builders disagree on the Opt-vs-value convention, so the consumer cannot muscle-memory one shape [accepted-as-trade-off: principled, not arbitrary — the four collection /set builders take update by `Opt` (it co-exists with optional create/destroy) while the vacation singleton takes it by value (no `Opt.none` "no-update" case — you omit the call), so each shape encodes its entity's operation model (P16); forcing uniformity would admit a meaningless `Opt.none` singleton call]
 - email move:moveToMailbox: the DSL verb itself reads well and is total — `moveToMailbox(id)` clearly expresses full-replace mailbox membership; the friction is entirely in the sealing/dispatch envelope around it [affirmed]
 
@@ -239,7 +242,7 @@ Submission + the compound two-creation wiring (the centrepiece):
 ### search
 - search:helper-undiscoverable (**medium**): the ergonomic one-call compound `addEmailQueryWithSnippets` (+ `EmailQuerySnippetChain`, `EmailQuerySnippetResults`, `getBoth(chain)`) is exactly the right shape — one call wires the query result ids into the snippet get, one `getBoth` yields `.query.ids` and `.snippets.list` — and it works live (matched 54). Yet ALL FOUR symbols are absent from public-api.txt (the scraper truncates `mail_methods.nim` after `addSearchSnippetGetByRef`), so a snapshot-guided consumer would never find it and would hand-roll the manual `addEmailQuery` + `reference[seq[Id]]` + `addSearchSnippetGetByRef` path instead — the best ergonomics in the library, hidden by the broken contract [resolved-S0: api_oracle now lists addEmailQueryWithSnippets + its chain/results/getBoth overload; residual filed-as-C16: query-then-snippets one-shot]
 - search:SearchSnippetGetResponse-shape: `SearchSnippetGetResponse.list` is compile-accessible but the type has NO entry in `type-shapes.txt` (response types in indented `type` blocks are not scraped), so the field a search consumer must read is invisible to the type-shape contract [resolved-S0: api_oracle freeze-type-shapes now emits the type-block continuation members]
-- search:snippet-opt: `SearchSnippet.subject`/`.preview` are `Opt[string]` (each needs an Opt unwrap) while `emailId` is a bare `Id` — the now-familiar mixed-optionality read [accepted-as-trade-off: the optionality correctly mirrors RFC 8621 §5.2 — emailId always present, subject/preview optional]
+- search:snippet-opt: `SearchSnippet.subject`/`.preview` are `Opt[string]` (each needs an Opt unwrap) while `emailId` is a bare `Id` — the now-familiar mixed-optionality read [accepted-as-trade-off: the optionality correctly mirrors RFC 8621 §5 — emailId is "Id" (always present), subject/preview are "String|null" (optional)]
 - search:two-rails: `client.send` is `ClientError`-tailed but `dr.getBoth(chain)` is `GetError`-tailed — the same two-error-rail bridging as every other dispatch+extract [resolved-S1: send/getBoth both return JmapError]
 
 ### convenience

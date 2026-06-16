@@ -37,7 +37,7 @@ to validate against the RFC.
 - [x] **T2** — Test-hygiene cleanup (UnusedImport + Uninit) ✅
 - [x] **T3** — AUDIT triage: flip 98 `[open]` tags + author `## S0 resolution` ✅ (12 NEEDS-DECISION adjudicated: 8 accept, 4 filed C20–C22; new Cn C11–C22)
 - [x] **T4** — Full Section C audit + append new `filed-as-Cn` items ✅ (C1–C10 markers reconciled; C11–C22 appended; C13 RFC cite corrected §5.1→§5.3)
-- [ ] **T5** — Final adversarial Workflow over the whole diff
+- [x] **T5** — Final adversarial Workflow over the whole diff ✅ (5-lens; 5 confirmed findings landed: §5.2→§5, flag/move set-construction resolved-S2→filed-as-C15, Summary C11–C16 split, C1 past-tense, C12 trim; 1 dismissed)
 - [ ] **T6** — BOTH gates green (controller-run), then refresh canonical handoff
 - [ ] **T7** — Confirm push/PR/merge with the human; merge; verify main
 
