@@ -384,10 +384,12 @@ for S2–S4. Mapping (finding → fix):
   each violation's reason), folding into `jeValidation` like every other
   construction failure — the "three error-rail shapes in one command" become one.
 - **"`primaryAccount(ckMail)` returns `Opt[AccountId]` forcing an unwrap"**
-  (session:capability) → PARTIALLY RESOLVED. `requirePrimaryAccount(session,
-  ckMail)` now resolves the capability/account on the rail (`jeSession`), so the
-  preflight composes under `?`. The mail-specific *shorthand*
-  (`requireMail` / `mailAccountId`) is S3.
+  (session:capability) → PARTIALLY RESOLVED at S1; **fully resolved in S3 + the
+  capability-resolution reconcile.** S1 first put capability/account resolution
+  on the rail (`jeSession`); S3 added the named-soft shorthand `requireMail`
+  (+ `requireSubmission` / `requireVacation`), and the reconcile then retired the
+  interim general-strict resolver, leaving one coherent named-soft family. See the
+  S3 resolution section below.
 
 Still open after S1 (tracked to their sub-projects): the sealing-chain
 constructor ceremony and the missing `connect()` / bare-get / `sendPlainText`
@@ -613,6 +615,11 @@ is in the tree and compiles public-surface-only. Mapping (finding → fix):
   the same shape; the CLI routes those entities through its single shared mail
   account, so it does not separately resolve them, but they close the identical
   finding for those two capabilities.
+  The capability-resolution reconcile then removed the interim general-strict
+  resolver and its dead `sfPrimaryAccountAbsent` session fault, so the resolver
+  family is uniformly named-soft with one session-fault reason
+  (`sfCapabilityAbsent`); the designated-primary-specific need is served by the
+  public `session.primaryAccount(kind): Opt`.
 
 Still open after S3 (tracked to their sub-projects): the readers and predicates
 are now one-liners, but the request-lifecycle one-shots that still cost the full

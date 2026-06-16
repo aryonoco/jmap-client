@@ -55,10 +55,12 @@ nimalyzer, the compiler-as-library wire-contract oracle (`just freeze-*`).
     doAssert`); used the CI-blessed `when SessionFaultKind.low != .high: {.error.}`
     guard idiom from `serde_email_submission.nim` — preserves "new variant ⇒ compile
     error here". `je*` freeze-script locals renumbered contiguous (quality nit).
-  - [ ] **Task 2** — `examples/jmap-cli/AUDIT.md` session:capability finding → fully
-    resolved (+ E1 note). Commit: `examples/jmap-cli: close the session:capability finding (E1)`.
-  - [ ] **Gates** — `just ci` ✅; `just clean && just jmap-reset && just test-full` ✅
-    "All shards passed" (Stalwart + James + Cyrus). Record SHAs here.
+  - [x] **Task 2** — `examples/jmap-cli/AUDIT.md` session:capability finding → fully
+    resolved (+ E1 reconcile note), history kept truthful; CLI rebuilds + public-only
+    green. Commit `examples/jmap-cli: close the session:capability finding (E1)`.
+  - [ ] **Gates** — `just ci` ✅ (already green at Task 1; rerun after Task 2 docs);
+    `just clean && just jmap-reset && just test-full` "All shards passed"
+    (Stalwart + James + Cyrus). Record SHAs here.
   - [ ] **Hand back** — confirm push/PR with the user (PR body: no Claude footer).
 
 ## Ripple-completeness ledger (every reference to the two removed names — nothing else may move)
