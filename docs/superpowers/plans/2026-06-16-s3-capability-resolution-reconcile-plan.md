@@ -45,7 +45,10 @@ nimalyzer, the compiler-as-library wire-contract oracle (`just freeze-*`).
 - **Commits:** Linux-kernel style, subject ≤75 cols, why-focused body; end EVERY
   body with exactly the three trailers (see Conventions). Stage explicit paths;
   never `git add -A`. Flip this STATE block in the same commit as each task.
-- **Status:** ⏳ IN PROGRESS — Tasks 1/2/1b committed + `just ci` green; both gates next.
+- **Status:** ✅ COMPLETE — BOTH GATES GREEN (2026-06-16). E1 commits `7e2308e` (plan)
+  → `395f132` (retire orphan) → `8f70848` (AUDIT) → `1eadfcc` (flatten SessionFault), atop
+  S3. `just ci` ✅ + `just clean && just jmap-reset && just test-full` ✅ "All shards passed"
+  (Stalwart + James + Cyrus). NOT merged — push/PR awaits user OK.
   - [x] **Plan** — this file committed (`docs/s3: plan the E1 capability-resolution reconcile`).
   - [x] **Task 1** — subtractive code change + ripple + 3 snapshots regenerated; both
     reviewers ✅ (spec-compliant + quality-approved), `just ci` green (controller-run).
@@ -68,8 +71,9 @@ nimalyzer, the compiler-as-library wire-contract oracle (`just freeze-*`).
     param; type-shapes loses the `## SessionFaultKind` section + the `kind` field);
     `just ci` green (controller-run). Commit
     `protocol: flatten SessionFault to its single capability-absent reason`.
-  - [ ] **Gates** — `just ci` ✅ (green at Task 1b); `just clean && just jmap-reset &&
-    just test-full` "All shards passed" (Stalwart + James + Cyrus). Record SHAs here.
+  - [x] **Gates** — `just ci` ✅ (controller-run, green at Task 1 and Task 1b); `just clean
+    && just jmap-reset && just test-full` ✅ **"All shards passed"** (Stalwart + James +
+    Cyrus, exit 0). E1 commit range `7e2308e..1eadfcc` (this STATE flip on top).
   - [ ] **Hand back** — confirm push/PR with the user (PR body: no Claude footer).
 
 ## Ripple-completeness ledger (every reference to the two removed names — nothing else may move)
