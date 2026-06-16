@@ -370,7 +370,7 @@ func asSeq*[T](a: NonEmptySeq[T]): lent seq[T] {.inline.} =
 #
 # A dedicated sealed ``seq[Id]`` — deliberately not a ``NonEmptySeq[Id]``
 # alias — so it can carry ``Id``-typed read ops (``head``, ``[]``, ``items``,
-# ``toSeq``) and a single-``ValidationError`` constructor mirroring
+# ``asSeq``) and a single-``ValidationError`` constructor mirroring
 # ``parseNonEmptySeq``. It lives in L1 because more than one mail entity needs
 # a non-empty Id-list field; homing it in any single mail module would force
 # the others to depend on that module.
@@ -407,8 +407,11 @@ iterator items*(a: NonEmptyIdSeq): Id =
   for x in a.rawValue:
     yield x
 
-func toSeq*(a: NonEmptyIdSeq): seq[Id] {.inline.} =
-  ## Value-projection accessor — returns a copy of the underlying seq.
+func asSeq*(a: NonEmptyIdSeq): lent seq[Id] {.inline.} =
+  ## Borrow-projection accessor — returns a read-only view of the
+  ## underlying seq, mirroring ``NonEmptySeq[T].asSeq``. ``lent`` keeps
+  ## consumers from copying; named ``asSeq`` (not ``toSeq``) to avoid the
+  ## ``std/sequtils.toSeq`` clash.
   a.rawValue
 
 func parseNonEmptyIdSeq*(items: openArray[Id]): Result[NonEmptyIdSeq, ValidationError] =

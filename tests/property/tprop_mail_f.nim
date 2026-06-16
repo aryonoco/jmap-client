@@ -175,7 +175,7 @@ testCase propToJsonEmailUpdateSetShape: # E
   ## property inherits those via the generator's internal schedule.
   checkProperty "toJson(EmailUpdateSet) emits RFC 8620 §5.3-shaped pairs":
     let updateSet = rng.genEmailUpdateSet(trial)
-    let inputLen = updateSet.toSeq.len
+    let inputLen = updateSet.asSeq.len
     lastInput = "trial=" & $trial & " len=" & $inputLen
     let node = updateSet.toJson()
     doAssert node.kind == JObject,

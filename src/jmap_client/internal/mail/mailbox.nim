@@ -522,8 +522,11 @@ type MailboxUpdateSet* {.ruleOff: "objects".} = object
   ## ``initMailboxUpdateSet``.
   rawValue: seq[MailboxUpdate]
 
-func toSeq*(s: MailboxUpdateSet): seq[MailboxUpdate] {.inline.} =
-  ## Value-projection accessor — returns a copy of the underlying seq.
+func asSeq*(s: MailboxUpdateSet): lent seq[MailboxUpdate] {.inline.} =
+  ## Borrow-projection accessor — returns a read-only view of the
+  ## underlying seq, mirroring ``NonEmptySeq[T].asSeq``. ``lent`` keeps
+  ## consumers from copying; named ``asSeq`` (not ``toSeq``) to avoid the
+  ## ``std/sequtils.toSeq`` clash.
   s.rawValue
 
 func initMailboxUpdateSet*(

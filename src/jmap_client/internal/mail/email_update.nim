@@ -132,8 +132,11 @@ type EmailUpdateSet* {.ruleOff: "objects".} = object
   ## module-private. Construction is gated by ``initEmailUpdateSet``.
   rawValue: seq[EmailUpdate]
 
-func toSeq*(s: EmailUpdateSet): seq[EmailUpdate] {.inline.} =
-  ## Value-projection accessor — returns a copy of the underlying seq.
+func asSeq*(s: EmailUpdateSet): lent seq[EmailUpdate] {.inline.} =
+  ## Borrow-projection accessor — returns a read-only view of the
+  ## underlying seq, mirroring ``NonEmptySeq[T].asSeq``. ``lent`` keeps
+  ## consumers from copying; named ``asSeq`` (not ``toSeq``) to avoid the
+  ## ``std/sequtils.toSeq`` clash.
   s.rawValue
 
 # -----------------------------------------------------------------------------

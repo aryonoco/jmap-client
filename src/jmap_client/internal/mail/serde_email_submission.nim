@@ -237,7 +237,7 @@ func toJson*(v: NonEmptyOnSuccessDestroyEmail): JsonNode =
   ## Flatten to RFC 8621 §7.5 ¶3 wire shape
   ## ``[idOrCreationRefKey, ...]``.
   var arr = newJArray()
-  for r in v.toSeq:
+  for r in v.asSeq:
     arr.add(%idOrCreationRefWireKey(r))
   return arr
 

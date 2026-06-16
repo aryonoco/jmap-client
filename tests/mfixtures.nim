@@ -2180,8 +2180,8 @@ proc emailUpdateSetEq*(a, b: EmailUpdateSet): bool =
   ## borrowed ``==``; the underlying ``seq[EmailUpdate]`` ``==`` would in
   ## turn require ``EmailUpdate.==``, which the source also omits.
   ## Manual element-wise comparison through ``emailUpdateEq``.
-  let xs = a.toSeq
-  let ys = b.toSeq
+  let xs = a.asSeq
+  let ys = b.asSeq
   if xs.len != ys.len:
     return false
   for i in 0 ..< xs.len:

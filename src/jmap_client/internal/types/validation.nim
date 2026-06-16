@@ -171,7 +171,7 @@ template defineSealedNonEmptySeqOps*(T: typedesc) =
   ## Per-element-type instantiation, mirroring the old
   ## ``defineNonEmptySeqOps``. Mutating ops are deliberately absent —
   ## they would violate the non-empty invariant. The underlying seq is
-  ## reached via ``toSeq`` (defined in ``primitives.nim``) so the
+  ## reached via ``asSeq`` (defined in ``primitives.nim``) so the
   ## template can expand outside the defining module of ``NonEmptySeq``.
   func `==`*(a, b: NonEmptySeq[T]): bool =
     ## Equality delegated to the underlying seq.

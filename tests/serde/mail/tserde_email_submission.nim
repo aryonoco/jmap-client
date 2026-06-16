@@ -29,7 +29,6 @@ import jmap_client/internal/mail/serde_submission_envelope
 import jmap_client/internal/mail/submission_mailbox
 import jmap_client/internal/mail/submission_status
 import jmap_client/internal/protocol/methods
-import jmap_client/internal/types/errors
 import jmap_client/internal/types/identifiers
 import jmap_client/internal/types/primitives
 import jmap_client/internal/serialisation/serde

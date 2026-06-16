@@ -170,8 +170,11 @@ type IdentityUpdateSet* {.ruleOff: "objects".} = object
   ## ``initIdentityUpdateSet``.
   rawValue: seq[IdentityUpdate]
 
-func toSeq*(s: IdentityUpdateSet): seq[IdentityUpdate] {.inline.} =
-  ## Value-projection accessor — returns a copy of the underlying seq.
+func asSeq*(s: IdentityUpdateSet): lent seq[IdentityUpdate] {.inline.} =
+  ## Borrow-projection accessor — returns a read-only view of the
+  ## underlying seq, mirroring ``NonEmptySeq[T].asSeq``. ``lent`` keeps
+  ## consumers from copying; named ``asSeq`` (not ``toSeq``) to avoid the
+  ## ``std/sequtils.toSeq`` clash.
   s.rawValue
 
 func initIdentityUpdateSet*(
