@@ -38,7 +38,7 @@ the compiler-oracle wire-contract snapshot.
   - [x] Task 3 — `plainTextBody` send-body constructor — comment/docstring de-cross-referenced (no Pattern-8/S4 refs) per review
   - [x] Task 4 — `require*` capability preflight (RFC 8620 §2 verified by impl + independent reviewer) — + designated-primary-preference test; module docstring de-campaigned; `requirePrimaryAccount` unchanged
   - [x] Task 5 — `limit` query-window helper (no field/func ambiguity; both reviews ✅)
-  - [ ] Task 6 — Regenerate the public-API snapshot + `just ci`
+  - [x] Task 6 — Regenerate the public-API snapshot + `just ci` — +12 lines public-api.txt only (no type-shape change); full `just ci` GREEN
   - [ ] Task 7 — Re-bench `examples/jmap-cli/`; update `AUDIT.md` + `docs/design/16`
   - [ ] Task 8 — Both full gates (`just ci`; `just clean && just jmap-reset && just test-full`)
 
