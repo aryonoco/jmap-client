@@ -79,3 +79,32 @@ testCase requireMailErrsWhenNoAccountSupports:
   let s = sessionWith(@[("A1", makeAccount(accountCapabilities = @[]))], @[])
   let res = requireMail(s)
   assertErr res
+
+testCase requireMailBogusPrimaryFallsThrough:
+  # Non-conformant primary: primaryAccounts designates A1 for mail, but A1's
+  # accountCapabilities is empty. RFC 8620 §2 makes accountCapabilities the
+  # authoritative check, so the pointer is not trusted — resolution falls
+  # through to the real advertiser A2.
+  let s = sessionWith(
+    @[
+      ("A1", makeAccount(accountCapabilities = @[])),
+      ("A2", makeAccount(accountCapabilities = @[makeMailAccountEntry()])),
+    ],
+    @[("urn:ietf:params:jmap:mail", "A1")],
+  )
+  assertOkEq requireMail(s), makeAccountId("A2")
+
+testCase requireMailBogusPrimaryNoOtherErrs:
+  # The designated primary A1 advertises nothing and no other account advertises
+  # mail: an honest sfCapabilityAbsent, not a bogus ok on the dangling pointer.
+  let s = sessionWith(
+    @[("A1", makeAccount(accountCapabilities = @[]))],
+    @[("urn:ietf:params:jmap:mail", "A1")],
+  )
+  assertErr requireMail(s)
+
+testCase requireSubmissionOkPath:
+  let s = sessionWith(
+    @[("A1", makeAccount(accountCapabilities = @[makeSubmissionAccountEntry()]))], @[]
+  )
+  assertOkEq requireSubmission(s), makeAccountId("A1")

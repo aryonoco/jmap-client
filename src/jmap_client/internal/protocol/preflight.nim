@@ -5,8 +5,10 @@
 ## and guards the account to use for a capability before dispatch, folding any
 ## failure onto the consumer error rail (``JmapError``, ``jeSession`` arm) when
 ## the session does not advertise the capability, or advertises it but has no
-## primary account for it. Account resolution prefers the designated primary
-## and otherwise accepts any advertising account, per RFC 8620 §2.
+## primary account for it. Account resolution treats ``accountCapabilities`` as
+## authoritative (RFC 8620 §2): it accepts the designated primary only when that
+## account advertises the capability, otherwise the lowest-id advertising
+## account.
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
@@ -35,22 +37,44 @@ func requirePrimaryAccount*(
     return err(jmapSession(sessionFault(sfPrimaryAccountAbsent, kind)))
   ok(accountId)
 
+func lowestAdvertising(session: Session, kind: CapabilityKind): Opt[AccountId] =
+  ## Among the accounts whose ``accountCapabilities`` advertises ``kind`` (RFC
+  ## 8620 §2), the one with the lexicographically lowest ``$AccountId``.
+  ## Choosing by id string makes the no-designated-primary fallback
+  ## deterministic across runs — ``Table`` iteration order is not. ``Opt.none``
+  ## when no account advertises the capability.
+  var best = Opt.none(AccountId)
+  for accountId, account in session.accounts:
+    if account.hasCapability(kind):
+      var isLower = true
+      for current in best:
+        isLower = $accountId < $current
+      if isLower:
+        best = Opt.some(accountId)
+  best
+
 func usableAccount(
     session: Session, kind: CapabilityKind
 ): Result[AccountId, JmapError] =
-  ## RFC 8620 §2 account resolution for a capability: prefer the designated
-  ## primary account, else any account whose ``accountCapabilities`` advertises
-  ## the capability — ``primaryAccounts`` MAY legitimately have no entry for a
-  ## supported capability (§2). Errs ``sfCapabilityAbsent`` only when no account
-  ## supports the capability at all. When several accounts advertise the
-  ## capability and none is the designated primary, an unspecified supporting
-  ## account is returned — configure ``primaryAccounts`` to disambiguate.
-  ## Module-private — the public ``require*`` sugar names each capability.
+  ## RFC 8620 §2 account resolution for a capability. ``accountCapabilities`` is
+  ## the authoritative check: the designated primary is accepted only when its
+  ## own ``accountCapabilities`` advertises the capability — ``primaryAccounts``
+  ## is merely a pointer into that authoritative list (§2 forbids advertising a
+  ## capability the user cannot use), so a primary that is missing from
+  ## ``accounts`` or does not advertise the capability is not trusted and
+  ## resolution falls through. Failing the primary, the advertising account with
+  ## the lowest ``$AccountId`` is returned — deterministic when several advertise
+  ## and none is the designated primary (configure ``primaryAccounts`` to choose
+  ## explicitly). Errs ``sfCapabilityAbsent`` only when no account advertises the
+  ## capability at all. ``primaryAccounts`` MAY legitimately have no entry for a
+  ## supported capability (§2). Module-private — the public ``require*`` sugar
+  ## names each capability.
   for accountId in session.primaryAccount(kind):
+    for account in session.findAccount(accountId):
+      if account.hasCapability(kind):
+        return ok(accountId)
+  for accountId in lowestAdvertising(session, kind):
     return ok(accountId)
-  for accountId, account in session.accounts:
-    if account.hasCapability(kind):
-      return ok(accountId)
   err(jmapSession(sessionFault(sfCapabilityAbsent, kind)))
 
 func requireMail*(session: Session): Result[AccountId, JmapError] =
