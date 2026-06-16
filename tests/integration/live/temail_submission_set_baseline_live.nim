@@ -67,10 +67,11 @@ testCase tEmailSubmissionSetBaselineLive:
       parseCreationId("sub32").expect("parseCreationId sub32[" & $target.kind & "]")
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
-    let (b3, subHandle) = addEmailSubmissionSet(
-      initRequestBuilder(makeBuilderId()),
-      submissionAccountId,
-      create = Opt.some(subTbl),
+    let spec = parseEmailSubmissionSet(create = Opt.some(subTbl)).expect(
+        "parseEmailSubmissionSet[" & $target.kind & "]"
+      )
+    let (b3, handles) = addEmailSubmissionSet(
+      initRequestBuilder(makeBuilderId()), submissionAccountId, spec
     )
     let resp3 =
       client.send(b3.freeze()).expect("send EmailSubmission/set[" & $target.kind & "]")
@@ -78,7 +79,7 @@ testCase tEmailSubmissionSetBaselineLive:
       recorder.lastResponseBody, "email-submission-set-baseline-" & $target.kind
     )
       .expect("captureIfRequested")
-    let subSetResp = resp3.get(subHandle).expectValue(
+    let subSetResp = resp3.getBoth(handles).primaryOutcome.expectValue(
         "EmailSubmission/set extract[" & $target.kind & "]"
       )
     var submissionId: Id

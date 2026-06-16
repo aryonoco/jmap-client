@@ -43,7 +43,7 @@ L4 `{.push raises: [].}`, nimalyzer (`complexity ≤ 10`, `hasdoc`,
 |---|---|---|---|
 | 0 | `jeMethod` arm + `fulfil` + H15 lockstep | ✅ DONE (both gates: `just ci` ✅) | review-fix: `jmapMethod`/`methodFault` hub-private |
 | 1 | typed `emailId` forward-reference | ✅ DONE (`just ci` ✅) | `emailId: IdOrCreationRef`; example smuggle removed |
-| 2 | `EmailSubmissionSetSpec` + one total `addEmailSubmissionSet` | ☐ NOT STARTED | — |
+| 2 | `EmailSubmissionSetSpec` + one total `addEmailSubmissionSet` | ✅ DONE (`just ci` ✅) | + uniform `getBoth`: `CompoundHandles.implicit` → `Opt` (user-approved) |
 | 3 | dissolve the `convenience` quarantine | ☐ NOT STARTED | — |
 | 4 | the one-shot module (`connect`/gets/queries/`sendPlainText`) | ☐ NOT STARTED | — |
 | 5 | re-bench `examples/jmap-cli` + reconcile AUDIT / design 16 | ☐ NOT STARTED | — |

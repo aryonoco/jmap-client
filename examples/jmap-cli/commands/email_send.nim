@@ -8,10 +8,10 @@
 ## partId, retiring the 4-layer hand-build. One finding remains on the
 ## submission wiring (addressed next):
 ##
-##  1. addEmailSubmissionAndEmailSet does NOT create the email — its `create`
+##  1. addEmailSubmissionSet does NOT create the email — its `create`
 ##     is the submission table only. The draft is created by a SEPARATE
-##     addEmailSet(create=...) on the SAME builder; the "AndEmailSet" is the
-##     server's IMPLICIT onSuccess Email/set (an update). One request = three
+##     addEmailSet(create=...) on the SAME builder; the implicit Email/set is
+##     the server's onSuccess move (RFC 8621 §7.5 ¶3). One request = three
 ##     method calls.
 ##
 ## The same-request link to the draft is now a typed forward-reference:
@@ -150,18 +150,13 @@ proc sendEmail(toAddress, subject, bodyText: string): JmapResult[int] =
   let b0 = ctx.client.newBuilder()
   let (b1, emailHandle) =
     b0.addEmailSet(ctx.mailAccount, create = Opt.some(emailCreate))
-  # addEmailSubmissionAndEmailSet returns a Result wrapping an UNCOPYABLE
-  # RequestBuilder, so neither `?` nor `.lift` applies here (both copy the Ok
-  # payload): branch explicitly, fold the ValidationError with toJmapError, and
-  # MOVE the Ok tuple out.
-  var r = b1.addEmailSubmissionAndEmailSet(
-    ctx.mailAccount,
-    create = Opt.some(subCreate),
-    onSuccessUpdateEmail = Opt.some(onSucc),
-  )
-  if r.isErr:
-    return err(r.error.toJmapError)
-  let (b2, subHandles) = move(r.value)
+  # The RFC 8620 §5.3 onSuccess-to-create cross-reference is proven when the
+  # spec is constructed, so `.lift` folds any ValidationError onto the one rail
+  # and the total bare-tuple builder needs no move ceremony.
+  let spec = ?parseEmailSubmissionSet(
+    create = Opt.some(subCreate), onSuccessUpdateEmail = Opt.some(onSucc)
+  ).lift
+  let (b2, subHandles) = b1.addEmailSubmissionSet(ctx.mailAccount, spec)
 
   # build -> send -> get, threaded on one `?`; the finaliser is freeze (sink).
   let dr = ?ctx.client.send(freeze(b2))

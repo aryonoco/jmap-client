@@ -51,7 +51,7 @@ import ./serde_submission_status
 # ``UndoStatus.fromJson`` at every callsite (including the mixin chain
 # through ``SetResponse[T, U].fromJson`` and ``seq[BlobId].fromJson``).
 # ``serde_email`` is re-exported so the implicit-Email/set arm of
-# ``addEmailSubmissionAndEmailSet`` resolves the
+# ``addEmailSubmissionSet`` resolves the
 # ``SetResponse[EmailCreatedItem, PartialEmail]`` mixin chain
 # (``EmailCreatedItem.fromJson`` / ``PartialEmail.fromJson``).
 export serde_submission_envelope

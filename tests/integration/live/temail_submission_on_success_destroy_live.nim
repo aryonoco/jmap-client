@@ -77,16 +77,13 @@ testCase tEmailSubmissionOnSuccessDestroyLive:
       .expect("parseEmailSubmissionBlueprint[" & $target.kind & "]")
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
-    # The Ok value is a tuple carrying the uncopyable ``RequestBuilder`` (A7d),
-    # so it is moved out of the Result rather than copied via ``.expect``.
-    var subRes = addEmailSubmissionAndEmailSet(
-      initRequestBuilder(makeBuilderId()),
-      submissionAccountId,
-      create = Opt.some(subTbl),
-      onSuccessDestroyEmail = Opt.some(onDestroy),
+    let spec = parseEmailSubmissionSet(
+        create = Opt.some(subTbl), onSuccessDestroyEmail = Opt.some(onDestroy)
+      )
+      .expect("parseEmailSubmissionSet destroy[" & $target.kind & "]")
+    let (b3, handles) = addEmailSubmissionSet(
+      initRequestBuilder(makeBuilderId()), submissionAccountId, spec
     )
-    doAssert subRes.isOk, "addEmailSubmissionAndEmailSet destroy[" & $target.kind & "]"
-    let (b3, handles) = move(subRes.value)
     let resp3 = client.send(b3.freeze()).expect(
         "send EmailSubmission/set+Email/set destroy[" & $target.kind & "]"
       )

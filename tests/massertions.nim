@@ -45,10 +45,9 @@ proc moveExpect*[T, E](r: sink Result[T, E], msg: string): T =
   ## Move the Ok value out of ``r``, asserting Ok with ``msg`` on Err. Use in
   ## place of ``.expect`` / ``.get`` when ``T`` is uncopyable (e.g. a tuple
   ## carrying the now-uncopyable ``RequestBuilder`` returned by the fallible
-  ## builders ``addEmailSubmissionAndEmailSet`` / ``addCapabilityInvocation``);
-  ## ``.expect`` copies its result, which the copy hook forbids. Application
-  ## code uses the same idiom directly: ``var r = …; doAssert r.isOk;
-  ## let (b, h) = move(r.value)``.
+  ## builder ``addCapabilityInvocation``); ``.expect`` copies its result, which
+  ## the copy hook forbids. Application code uses the same idiom directly:
+  ## ``var r = …; doAssert r.isOk; let (b, h) = move(r.value)``.
   doAssert r.isOk, msg
   result = move(r.value)
 

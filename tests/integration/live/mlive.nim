@@ -76,6 +76,18 @@ proc extractOutcome*[T](
   of mokMethodError:
     err(ctx & " method error: " & outcome.error.rawType)
 
+proc primaryOutcome*[A, B](
+    r: Result[CompoundResults[A, B], JmapError]
+): Result[MethodOutcome[A], JmapError] =
+  ## Projects a compound ``getBoth`` result onto its primary outcome, dropping
+  ## the implicit half. Simple (no-onSuccess) ``EmailSubmission/set`` callers
+  ## extract uniformly through ``getBoth`` — the builder leaves the implicit
+  ## handle absent, so ``getBoth`` is total over its by-design absence (RFC 8620
+  ## §5.4) — but observe only the primary. Bridges to the
+  ## ``Result[MethodOutcome[T], JmapError]`` rail consumed by ``extractOutcome``
+  ## / ``expectValue`` / ``assertSuccessOrTypedError``.
+  ok((?r).primary)
+
 proc expectValue*[T](r: Result[MethodOutcome[T], JmapError], msg: string): T =
   ## Test-body unwrap mirroring the pre-refactor ``.get(handle).expect``
   ## semantics: under the old ``GetError`` rail a server method error was an
@@ -1512,15 +1524,16 @@ proc seedSubmissionCorpus*(
       return err("seedSubmissionCorpus[" & $i & "] parseCreationId: " & error.message)
     var createTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     createTbl[cid] = blueprint
-    let (b, setHandle) = addEmailSubmissionSet(
-      initRequestBuilder(makeBuilderId()),
-      submissionAccountId,
-      create = Opt.some(createTbl),
+    let spec = parseEmailSubmissionSet(create = Opt.some(createTbl)).valueOr:
+      return err("seedSubmissionCorpus[" & $i & "] parseEmailSubmissionSet")
+    let (b, handles) = addEmailSubmissionSet(
+      initRequestBuilder(makeBuilderId()), submissionAccountId, spec
     )
     let resp = client.send(b.freeze()).valueOr:
       return err("seedSubmissionCorpus[" & $i & "] send: " & error.message)
-    let setResp =
-      ?extractOutcome(resp.get(setHandle), "seedSubmissionCorpus[" & $i & "]")
+    let setResp = ?extractOutcome(
+      resp.getBoth(handles).primaryOutcome, "seedSubmissionCorpus[" & $i & "]"
+    )
     var submissionId: Id
     var createdItem: EmailSubmissionCreatedItem
     var found = false

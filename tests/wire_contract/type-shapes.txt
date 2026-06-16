@@ -200,7 +200,7 @@
 
 ## CompoundHandles [jmap_client/internal/protocol/dispatch]
   primary*: ResponseHandle[A]
-  implicit*: NameBoundHandle[B]
+  implicit*: Opt[NameBoundHandle[B]]
 
 ## CompoundResults [jmap_client/internal/protocol/dispatch]
   primary*: MethodOutcome[A]
@@ -605,6 +605,8 @@
 
 ## EmailSubmissionSetResponse [jmap_client/internal/mail/email_submission]
   SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]
+
+## EmailSubmissionSetSpec [jmap_client/internal/mail/email_submission]
 
 ## EmailSubmissionSortProperty [jmap_client/internal/mail/email_submission]
   esspEmailId = "emailId"

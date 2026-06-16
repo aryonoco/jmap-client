@@ -3,9 +3,9 @@
 
 ## Live integration test for the compound EmailSubmission/set with
 ## ``onSuccessUpdateEmail`` (RFC 8621 §7.5 ¶3) against Stalwart. First
-## wire exercise of ``addEmailSubmissionAndEmailSet`` — a single JMAP
-## invocation that triggers a server-emitted implicit Email/set
-## response sharing the parent call id (RFC 8620 §5.4). On a
+## wire exercise of ``addEmailSubmissionSet`` with onSuccess extras — a
+## single JMAP invocation that triggers a server-emitted implicit
+## Email/set response sharing the parent call id (RFC 8620 §5.4). On a
 ## successful submission the patch moves the draft out of Drafts into
 ## Sent and flips the IANA ``$draft`` keyword to ``$seen``, exactly
 ## the production "Send -> Sent" mail-UI flow.
@@ -95,16 +95,13 @@ testCase tEmailSubmissionOnSuccessUpdateLive:
       .expect("parseEmailSubmissionBlueprint[" & $target.kind & "]")
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
-    # The Ok value is a tuple carrying the uncopyable ``RequestBuilder`` (A7d),
-    # so it is moved out of the Result rather than copied via ``.expect``.
-    var subRes = addEmailSubmissionAndEmailSet(
-      initRequestBuilder(makeBuilderId()),
-      submissionAccountId,
-      create = Opt.some(subTbl),
-      onSuccessUpdateEmail = Opt.some(onSuccess),
+    let spec = parseEmailSubmissionSet(
+        create = Opt.some(subTbl), onSuccessUpdateEmail = Opt.some(onSuccess)
+      )
+      .expect("parseEmailSubmissionSet update[" & $target.kind & "]")
+    let (b3, handles) = addEmailSubmissionSet(
+      initRequestBuilder(makeBuilderId()), submissionAccountId, spec
     )
-    doAssert subRes.isOk, "addEmailSubmissionAndEmailSet update[" & $target.kind & "]"
-    let (b3, handles) = move(subRes.value)
     let resp3 = client.send(b3.freeze()).expect(
         "send EmailSubmission/set+Email/set[" & $target.kind & "]"
       )

@@ -303,23 +303,27 @@ type CompoundHandles*[A, B] {.ruleOff: "objects".} = object
   ## ``primary`` is the declared method's response (type ``A``);
   ## ``implicit`` is the server-emitted follow-up response (type ``B``),
   ## carrying a method-name filter because it shares the primary's
-  ## call-id per RFC 8620 §5.4.
+  ## call-id per RFC 8620 §5.4. The implicit handle is present
+  ## (``Opt.some``) only when the builder requested the implicit call (an
+  ## ``onSuccess*`` / ``onSuccessDestroyOriginal`` argument); it is
+  ## ``Opt.none`` when no implicit was requested, so ``getBoth`` extracts
+  ## the implicit only when one is expected rather than faulting on its
+  ## by-design absence.
   primary*: ResponseHandle[A]
-  implicit*: NameBoundHandle[B]
+  implicit*: Opt[NameBoundHandle[B]]
 
 type CompoundResults*[A, B] {.ruleOff: "objects".} = object
   ## Paired extraction target for ``getBoth(CompoundHandles[A, B])``. The
   ## ``primary`` outcome carries the declared method's result as data (a server
   ## method error rides it as ``mokMethodError``, not the rail — §3.6.2). The
   ## ``implicit`` outcome is ``Opt``: RFC 8620 §5.4 emits the implicit call only
-  ## when the primary method *succeeds*, so it is absent (``none``) exactly when
-  ## ``primary`` is a method error, and present (``some``) — itself a
-  ## ``MethodOutcome`` — when the primary ran. ``getBoth`` is the sole producer
-  ## and never emits a contradictory pair (a value primary with no implicit, or
-  ## an errored primary with one); the ``Opt`` is kept rather than collapsed into
-  ## the discriminator because its *payload* — the implicit response — is not
-  ## derivable from ``primary``. Branch on either ``primary.kind`` or
-  ## ``implicit``; they agree.
+  ## when the primary method *succeeds*, so it is absent (``none``) when
+  ## ``primary`` is a method error OR when the builder did not request the
+  ## implicit call, and present (``some``) — itself a ``MethodOutcome`` — only
+  ## when the implicit was requested and the primary ran. ``getBoth`` is the sole
+  ## producer and never emits a contradictory pair; the ``Opt`` is kept rather
+  ## than collapsed into the discriminator because its *payload* — the implicit
+  ## response — is not derivable from ``primary``.
   primary*: MethodOutcome[A]
   implicit*: Opt[MethodOutcome[B]]
 
@@ -329,19 +333,24 @@ func getBoth*[A, B](
   ## Extract both responses from a §5.4 implicit-call compound. The ``primary``
   ## handle dispatches through the default ``get[T]`` overload; both share the
   ## brand-check semantics (the inner handles must have been issued by the
-  ## builder that produced ``dr``). Because §5.4 emits the implicit call only on
-  ## the primary's success, the implicit is extracted only when ``primary`` is a
-  ## value — a primary method error means the server never ran it, so forcing an
-  ## extraction would (correctly) surface ``jeProtocol`` for a response that is
-  ## absent by design and discard the primary's method error. Only genuine
-  ## dispatch faults ride the rail.
+  ## builder that produced ``dr``). Total over all three §5.4 shapes: a primary
+  ## method error means the server never ran the implicit (``none``); a value
+  ## primary with no requested implicit means none was expected (``none``); only
+  ## a value primary with a requested implicit extracts it. When the implicit was
+  ## requested but is absent from the response, that is a genuine §5.4 dispatch
+  ## fault and rides the rail.
   let primary = ?dr.get(handles.primary)
   case primary.kind
   of mokMethodError:
     ok(CompoundResults[A, B](primary: primary, implicit: Opt.none(MethodOutcome[B])))
   of mokValue:
-    let implicit = ?dr.get(handles.implicit)
-    ok(CompoundResults[A, B](primary: primary, implicit: Opt.some(implicit)))
+    # The implicit handle is present only when the builder requested the
+    # implicit call (RFC 8620 §5.4). When requested, an absent response is a
+    # genuine fault; when not requested, no implicit is expected.
+    for h in handles.implicit:
+      let implicit = ?dr.get(h)
+      return ok(CompoundResults[A, B](primary: primary, implicit: Opt.some(implicit)))
+    ok(CompoundResults[A, B](primary: primary, implicit: Opt.none(MethodOutcome[B])))
 
 template registerCompoundMethod*(Primary, Implicit: typedesc) =
   ## Compile-checks that ``Primary`` parametrises ``ResponseHandle``

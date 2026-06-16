@@ -94,7 +94,8 @@ static:
   doAssert declared(addEmailSubmissionQuery)
   doAssert declared(addEmailSubmissionQueryChanges)
   doAssert declared(addEmailSubmissionSet)
-  doAssert declared(addEmailSubmissionAndEmailSet)
+  doAssert declared(EmailSubmissionSetSpec)
+  doAssert declared(parseEmailSubmissionSet)
 
   # --- Typed sparse partial-get builders (A3.6) ---
   doAssert declared(addPartialMailboxGet)

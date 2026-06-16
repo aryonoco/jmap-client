@@ -253,10 +253,11 @@ testCase temailSubmissionFilterCompletenessLive:
 
     # Cleanup: destroy the HOLDFOR-pended submissions so they never
     # deliver to bob's inbox.
-    let (bDestroy, destroyHandle) = addEmailSubmissionSet(
-      initRequestBuilder(makeBuilderId()),
-      submissionAccountId,
-      destroy = directIds(submissionIds),
+    let destroySpec = parseEmailSubmissionSet(destroy = directIds(submissionIds)).expect(
+        "parseEmailSubmissionSet destroy"
+      )
+    let (bDestroy, destroyHandles) = addEmailSubmissionSet(
+      initRequestBuilder(makeBuilderId()), submissionAccountId, destroySpec
     )
     discard client.send(bDestroy.freeze())
-    discard destroyHandle
+    discard destroyHandles

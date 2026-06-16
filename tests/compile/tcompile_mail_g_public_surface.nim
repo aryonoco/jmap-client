@@ -135,13 +135,16 @@ static:
   doAssert declared(parseNonEmptyOnSuccessUpdateEmail)
   doAssert declared(parseNonEmptyOnSuccessDestroyEmail)
 
-  # --- L3 method builders (6) ---
+  # --- L3 method builders (5) ---
   doAssert declared(addEmailSubmissionGet)
   doAssert declared(addEmailSubmissionChanges)
   doAssert declared(addEmailSubmissionQuery)
   doAssert declared(addEmailSubmissionQueryChanges)
   doAssert declared(addEmailSubmissionSet)
-  doAssert declared(addEmailSubmissionAndEmailSet)
+
+  # --- Validated /set spec (RFC 8621 §7.5 + RFC 8620 §5.3) ---
+  doAssert declared(EmailSubmissionSetSpec)
+  doAssert declared(parseEmailSubmissionSet)
 
   # --- Method enum route variants (5) ---
   doAssert declared(mnEmailSubmissionGet)

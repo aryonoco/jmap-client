@@ -71,15 +71,16 @@ testCase tEmailSubmissionFullLifecycleLive:
       parseCreationId("sub42").expect("parseCreationId[" & $target.kind & "]")
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
-    let (b3, subHandle) = addEmailSubmissionSet(
-      initRequestBuilder(makeBuilderId()),
-      submissionAccountId,
-      create = Opt.some(subTbl),
+    let subSpec = parseEmailSubmissionSet(create = Opt.some(subTbl)).expect(
+        "parseEmailSubmissionSet create[" & $target.kind & "]"
+      )
+    let (b3, subHandles) = addEmailSubmissionSet(
+      initRequestBuilder(makeBuilderId()), submissionAccountId, subSpec
     )
     let resp3 = client.send(b3.freeze()).expect(
         "send EmailSubmission/set HOLDFOR[" & $target.kind & "]"
       )
-    let subSetExtract = resp3.get(subHandle)
+    let subSetExtract = resp3.getBoth(subHandles).primaryOutcome
     var submissionId: Id
     var createOk = false
     assertSuccessOrTypedError(
@@ -107,15 +108,16 @@ testCase tEmailSubmissionFullLifecycleLive:
     let updates = parseNonEmptyEmailSubmissionUpdates(@[(submissionId, cancel)]).expect(
         "parseNonEmptyEmailSubmissionUpdates"
       )
-    let (b4, updateHandle) = addEmailSubmissionSet(
-      initRequestBuilder(makeBuilderId()),
-      submissionAccountId,
-      update = Opt.some(updates),
+    let updateSpec = parseEmailSubmissionSet(update = Opt.some(updates)).expect(
+        "parseEmailSubmissionSet update[" & $target.kind & "]"
+      )
+    let (b4, updateHandles) = addEmailSubmissionSet(
+      initRequestBuilder(makeBuilderId()), submissionAccountId, updateSpec
     )
     let resp4 = client.send(b4.freeze()).expect(
         "send EmailSubmission/set update cancel[" & $target.kind & "]"
       )
-    let updateExtract = resp4.get(updateHandle)
+    let updateExtract = resp4.getBoth(updateHandles).primaryOutcome
     var updateOk = false
     assertSuccessOrTypedError(
       target, updateExtract, {metInvalidArguments, metUnknownMethod}
@@ -132,10 +134,10 @@ testCase tEmailSubmissionFullLifecycleLive:
       continue
 
     # --- Destroy — destroy via Destroy arm -------------------------------
-    let (b5, destroyHandle) = addEmailSubmissionSet(
-      initRequestBuilder(makeBuilderId()),
-      submissionAccountId,
-      destroy = directIds(@[submissionId]),
+    let destroySpec = parseEmailSubmissionSet(destroy = directIds(@[submissionId]))
+      .expect("parseEmailSubmissionSet destroy[" & $target.kind & "]")
+    let (b5, destroyHandles) = addEmailSubmissionSet(
+      initRequestBuilder(makeBuilderId()), submissionAccountId, destroySpec
     )
     let resp5 = client.send(b5.freeze()).expect(
         "send EmailSubmission/set destroy[" & $target.kind & "]"
@@ -144,7 +146,7 @@ testCase tEmailSubmissionFullLifecycleLive:
       recorder.lastResponseBody, "email-submission-destroy-canceled-" & $target.kind
     )
       .expect("captureIfRequested")
-    let destroyExtract = resp5.get(destroyHandle)
+    let destroyExtract = resp5.getBoth(destroyHandles).primaryOutcome
     var destroyOk = false
     assertSuccessOrTypedError(
       target, destroyExtract, {metInvalidArguments, metUnknownMethod}

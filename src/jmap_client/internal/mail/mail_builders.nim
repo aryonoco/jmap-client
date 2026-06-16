@@ -416,10 +416,14 @@ func addEmailCopyAndDestroy*(
     destroyMode = destroyAfterSuccess(destroyFromIfInState),
   )
   let brand = b1.builderId
+  # ``onSuccessDestroyOriginal: true`` always requests the implicit Email/set
+  # destroy (RFC 8620 §5.4), so the implicit handle is unconditionally present.
   let handles = EmailCopyHandles(
     primary: copyHandle,
-    implicit: initNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
-      callId(copyHandle), mnEmailSet, brand
+    implicit: Opt.some(
+      initNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
+        callId(copyHandle), mnEmailSet, brand
+      )
     ),
   )
   (b1, handles)
