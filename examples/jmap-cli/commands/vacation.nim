@@ -11,26 +11,20 @@ import std/tables
 import ./cli_session
 
 proc doGet(ctx: CliContext): JmapResult[int] =
-  let (b, handle) = ctx.client.newBuilder().addVacationResponseGet(ctx.mailAccount)
-  let dr = ?ctx.client.send(b.freeze())
-  let outcome = ?dr.get(handle)
-  case outcome.kind
-  of mokMethodError:
-    stderr.writeLine "VacationResponse/get: " & outcome.error.message
-    ok(1)
-  of mokValue:
-    let resp = outcome.value
-    if resp.list.len == 0:
-      echo "no vacation response configured"
-      return ok(0)
-    # The get path has clean plain-Opt fields (the set ECHO path is FieldEcho).
-    let vr = resp.list[0]
-    echo "enabled: ", vr.isEnabled
-    for s in vr.subject:
-      echo "subject: ", s
-    for t in vr.textBody:
-      echo "text:    ", t
-    ok(0)
+  # getVacationResponse folds the get lifecycle and collapses the singleton
+  # VacationResponse/get outcome onto the rail (the singleton takes no ids).
+  let resp = ?ctx.client.getVacationResponse(ctx.mailAccount)
+  if resp.list.len == 0:
+    echo "no vacation response configured"
+    return ok(0)
+  # The get path has clean plain-Opt fields (the set ECHO path is FieldEcho).
+  let vr = resp.list[0]
+  echo "enabled: ", vr.isEnabled
+  for s in vr.subject:
+    echo "subject: ", s
+  for t in vr.textBody:
+    echo "text:    ", t
+  ok(0)
 
 proc doSet(ctx: CliContext, body: string): JmapResult[int] =
   # The accumulating update-set constructor `.lift`s onto the one rail.

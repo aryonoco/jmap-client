@@ -61,6 +61,24 @@ connect helper on the way and grumbles at the missing `ClientError`
 constructor. The lifecycle is sound; the on-ramp wants one convenience
 function and one error-rail bridge.
 
+**S4 update.** Both of those shipped. `connect(url, user, pass)` is the
+on-ramp now: one call folds `directEndpoint` + `basicCredential` +
+`initJmapClient` onto the single `JmapError` rail (the RFC 8620 §2 session
+stays lazy, fetched on first send), with a `connect(url, user, pass,
+transport)` overload for a caller-supplied transport. The four-call preamble
+the bench had to extract is gone — the CLI's helper survives only to bind the
+resolved mail account beside the client, and the onboarding probe reaches a
+client in `?connect(...)` + `fetchSession` + `requireMail`. The proving read
+no longer costs the five-verb chain either: `getMailboxes(account)` folds
+build → dispatch → extract and collapses the single method's outcome onto the
+rail, so the probe ends `?client.getMailboxes(mailAccount)` with no
+`case outcome.kind` block. The eight-concept on-ramp is now: the `Result` rail,
+`Opt`, `connect`, `requireMail`, and the read one-shots — the `SessionEndpoint`
+/ `Credential` / four-phase-lifecycle concepts retreat behind the one-shots for
+the common path (they remain for callers who batch or interleave methods). The
+on-ramp that was "discoverable and safe, but front-loaded" is now discoverable,
+safe, and short.
+
 The most serious thing surfaced here is not ergonomic but
 **contractual**: the symbols that make the lifecycle work — `newBuilder`,
 `freeze`, the 2-arg `initJmapClient` — are absent from the frozen
@@ -95,6 +113,24 @@ consumer choice; the API exposes the primitives and lets the consumer decide.
 The dispatch ceremony — `newBuilder → add*Get → freeze →
 send → get` — is identical to every other read; type-safe, but repeated
 verbatim each time.
+
+**S4 update.** That repetition is gone for the common case. The bare-get
+one-shots — `getMailboxes`, `getIdentities`, `getEmails`, `getThreads`,
+`getVacationResponse`, `getEmailSubmissions` — each fold the whole
+`newBuilder → add*Get → freeze → send → get` chain into one call returning the
+full `GetResponse[T]` (so `state` and `notFound` still surface), and each
+collapses the single method's `MethodOutcome` onto the rail (RFC 8620 §3.6.2),
+so the `case outcome.kind` block every read used to carry is deleted. `mailbox
+list` is now `?ctx.client.getMailboxes(account)` then iterate `.list`; the
+identity, thread, message and vacation-get reads collapse the same way. The
+verbose builder lifecycle is still there for callers who batch several methods
+in one request (it is what the one-shots are built from), but the most basic
+read no longer pays for it. The `queryEmails` / `queryMailboxes` /
+`queryEmailSubmissions` one-shots do the same for the query-then-get pair,
+reading `.query.ids` / `.get.list`; the bench keeps the hand-wired Email/query
+back-reference in the default `email query` only to keep demonstrating the
+typed server-side reference and the PartialEmail `FieldEcho` read, which the
+full-`Email` one-shot does not expose.
 
 **Queries.** `email query` is where the API's best and worst instincts
 sit side by side. The best: the server-side back-reference. `reference[
@@ -300,6 +336,23 @@ the two-creation wiring, and the move ceremony. Without it, every consumer
 writes that wrapper, which is precisely the P7 smell. With it, jmap-client
 would be a library a competent developer reaches for directly.
 
+**S4 update.** That wrapper is now the library's, not the consumer's.
+`sendPlainText(client, accountId, identityId, draftMailbox, sentMailbox,
+fromAddr, to, subject, body, cc, bcc)` is the one call for the §7.5.1 send: it
+builds the inline text/plain body (the S3 `plainTextBody`), files the draft in
+Drafts with `$draft`, references it from the submission through the typed
+`creationRef` forward-reference (the `#`-smuggle is internal and never seen),
+wires the onSuccess Drafts → Sent move (RFC 8621 §7.5 ¶3), and returns a flat
+`SentEmail{emailId, submissionId}` on the one rail — the implicit move is the
+server's best-effort step (§7.5 ¶3) and does not gate success. The bench's
+`email send` now resolves only the three ids an app actually chooses — the From
+identity via `getIdentities`, the Drafts and Sent ids via `getMailboxes` +
+`hasRole(mrDrafts)` / `hasRole(mrSent)` — and calls `sendPlainText`; the whole
+blueprint build, the submission wiring, the uncopyable-builder `move`, and the
+three-response read are deleted (with the `std/tables` import they needed). This
+area flips from "they will wrap it" to **reach for it**: the protocol fidelity
+and atomicity that were always there are now reachable in one call.
+
 ## Search and the convenience layer
 
 These two commands show what the API looks like when it *does* ship the
@@ -331,6 +384,21 @@ safe, the convenience layer proves the library knows how to package it, and
 the gap between them is exactly where the pre-1.0 work should go** — extend
 the blessed convenience layer to cover the send path and the snippet
 compound, and fix the snapshot so consumers can find what already exists.
+
+**S4 update.** The send-path half of that pre-1.0 work is done — `sendPlainText`
+is the blessed compound (see Sending, above) — and the convenience layer's
+*quarantine* is retired. `addEmailQueryThenGet` / `addEmailChangesToGet` /
+`getBoth` moved into the always-on hub; the opt-in `jmap_client/convenience`
+module no longer exists, so the explicit second import is gone and the
+combinators are reachable from the single `import jmap_client`. The bench's
+`email query --one-shot` reaches the same query-then-get through the
+`queryEmails` one-shot, and `email sync` reaches the changes combinator through
+the plain hub import. The discoverability cost the quarantine bought (the
+finding that the headline import alone could not reach these combinators) is
+spent; the layering discipline it protected is intact, because the combinators
+were only ever pure protocol builders. The one piece still un-packaged is the
+query-then-snippets compound — search remains hand-wired, by choice, until the
+snapshot exposes it.
 
 ## Cross-cutting verdict
 
@@ -373,6 +441,19 @@ the honest answer is *area-dependent*:
   contract, so a snapshot-guided developer would hand-roll the tedious
   manual back-reference instead.
 
+**S4 update.** Two of those four verdicts move. **Reading** is now reach-for-it
+with nothing written twice: the bare-get one-shots (`getMailboxes` and friends)
+and the query-then-get one-shots (`queryEmails` and friends) cover the plain
+read and the common pair, so the "bare-get one-shot a reader still writes twice"
+is shipped. **Sending** flips from "they will wrap it — today" to **reach for
+it**: `sendPlainText` is the blessed convenience this section asked for, and the
+bench's send path is now three id-resolves and one call. The two that stay:
+**Mutating** still wants one helper — there is no Email/set write one-shot, so
+flag/move/vacation-set keep the triple-seal envelope (the `addEmailUpdate`
+one-shot is the obvious next combinator); and **Search** is unchanged — the
+snippet compound is still the best ergonomics in the library and still missing
+from the frozen contract, a snapshot-integrity matter, not an ergonomic one.
+
 **The first fifteen minutes (P29).** A newcomer meets ~8 concepts before
 `session` prints, reaches a trustworthy answer well inside the window, and
 — tellingly — writes a connect helper on the way, because the 4-call
@@ -390,6 +471,19 @@ that parse-once-trust-forever (P15); the type-safe server-side
 back-references (P19); and the correctly-quarantined convenience layer
 (P6). These are the decisions that age well, exactly as the great-library
 case studies in doc 14 predict.
+
+**S4 update.** The convenience layer's *quarantine* (P6) is the one item on
+this list that did change, by design. Its pipeline combinators
+(`addEmailQueryThenGet`, `addEmailChangesToGet`, `getBoth`) moved into the
+always-on hub and the opt-in `jmap_client/convenience` module was dissolved,
+because the discoverability cost of the quarantine outweighed its benefit once
+the combinators proved to be ordinary pure protocol builders with no
+contaminating dependency to wall off. The layering *discipline* the quarantine
+protected is intact — the combinators are the same safe back-reference
+machinery, and the protocol core still imposes none of its strictness on the
+consumer — they are simply reachable from the single `import jmap_client` now,
+which is what the bench's "convenience:import-discoverability" finding asked
+for. Everything else on this list is unchanged.
 
 **What grates — and is cheap to fix before 1.0.** Almost all of it is
 *envelope*, not *core*: the pervasive sealing-chain ceremony; the absence
@@ -411,6 +505,16 @@ predicate, the `limit` window, the `requireMail` / `requireSubmission` /
 `sendPlainText`. Of the wishlist above, `fieldEchoOr`, `decodedTextBody` and a
 plain-text body helper are delivered; `connect`, a bare-Get combinator and the
 full `sendPlainText` one-shot (body + submission + onSuccess move) remain S4.
+**S4 then closed the rest:** `connect` (with a `Transport` overload), the
+bare-Get one-shots (`getMailboxes` and its five siblings, plus the
+`queryEmails` query-then-get trio) and the full `sendPlainText` (body +
+submission + onSuccess move) are shipped, so of the wishlist only
+`addEmailUpdate` — an Email/set write one-shot — is still unwritten. The
+sealing-chain ceremony is gone from connect, the plain reads and the send path;
+it survives only where no one-shot yet covers the call: the Email/set write
+envelope (flag/move/vacation-set), and the standing `parseUnsignedInt(N).get()`
+seal that mints every `UnsignedInt`. What was "cheap to fix before 1.0" is, bar
+one write combinator, fixed.
 
 **The most consequential finding is not ergonomic at all.** The frozen
 `public-api.txt` contract — the thing meant to lock the surface at 1.0
@@ -428,3 +532,11 @@ developer can already use directly for everything but sending — bring the
 send path and the snippet compound into a thin blessed convenience layer,
 and fix the freeze snapshot to enumerate the lifecycle, and jmap-client is
 a library people reach for rather than wrap.*
+
+**S4 update — one-line verdict.** *With `connect`, the bare-Get and
+query-then-get one-shots, and `sendPlainText` shipped on the always-on hub,
+the "everything but sending" caveat is spent: a competent developer now reaches
+for jmap-client directly for connect, read and send alike. What remains is one
+write combinator (`addEmailUpdate`), the snippet compound's contract visibility,
+and the freeze snapshot — the surface is a library people reach for, once the
+snapshot is fixed to prove it.*

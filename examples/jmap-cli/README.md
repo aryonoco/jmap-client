@@ -44,7 +44,7 @@ positive: the API leaks no strictness onto consumers).
     /tmp/jmap-cli vacation set "Away until Monday"
     /tmp/jmap-cli vacation get
     /tmp/jmap-cli search <text>
-    /tmp/jmap-cli email query --via-convenience   # opt-in convenience pipeline
+    /tmp/jmap-cli email query --one-shot          # the queryEmails one-shot path
     # run `jmap-cli` with no args for the full subcommand list
 
 Connection is read from the environment (`source /tmp/stalwart-env.sh`
@@ -56,9 +56,12 @@ first): `JMAP_TEST_STALWART_SESSION_URL`, `_ALICE_USER`, `_ALICE_PASSWORD`.
 
 Fails if any module reaches past the public surface via `import`, `from`,
 or `include` of `jmap_client/internal/*`. The CLI may import only
-`jmap_client`, `jmap_client/convenience`, its own `./cli_session`, and
-`std/*`. This is the honesty mechanism for the bench (it mirrors what
-tracker H7 will later mechanise in CI).
+`jmap_client`, its own `./cli_session`, and `std/*`. (The former opt-in
+`jmap_client/convenience` module no longer exists — its pipeline combinators
+are now part of the always-on hub, reachable from the single `import
+jmap_client`, so an import of it would simply fail to compile.) This is the
+honesty mechanism for the bench (it mirrors what tracker H7 will later
+mechanise in CI).
 
 ## Layout
 

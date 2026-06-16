@@ -15,26 +15,20 @@ proc showThread(threadIdArg: string): JmapResult[int] =
   # `.lift` keeps the whole body on the single JmapError rail.
   let threadId = ?parseIdFromServer(threadIdArg).lift
   let ctx = ?connect()
-  let (b, handle) = ctx.client.newBuilder().addThreadGet(
-      ctx.mailAccount, ids = Opt.some(direct(@[threadId]))
-    )
-  let dr = ?ctx.client.send(b.freeze())
-  let outcome = ?dr.get(handle)
-  case outcome.kind
-  of mokMethodError:
-    stderr.writeLine "Thread/get: " & outcome.error.message
-    ok(1)
-  of mokValue:
-    if outcome.value.list.len == 0:
-      stderr.writeLine "thread not found"
-      return ok(1)
-    for th in outcome.value.list:
-      # id and emailIds are direct public fields; emailIds (a NonEmptyIdSeq)
-      # answers `.len` and iterates directly — no .toSeq needed to print it.
-      echo "thread ", $th.id, " has ", $th.emailIds.len, " emails:"
-      for eid in th.emailIds:
-        echo "  ", $eid
-    ok(0)
+  # getThreads folds the get lifecycle and collapses the single Thread/get
+  # outcome onto the rail; explicit ids still wrap as Opt.some(direct(@[id])).
+  let resp =
+    ?ctx.client.getThreads(ctx.mailAccount, ids = Opt.some(direct(@[threadId])))
+  if resp.list.len == 0:
+    stderr.writeLine "thread not found"
+    return ok(1)
+  for th in resp.list:
+    # id and emailIds are direct public fields; emailIds (a NonEmptyIdSeq)
+    # answers `.len` and iterates directly — no .toSeq needed to print it.
+    echo "thread ", $th.id, " has ", $th.emailIds.len, " emails:"
+    for eid in th.emailIds:
+      echo "  ", $eid
+  ok(0)
 
 proc run*(args: seq[string]): int =
   if args.len < 2 or args[0] != "show":

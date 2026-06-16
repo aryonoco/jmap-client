@@ -329,7 +329,7 @@ RFC 8620/8621 entity area exercised at least once, including the
 | EmailSubmission | `email send` | `addEmailSubmissionAndEmailSet` (+ onSuccess) |
 | VacationResponse (get/set) | `vacation` | `addVacationResponseGet`/`Set` |
 | SearchSnippet | `search` | `addEmailQueryWithSnippets` + `getBoth` |
-| Convenience pipeline | `email query --via-convenience`, `email sync` | `addEmailQueryThenGet`, `addEmailChangesToGet` |
+| Query-then-get / changes combinators | `email query --one-shot`, `email sync` | `queryEmails` (S4 one-shot wrapping `addEmailQueryThenGet`), `addEmailChangesToGet` |
 
 **Deliberately out of scope** (method-level surfaces beyond the entity bar;
 recorded here so the ledger reads as a *choice*, not an oversight). These
@@ -628,3 +628,119 @@ one-shot (the submission half `plainTextBody` does not cover) — are S4; the
 sealing-chain ceremony around them is S4; the standing `parseUnsignedInt(…).get()`
 no-int-literal seal rides along with it; and the snapshot-integrity freeze-blocker
 is its own track. The read-model convenience the bench asked for is in.
+
+## S4 resolution — request-lifecycle one-shots (the easy path)
+
+Sub-project **S4** shipped the build-dispatch-extract one-shots the S1/S2/S3
+passes left `[open]` — the single calls that fold construction, dispatch and
+extraction of one logical operation onto the one `JmapError` rail. The design is
+the libcurl/SQLite easy-path-beside-the-primitives split: the verbose builder
+lifecycle stays for callers who batch or interleave methods, and each one-shot
+collapses its single method's `MethodOutcome` onto the rail (RFC 8620 §3.6.2 — a
+single-method shortcut, not a reclassification of the data semantics), so a
+command that issues one operation threads on a bare `?` with **no `case
+outcome.kind` ceremony at all** — that collapse is the whole win. The CLI was
+re-benched against the one-shots; every adoption below is in the tree and
+compiles public-surface-only with zero warnings. The inline finding lines keep
+their `[open]` tag, matching the S1/S2/S3 observe-only convention; the mapping
+lives here. Mapping (finding → fix):
+
+- **the connect preamble (C5/C8)** — "obtaining one usable client costs THREE
+  sequential smart-constructor unwraps … no single `connect(url, user, pass)`
+  convenience shorthand" (session:connect) + "every command needs the same
+  4-call connect+session+account preamble … the API makes you build the connect
+  wrapper it should ship" (*all commands*, connect preamble, **high**) →
+  RESOLVED. `connect(url, user, pass)` folds `directEndpoint` + `basicCredential`
+  + `initJmapClient` onto the rail (the RFC 8620 §2 session stays lazy, fetched
+  on first send); a `connect(url, user, pass, transport)` overload threads a
+  caller-supplied `Transport`. The CLI's shared helper (`commands/cli_session.nim`)
+  collapses to `?connect(...)` + `fetchSession` + `requireMail`, and the verbose
+  onboarding probe (`commands/session.nim`) adopts the same one-shot inline. The
+  four-call boilerplate the bench was forced to extract is gone — the helper
+  survives only to bind the resolved mail account alongside the client.
+- **no bare-get combinator (R1)** — "the most basic read still costs the full
+  five-symbol lifecycle" (read commands, no bare-get combinator, **medium**) +
+  the per-command "`newBuilder` -> `add*Get` -> `freeze` -> `send` -> `get` ->
+  iterate `.list`; no single-call get shorthand" (mailbox:dr.get(handle),
+  identity:read, thread, email read) → RESOLVED. Six bare-get one-shots return
+  the FULL `GetResponse[T]` (so `state` / `notFound` survive): `getMailboxes`
+  (`commands/mailbox.nim`, and `resolveInbox` in `email_query.nim`),
+  `getIdentities` (`commands/identity.nim`, and the send-path identity resolve),
+  `getEmails` (`commands/email_read.nim`, and the `email_sync` state-cursor
+  read), `getThreads` (`commands/thread.nim`), `getVacationResponse`
+  (`commands/vacation.nim` doGet), and `getEmailSubmissions` (public, not
+  separately driven). Each collapses the single method's outcome onto the rail,
+  so the `case outcome.kind of mokMethodError/mokValue` block at every read site
+  is deleted — the body reads `.list` directly.
+- **the read combinator (query-then-get)** — the manual "restate the producing
+  method `queryH` already encodes, pick `rpIds` among nine, supply the generic
+  `seq[Id]`" (email query:reference) is now ALSO a one-shot. `queryEmails`
+  (`commands/email_query.nim`, the `--one-shot` path) folds Email/query ->
+  full-record Email/get and reads `.query.ids` / `.get.list`; `queryMailboxes` /
+  `queryEmailSubmissions` are its siblings. The DEFAULT `email query`
+  deliberately keeps the hand-wired back-reference + PartialEmail `FieldEcho`
+  read, because the typed server-side back-reference and the three-state echo are
+  documentary and `queryEmails` (full `Email`, plain `Opt`) exposes neither.
+- **the send path (R4)** — the whole send-friction cluster: "NO plain-text body
+  shorthand" (email send:no-body-helper, **high**), "`addEmailSubmissionAndEmailSet`
+  does NOT create the email" (builder-does-not-create, **high**), "`emailId` …
+  the only encoding is `parseIdFromServer('#' & $draftCid)`"
+  (emailId-no-forward-ref, **high**), "returns an UNCOPYABLE `RequestBuilder` …
+  must `move()`" (uncopyable-move), "four+ sealing constructors precede the
+  build" (sealing-pileup), "one logical send yields three response shapes"
+  (three-response-shapes), and "reading the created id is a nested rail"
+  (nested-id-read) → RESOLVED. `sendPlainText(client, accountId, identityId,
+  draftMailbox, sentMailbox, fromAddr, to, subject, body, cc, bcc)` is the one
+  call: it builds the inline text/plain body (the S3 `plainTextBody`), files the
+  draft in Drafts with `$draft`, references it from the submission via the typed
+  `creationRef` forward-reference (the `#`-smuggle is internal and invisible),
+  wires the onSuccess Drafts -> Sent move (RFC 8621 §7.5.1), and returns a flat
+  `SentEmail{emailId, submissionId}`. The CLI's `email_send.nim` now only
+  resolves the three ids it needs (`getIdentities` for the From, `getMailboxes` +
+  `hasRole(mrDrafts)` / `hasRole(mrSent)` for the two mailboxes) and calls
+  `sendPlainText` — the `buildDraftBlueprint` / `buildSubmissionBlueprint` /
+  blueprint-`resolveRoles` / `parseEmailSubmissionSet` / `addEmailSubmissionSet`
+  / `getBoth` body and its `std/tables` wiring are deleted. The doc-16 "they will
+  wrap it" verdict for sending flips to "reach for it".
+- **convenience import-discoverability (P6 dissolved)** — "the pipeline
+  combinators require an explicit `import jmap_client/convenience` … the headline
+  import alone cannot reach `addEmailQueryThenGet` / `getBoth`"
+  (convenience:import-discoverability) + the whole `### convenience` section →
+  RESOLVED by dissolution, not by a new symbol. The P6 quarantine is retired:
+  `addEmailQueryThenGet` / `addEmailChangesToGet` / `getBoth` are now part of the
+  always-on hub, surfaced through the single `import jmap_client` (the
+  `jmap_client/convenience` module no longer exists). `commands/email_sync.nim`
+  reaches the changes combinator through the plain hub import with no second
+  import; the `email query --one-shot` path uses the `queryEmails` one-shot that
+  wraps the same machinery. The discoverability cost the quarantine bought is
+  gone, and `check-public-only.sh` still passes — an import of the deleted module
+  would not even compile.
+
+What S4 did NOT change (the honest parking lot):
+
+- the standing `parseUnsignedInt(N).get()` no-int-literal seal still mints every
+  `UnsignedInt` (the query `limit`, the body-fetch cap); the one-shots take the
+  already-minted value, so the seal rides along unchanged — the same standing
+  note S2/S3 recorded, not an S4 regression.
+- the `EmailLeaf` / `leafTextParts` naming and the per-part body-value read
+  remain exactly as S3 shipped them; no S4 rename. Triage parking-lot items.
+- **Email/set has no write one-shot.** `email flag` (`commands/email_flag.nim`)
+  and `email move` (`commands/email_move.nim`) keep the `initEmailUpdateSet` ->
+  `parseNonEmptyEmailUpdates` -> `addEmailSet` triple-seal, and vacation set
+  (`commands/vacation.nim` doSet) keeps its by-value update-set wiring; all three
+  still iterate the `Table[Id, Result[Opt[U], SetError]]` `updateResults`, so
+  their `std/tables` imports stay. An `addEmailUpdate`-style write one-shot is the
+  obvious next combinator but is outside S4's connect/read/send scope.
+- the search compound (`addEmailQueryWithSnippets`, `commands/search.nim`) has no
+  one-shot — it is already the API's ergonomic best and is left hand-wired by
+  choice (its dispatch envelope is a single `getBoth`).
+- the snapshot-integrity freeze-blocker (the frozen `public-api.txt` omits the
+  lifecycle bookends) is untouched and remains its own track.
+
+API-gap findings surfaced by the S4 re-bench (where a one-shot did NOT fit a
+command): the Email/set write path (flag/move/vacation-set) has no one-shot to
+adopt; the search snippet compound has none; and the default `email query`
+back-reference path is left hand-wired by design (the partial-get FieldEcho
+demonstration is not reachable through `queryEmails`). None block a command —
+each compiles and round-trips through the hub — they mark where the next
+combinator (an Email/set write one-shot, a query-then-snippets one-shot) would go.
