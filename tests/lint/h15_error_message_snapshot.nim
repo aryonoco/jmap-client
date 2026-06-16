@@ -4,7 +4,7 @@
 ## H15 error-message snapshot lock lint.
 ##
 ## Verifies that the canonical ``message()`` projection over the
-## 41 representative error values matches the locked snapshot
+## 42 representative error values matches the locked snapshot
 ## committed at ``tests/wire_contract/error-messages.txt`` exactly.
 ##
 ## Bidirectional:
@@ -32,7 +32,7 @@ const
   SnapshotRel = "tests/wire_contract/error-messages.txt"
 
 proc samples(): seq[(string, string)] =
-  ## Inline declaration of the 41 (label, projected message) pairs in the
+  ## Inline declaration of the 42 (label, projected message) pairs in the
   ## same order as ``scripts/freeze_error_messages.nim``. Keeping the two
   ## listings byte-aligned is the source-of-truth contract; the lint
   ## fails loudly when they drift.
@@ -293,6 +293,14 @@ proc samples(): seq[(string, string)] =
     (
       "jmapProtocol(protocolMalformedError(parseMethodCallId(\"c0\").get()))",
       jmapProtocol(protocolMalformedError(parseMethodCallId("c0").get())).message,
+    )
+  )
+  result.add(
+    (
+      "jmapMethod(methodFault(mnEmailGet, methodError(\"serverFail\", Opt.some(\"internal error\"))))",
+      jmapMethod(
+        methodFault(mnEmailGet, methodError("serverFail", Opt.some("internal error")))
+      ).message,
     )
   )
 

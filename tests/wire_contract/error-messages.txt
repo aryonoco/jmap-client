@@ -95,3 +95,5 @@
   no response for call ID c0
 [jmapProtocol(protocolMalformedError(parseMethodCallId("c0").get()))]
   malformed error response for call ID c0
+[jmapMethod(methodFault(mnEmailGet, methodError("serverFail", Opt.some("internal error"))))]
+  method Email/get failed: serverFail: internal error

@@ -33,8 +33,8 @@ import ./protocol/jmap_error
 import ./protocol/preflight
 
 export jmap_error except
-  jmapMisuse, jmapProtocol, misuse, protocolMissingCall, protocolMalformedError,
-  protocolDecode, methodValue, methodFailure
+  jmapMisuse, jmapProtocol, jmapMethod, misuse, methodFault, protocolMissingCall,
+  protocolMalformedError, protocolDecode, methodValue, methodFailure
 export preflight
 export entity
 export methods except

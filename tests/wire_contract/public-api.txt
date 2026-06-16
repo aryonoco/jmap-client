@@ -918,17 +918,21 @@ template registerSettableEntity (T: typedesc)
 ## jmap_client/internal/protocol/jmap_error
 func $ (err: JmapError): string
 func $ (m: Misuse): string
+func $ (mf: MethodFault): string
 func $ (p: ProtocolFault): string
 func $ (sf: SessionFault): string
 type JmapError
 type JmapErrorKind
 type JmapResult [T]
+type MethodFault
 type MethodOutcome [T]
 type MethodOutcomeKind
 type Misuse
 type ProtocolFault
 type ProtocolFaultKind
 type SessionFault
+func fulfil [T](outcome: MethodOutcome[T], methodName: MethodName): Result[T, JmapError]
+enumfield jeMethod
 enumfield jeMisuse
 enumfield jeProtocol
 enumfield jeRequest
@@ -943,6 +947,7 @@ func jmapValidation (violations: NonEmptySeq[ValidationError]): JmapError
 func lift [T; E](r: Result[T, E]): Result[T, JmapError]
 func message (err: JmapError): string
 func message (m: Misuse): string
+func message (mf: MethodFault): string
 func message (p: ProtocolFault): string
 func message (sf: SessionFault): string
 enumfield mokMethodError

@@ -41,7 +41,7 @@ L4 `{.push raises: [].}`, nimalyzer (`complexity ≤ 10`, `hasdoc`,
 
 | Task | Title | Status | Commit |
 |---|---|---|---|
-| 0 | `jeMethod` arm + `fulfil` + H15 lockstep | ☐ NOT STARTED | — |
+| 0 | `jeMethod` arm + `fulfil` + H15 lockstep | ✅ DONE (both gates: `just ci` ✅) | review-fix: `jmapMethod`/`methodFault` hub-private |
 | 1 | typed `emailId` forward-reference | ☐ NOT STARTED | — |
 | 2 | `EmailSubmissionSetSpec` + one total `addEmailSubmissionSet` | ☐ NOT STARTED | — |
 | 3 | dissolve the `convenience` quarantine | ☐ NOT STARTED | — |

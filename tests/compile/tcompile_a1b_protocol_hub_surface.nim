@@ -87,9 +87,11 @@ static:
   doAssert declared(JmapErrorKind)
   doAssert declared(MethodOutcome)
   doAssert declared(MethodOutcomeKind)
+  doAssert declared(fulfil)
   doAssert declared(SessionFault)
   doAssert declared(Misuse)
   doAssert declared(ProtocolFault)
+  doAssert declared(MethodFault)
   # identifiers.nim — BuilderId accessors stay public
   doAssert declared(clientBrand)
   doAssert declared(serial)
@@ -182,11 +184,13 @@ static:
   # producers (minted by dispatch, not by consumers) are hub-private.
   doAssert not declared(jmapMisuse)
   doAssert not declared(jmapProtocol)
+  doAssert not declared(jmapMethod)
   doAssert not declared(protocolMissingCall)
   doAssert not declared(protocolMalformedError)
   doAssert not declared(protocolDecode)
   doAssert not declared(methodValue)
   doAssert not declared(methodFailure)
+  doAssert not declared(methodFault)
   # B9 — the generic Chained* paired-handle plumbing was deleted; RFC 8620 §3.7
   # chains are bespoke records co-located with their builders, so the hub
   # exposes exactly the two compound paired-handle context types (P9).

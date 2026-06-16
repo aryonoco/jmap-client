@@ -830,6 +830,8 @@
     misuse*: Misuse
   of jeProtocol:
     protocol*: ProtocolFault
+  of jeMethod:
+    methodFault*: MethodFault
 
 ## JmapErrorKind [jmap_client/internal/protocol/jmap_error]
   jeValidation
@@ -838,6 +840,7 @@
   jeSession
   jeMisuse
   jeProtocol
+  jeMethod
 
 ## JmapInt [jmap_client/internal/types/primitives]
 
@@ -1022,6 +1025,10 @@
   metFromAccountNotFound = "fromAccountNotFound"
   metFromAccountNotSupportedByMethod = "fromAccountNotSupportedByMethod"
   metUnknown
+
+## MethodFault [jmap_client/internal/protocol/jmap_error]
+  methodName*: MethodName
+  error*: MethodError
 
 ## MethodName [jmap_client/internal/types/methods_enum]
   mnUnknown

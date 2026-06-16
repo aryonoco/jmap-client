@@ -2,11 +2,12 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## The single consumer-facing error rail (P13). ``JmapError`` is a flat
-## six-arm sum covering every way a JMAP *call* can fail at the call level:
+## seven-arm sum covering every way a JMAP *call* can fail at the call level:
 ## invalid client input, transport failure, whole-request rejection, an
-## absent session capability, consumer misuse, or a malformed server
-## response. The whole ``freeze -> send -> get`` pipeline returns this one
-## type, so it composes under a single ``?``.
+## absent session capability, consumer misuse, a malformed server response,
+## or a single method's collapsed one-shot error. The whole
+## ``freeze -> send -> get`` pipeline returns this one type, so it composes
+## under a single ``?``.
 ##
 ## The arms fold the five former call-path rails: ``jeValidation`` (was
 ## ``ValidationError`` / ``seq[ValidationError]`` / ``EmailBlueprintErrors``),
@@ -19,7 +20,10 @@
 ## (§5.3) are **response data**, not rail errors: they ride the ok branch via
 ## ``MethodOutcome[T]`` and ``SetResponse`` respectively, so a method erroring
 ## never discards its successful siblings. Mirrors SQLite's row-status code vs
-## column data, and libcurl's perform code vs per-transfer ``CURLMsg``.
+## column data, and libcurl's perform code vs per-transfer ``CURLMsg``. A
+## single-method one-shot, with no sibling to protect, may instead collapse
+## its outcome onto the rail via ``fulfil`` (the ``jeMethod`` arm) — a caller
+## convenience, not a reclassification of §3.6.2's data semantics.
 ##
 ## L1 smart constructors stay on their pure ``ValidationError`` rail; the leaf
 ## rails fold into ``JmapError`` once, at the boundary, via ``toJmapError`` and
@@ -39,6 +43,7 @@ import ../types/validation
 import ../types/primitives
 import ../types/identifiers
 import ../types/capabilities
+import ../types/methods_enum
 import ../types/errors
 import ../serialisation/serde
 import ../serialisation/serde_diagnostics
@@ -161,12 +166,33 @@ func `$`*(p: ProtocolFault): string =
   ## Delegates to ``message`` for the single canonical projection.
   p.message
 
+type MethodFault* = object
+  ## ``jeMethod`` payload (RFC 8620 §3.6.2). The single JMAP method whose
+  ## server-side execution returned a method-level error. A single-purpose
+  ## one-shot lifts it onto the rail — there is no sibling method whose result it
+  ## must preserve as data, so the data-on-the-ok-branch rule (which protects a
+  ## batch's other calls) does not apply here.
+  methodName*: MethodName
+  error*: MethodError
+
+func methodFault*(methodName: MethodName, error: MethodError): MethodFault =
+  ## Constructs a ``MethodFault``.
+  MethodFault(methodName: methodName, error: error)
+
+func message*(mf: MethodFault): string =
+  ## Human-readable diagnostic — reads "method Email/get failed: <error>".
+  "method " & $mf.methodName & " failed: " & mf.error.message
+
+func `$`*(mf: MethodFault): string =
+  ## Delegates to ``message`` for the single canonical projection.
+  mf.message
+
 # =============================================================================
 # JmapError — the one consumer rail
 # =============================================================================
 
 type JmapErrorKind* = enum
-  ## Discriminator for ``JmapError`` — the six ways a JMAP call fails at the
+  ## Discriminator for ``JmapError`` — the seven ways a JMAP call fails at the
   ## call level. Additive: a new arm forces a compile error at every
   ## exhaustive ``case`` (here and in any FFI projection), never a silent gap.
   jeValidation ## client-supplied input was invalid (construction)
@@ -175,6 +201,7 @@ type JmapErrorKind* = enum
   jeSession ## an expected session capability is absent
   jeMisuse ## a programming bug — a handle from a different builder was applied
   jeProtocol ## the server's response was malformed or did not conform
+  jeMethod ## a single method returned a server method-level error (one-shot path)
 
 type JmapError* = object
   ## The single error rail for the public pipeline. Flat top-level arms (not a
@@ -194,6 +221,8 @@ type JmapError* = object
     misuse*: Misuse
   of jeProtocol:
     protocol*: ProtocolFault
+  of jeMethod:
+    methodFault*: MethodFault
 
 func jmapValidation*(violation: ValidationError): JmapError =
   ## Lifts a single construction failure onto the rail. ``@[violation]`` has
@@ -225,6 +254,12 @@ func jmapProtocol*(protocol: ProtocolFault): JmapError =
   ## Lifts a malformed-response fault onto the rail.
   JmapError(kind: jeProtocol, protocol: protocol)
 
+func jmapMethod*(fault: MethodFault): JmapError =
+  ## Lifts a single method's server-level error onto the rail (the one-shot
+  ## fail-fast path). The structured ``get`` / ``getBoth`` keep it as data
+  ## (RFC 8620 §3.6.2).
+  JmapError(kind: jeMethod, methodFault: fault)
+
 func message*(err: JmapError): string =
   ## Canonical human-readable diagnostic. Exhaustive over ``JmapErrorKind`` —
   ## adding an arm forces a compile error here. The validation arm joins every
@@ -245,6 +280,8 @@ func message*(err: JmapError): string =
     err.misuse.message
   of jeProtocol:
     err.protocol.message
+  of jeMethod:
+    err.methodFault.message
 
 func `$`*(err: JmapError): string =
   ## Delegates to ``message`` for the single canonical projection.
@@ -318,3 +355,17 @@ func methodValue*[T](value: T): MethodOutcome[T] =
 func methodFailure*[T](error: MethodError): MethodOutcome[T] =
   ## The server reported a method-level error; preserved verbatim as data.
   MethodOutcome[T](kind: mokMethodError, error: error)
+
+func fulfil*[T](
+    outcome: MethodOutcome[T], methodName: MethodName
+): Result[T, JmapError] =
+  ## Collapses a single method's outcome onto the one rail: the value on
+  ## ``mokValue``; a ``jeMethod`` fault on ``mokMethodError``. The fail-fast
+  ## counterpart to reading ``MethodOutcome`` directly — for callers that issued
+  ## a single method and want a flat result. ``get`` / ``getBoth`` / ``getAll``
+  ## are unchanged: a batch keeps method errors as data (RFC 8620 §3.6.2).
+  case outcome.kind
+  of mokValue:
+    ok(outcome.value)
+  of mokMethodError:
+    err(jmapMethod(methodFault(methodName, outcome.error)))
