@@ -337,14 +337,18 @@ writes that wrapper, which is precisely the P7 smell. With it, jmap-client
 would be a library a competent developer reaches for directly.
 
 **S4 update.** That wrapper is now the library's, not the consumer's.
-`sendPlainText(client, accountId, identityId, draftMailbox, sentMailbox,
-fromAddr, to, subject, body, cc, bcc)` is the one call for the §7.5.1 send: it
-builds the inline text/plain body (the S3 `plainTextBody`), files the draft in
-Drafts with `$draft`, references it from the submission through the typed
-`creationRef` forward-reference (the `#`-smuggle is internal and never seen),
-wires the onSuccess Drafts → Sent move (RFC 8621 §7.5 ¶3), and returns a flat
-`SentEmail{emailId, submissionId}` on the one rail — the implicit move is the
-server's best-effort step (§7.5 ¶3) and does not gate success. The bench's
+`sendPlainText(client, accountId, identityId, mailboxes, message)` — where
+`mailboxes` is a `SendMailboxes{drafts, sent}` and `message` a
+`PlainTextMessage{fromAddr, to, subject, body, cc, bcc}` — is the one call for
+the §7.5.1 send: it builds the inline text/plain body (the S3 `plainTextBody`),
+files the draft in Drafts with `$draft`, references it from the submission
+through the typed `creationRef` forward-reference (the `#`-smuggle is internal
+and never seen), wires the onSuccess Drafts → Sent move, and returns a flat
+`SentEmail{emailId, submissionId}` on the one rail. RFC 8621 §7.5 ¶3 mandates
+the implicit Email/set unconditionally; in observed server behaviour (Stalwart /
+Cyrus / James) it is returned only when an onSuccess* change was requested, so
+the library does not consume it and it does not gate send success — the bundled
+records also make the Drafts↔Sent pair un-swappable at the call site. The bench's
 `email send` now resolves only the three ids an app actually chooses — the From
 identity via `getIdentities`, the Drafts and Sent ids via `getMailboxes` +
 `hasRole(mrDrafts)` / `hasRole(mrSent)` — and calls `sendPlainText`; the whole

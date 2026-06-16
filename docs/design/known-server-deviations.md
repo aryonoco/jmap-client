@@ -90,6 +90,25 @@ here — only the kept divergences are.
   violation. (A future enhancement could add client-side context validation for
   earlier error detection; it is not required for conformance.)
 
+## 6. Implicit `Email/set` after `EmailSubmission/set` modelled as conditional
+
+- **RFC:** RFC 8621 §7.5 ¶3 — after the `EmailSubmission/set` items are
+  processed, *a single implicit `Email/set` call `MUST` be made* and its
+  response `MUST` be returned, with no stated condition on the call's presence.
+- **Code:** `EmailSubmissionHandles.implicit : Opt[NameBoundHandle[...]]`
+  (`mail/submission_builders.nim`) — the §5.4 implicit handle is present only
+  when the spec carried an `onSuccessUpdateEmail` / `onSuccessDestroyEmail`, and
+  `getBoth` is total over its absence.
+- **Why kept:** in observed server behaviour (Stalwart / Cyrus / Apache James)
+  the implicit `Email/set` response is returned only when an `onSuccess*`
+  argument requested a change — the baseline fixtures return just
+  `EmailSubmission/set`, the on-success fixtures return both. Reading §7.5 ¶3's
+  *"to perform any changes requested in these two arguments"* as the operative
+  condition, the library models the implicit handle as `Opt` and stays liberal
+  on receive rather than demanding the unconditional response the literal `MUST`
+  describes. This is receive-only — the client still *sends* the `onSuccess*`
+  arguments per the RFC; only its expectation of the response is relaxed.
+
 ---
 
 *Each entry is the considered, documented choice. Revisit an entry if a target

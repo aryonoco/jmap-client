@@ -214,12 +214,13 @@ testCase oneShotSendPlainTextSuccess:
   let r = client.sendPlainText(
     accountId = makeAccountId("a1"),
     identityId = makeId("ident-1"),
-    draftMailbox = makeId("mb-drafts"),
-    sentMailbox = makeId("mb-sent"),
-    fromAddr = "alice@example.com",
-    to = @["bob@example.com"],
-    subject = "Hi",
-    body = "Hello, Bob.",
+    mailboxes = SendMailboxes(drafts: makeId("mb-drafts"), sent: makeId("mb-sent")),
+    message = PlainTextMessage(
+      fromAddr: "alice@example.com",
+      to: @["bob@example.com"],
+      subject: "Hi",
+      body: "Hello, Bob.",
+    ),
   )
   assertOk r
   let sent = r.get()
@@ -244,13 +245,14 @@ testCase oneShotSendPlainTextRequestShape:
   discard client.sendPlainText(
     accountId = makeAccountId("a1"),
     identityId = makeId("ident-1"),
-    draftMailbox = makeId("mb-drafts"),
-    sentMailbox = makeId("mb-sent"),
-    fromAddr = "alice@example.com",
-    to = @["bob@example.com", "carol@example.com"],
-    subject = "Hi",
-    body = "Hello.",
-    cc = @["dave@example.com"],
+    mailboxes = SendMailboxes(drafts: makeId("mb-drafts"), sent: makeId("mb-sent")),
+    message = PlainTextMessage(
+      fromAddr: "alice@example.com",
+      to: @["bob@example.com", "carol@example.com"],
+      subject: "Hi",
+      body: "Hello.",
+      cc: @["dave@example.com"],
+    ),
   )
   let reqBody = parseJson(recorder.lastRequest.body)
   let calls = reqBody{"methodCalls"}
@@ -325,12 +327,13 @@ testCase oneShotSendPlainTextDraftSetError:
   let r = client.sendPlainText(
     accountId = makeAccountId("a1"),
     identityId = makeId("ident-1"),
-    draftMailbox = makeId("mb-drafts"),
-    sentMailbox = makeId("mb-sent"),
-    fromAddr = "alice@example.com",
-    to = @["bob@example.com"],
-    subject = "Hi",
-    body = "Hello, Bob.",
+    mailboxes = SendMailboxes(drafts: makeId("mb-drafts"), sent: makeId("mb-sent")),
+    message = PlainTextMessage(
+      fromAddr: "alice@example.com",
+      to: @["bob@example.com"],
+      subject: "Hi",
+      body: "Hello, Bob.",
+    ),
   )
   doAssert r.isErr, "a refused draft create must surface on the rail"
   doAssert r.error.kind == jeSet, "a refused create collapses onto jeSet"
@@ -345,12 +348,13 @@ testCase oneShotSendPlainTextAbsentDraftCreate:
   let r = client.sendPlainText(
     accountId = makeAccountId("a1"),
     identityId = makeId("ident-1"),
-    draftMailbox = makeId("mb-drafts"),
-    sentMailbox = makeId("mb-sent"),
-    fromAddr = "alice@example.com",
-    to = @["bob@example.com"],
-    subject = "Hi",
-    body = "Hello, Bob.",
+    mailboxes = SendMailboxes(drafts: makeId("mb-drafts"), sent: makeId("mb-sent")),
+    message = PlainTextMessage(
+      fromAddr: "alice@example.com",
+      to: @["bob@example.com"],
+      subject: "Hi",
+      body: "Hello, Bob.",
+    ),
   )
   doAssert r.isErr, "an absent draft create must surface on the rail"
   doAssert r.error.kind == jeProtocol, "an absent create is a protocol fault"

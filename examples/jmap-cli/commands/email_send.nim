@@ -71,13 +71,11 @@ proc sendEmail(toAddress, subject, bodyText: string): JmapResult[int] =
   # onto the rail; `to`/`cc`/`bcc` are seqs (cc/bcc default empty).
   let sent = ?ctx.client.sendPlainText(
     ctx.mailAccount,
-    identityId = identityId,
-    draftMailbox = draftsId,
-    sentMailbox = sentId,
-    fromAddr = fromEmail,
-    to = @[toAddress],
-    subject = subject,
-    body = bodyText,
+    identityId,
+    SendMailboxes(drafts: draftsId, sent: sentId),
+    PlainTextMessage(
+      fromAddr: fromEmail, to: @[toAddress], subject: subject, body: bodyText
+    ),
   )
   echo "sent ", $sent.emailId, "  (submission ", $sent.submissionId, ")"
   ok(0)

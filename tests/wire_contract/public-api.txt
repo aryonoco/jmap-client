@@ -881,7 +881,9 @@ enumfield vruSetToDate
 func wireName (p: VacationResponseGetProperty): string
 
 ## jmap_client/internal/one_shot
+type PlainTextMessage
 type QueryThenGet [T]
+type SendMailboxes
 type SentEmail
 proc connect (url, username, password: string): Result[JmapClient, JmapError]
 proc connect (url, username, password: string, transport: Transport): Result[JmapClient, JmapError]
@@ -894,7 +896,7 @@ proc getVacationResponse (client: JmapClient, accountId: AccountId): Result[GetR
 proc queryEmailSubmissions (client: JmapClient, accountId: AccountId, filter: Opt[Filter[EmailSubmissionFilterCondition]] = Opt.none(Filter[EmailSubmissionFilterCondition]), sort: Opt[seq[EmailSubmissionComparator]] = Opt.none(seq[EmailSubmissionComparator]), queryParams: QueryParams = QueryParams()): Result[QueryThenGet[AnyEmailSubmission], JmapError]
 proc queryEmails (client: JmapClient, accountId: AccountId, filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]), sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]), queryParams: QueryParams = QueryParams(), collapseThreads: bool = false, bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): Result[QueryThenGet[Email], JmapError]
 proc queryMailboxes (client: JmapClient, accountId: AccountId, filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]), sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]), queryParams: QueryParams = QueryParams(), sortAsTree: bool = false, filterAsTree: bool = false): Result[QueryThenGet[Mailbox], JmapError]
-proc sendPlainText (client: JmapClient, accountId: AccountId, identityId: Id, draftMailbox: Id, sentMailbox: Id, fromAddr: string, to: seq[string], subject: string, body: string, cc: seq[string] = @[], bcc: seq[string] = @[]): Result[SentEmail, JmapError]
+proc sendPlainText (client: JmapClient, accountId: AccountId, identityId: Id, mailboxes: SendMailboxes, message: PlainTextMessage): Result[SentEmail, JmapError]
 
 ## jmap_client/internal/protocol/builder
 type BuiltRequest

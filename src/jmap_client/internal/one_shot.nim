@@ -228,6 +228,23 @@ proc queryEmailSubmissions*(
 # (RFC 8621 §7.5/§7.5.1, RFC 8620 §5.3/§5.4)
 # =============================================================================
 
+type SendMailboxes* {.ruleOff: "objects".} = object
+  ## The Drafts and Sent mailboxes for a send: the draft is created in ``drafts``
+  ## and, on a successful submission, moved to ``sent`` (RFC 8621 §7.5.1).
+  drafts*: Id
+  sent*: Id
+
+type PlainTextMessage* {.ruleOff: "objects".} = object
+  ## The content of a plain-text message for ``sendPlainText``. Addresses are
+  ## strings, parsed onto the rail by ``sendPlainText`` (RFC 5321 envelope +
+  ## RFC 8621 §4.1.2 headers). ``cc`` / ``bcc`` default to empty.
+  fromAddr*: string
+  to*: seq[string]
+  subject*: string
+  body*: string
+  cc*: seq[string]
+  bcc*: seq[string]
+
 type SentEmail* = object
   ## Server-assigned ids from a successful ``sendPlainText`` — the sent message
   ## and its EmailSubmission record (RFC 8621 §7.5).
@@ -263,47 +280,49 @@ func buildEnvelope(
   ok(Envelope(mailFrom: reversePath(fromSa), rcptTo: rcptList))
 
 func buildDraftBlueprint(
-    draftMailbox: Id, fromAddr: string, to, cc, bcc: seq[string], subject, body: string
+    draftMailbox: Id, message: PlainTextMessage
 ): Result[EmailBlueprint, JmapError] =
   ## Builds the draft Email filed in Drafts with the ``$draft`` keyword and a
   ## single inline text/plain body (RFC 8621 §4.6, §7.5.1).
   let mboxIds = ?parseNonEmptyMailboxIdSet(@[draftMailbox]).lift
-  let fromA = ?parseEmailAddress(fromAddr).lift
-  let toList = ?emailAddrList(to)
-  let ccList = ?emailAddrList(cc)
-  let bccList = ?emailAddrList(bcc)
+  let fromA = ?parseEmailAddress(message.fromAddr).lift
+  let toList = ?emailAddrList(message.to)
+  let ccList = ?emailAddrList(message.cc)
+  let bccList = ?emailAddrList(message.bcc)
   let bp = ?parseEmailBlueprint(
     mailboxIds = mboxIds,
-    body = plainTextBody(body),
+    body = plainTextBody(message.body),
     keywords = initKeywordSet(@[kwDraft]),
     fromAddr = Opt.some(@[fromA]),
     to = toList,
     cc = ccList,
     bcc = bccList,
-    subject = Opt.some(subject),
+    subject = Opt.some(message.subject),
   ).lift
   ok(bp)
 
 func buildSubmissionBlueprint(
-    identityId: Id, draftCid: CreationId, fromAddr: string, to, cc, bcc: seq[string]
+    identityId: Id, draftCid: CreationId, message: PlainTextMessage
 ): Result[EmailSubmissionBlueprint, JmapError] =
   ## Builds the submission referencing the draft created in the same /set via a
   ## creation reference (RFC 8620 §5.3), with the §7 envelope.
-  let env = ?buildEnvelope(fromAddr, to & cc & bcc)
+  let env = ?buildEnvelope(message.fromAddr, message.to & message.cc & message.bcc)
   let bp = ?parseEmailSubmissionBlueprint(
     identityId = identityId, emailId = creationRef(draftCid), envelope = Opt.some(env)
   ).lift
   ok(bp)
 
 func buildSendSpec(
-    subCid: CreationId, subBp: EmailSubmissionBlueprint, draftMailbox, sentMailbox: Id
+    subCid: CreationId, subBp: EmailSubmissionBlueprint, mailboxes: SendMailboxes
 ): Result[EmailSubmissionSetSpec, JmapError] =
   ## Builds the EmailSubmission/set spec whose ``onSuccessUpdateEmail`` (keyed
   ## by the submission's creation reference) moves the draft out of Drafts into
   ## Sent and drops ``$draft`` once the send succeeds (RFC 8621 §7.5 ¶3).
   let upd = ?initEmailUpdateSet(
     @[
-      removeFromMailbox(draftMailbox), addToMailbox(sentMailbox), removeKeyword(kwDraft)
+      removeFromMailbox(mailboxes.drafts),
+      addToMailbox(mailboxes.sent),
+      removeKeyword(kwDraft),
     ]
   ).lift
   let onSucc = ?parseNonEmptyOnSuccessUpdateEmail(@[(creationRef(subCid), upd)]).lift
@@ -338,27 +357,22 @@ proc sendPlainText*(
     client: JmapClient,
     accountId: AccountId,
     identityId: Id,
-    draftMailbox: Id,
-    sentMailbox: Id,
-    fromAddr: string,
-    to: seq[string],
-    subject: string,
-    body: string,
-    cc: seq[string] = @[],
-    bcc: seq[string] = @[],
+    mailboxes: SendMailboxes,
+    message: PlainTextMessage,
 ): Result[SentEmail, JmapError] =
   ## One-call plain-text send (RFC 8621 §7.5.1). In a single request: create a
-  ## draft in ``draftMailbox`` with the ``$draft`` keyword and an inline
+  ## draft in ``mailboxes.drafts`` with the ``$draft`` keyword and an inline
   ## text/plain body, then submit it from ``identityId``; on success the server
-  ## moves the message into ``sentMailbox`` and drops ``$draft`` (RFC 8621
+  ## moves the message into ``mailboxes.sent`` and drops ``$draft`` (RFC 8621
   ## §7.5 ¶3, RFC 8620 §5.3/§5.4). Addresses are taken as strings and parsed
-  ## internally onto the rail — ``fromAddr``/``to``/``cc``/``bcc`` populate the
-  ## Email headers, and their RFC 5321 forms populate the submission envelope.
+  ## internally onto the rail — ``message.fromAddr``/``to``/``cc``/``bcc``
+  ## populate the Email headers, and their RFC 5321 forms populate the
+  ## submission envelope.
   let draftCid = ?parseCreationId("draft").lift
   let subCid = ?parseCreationId("sub").lift
-  let draftBp = ?buildDraftBlueprint(draftMailbox, fromAddr, to, cc, bcc, subject, body)
-  let subBp = ?buildSubmissionBlueprint(identityId, draftCid, fromAddr, to, cc, bcc)
-  let spec = ?buildSendSpec(subCid, subBp, draftMailbox, sentMailbox)
+  let draftBp = ?buildDraftBlueprint(mailboxes.drafts, message)
+  let subBp = ?buildSubmissionBlueprint(identityId, draftCid, message)
+  let spec = ?buildSendSpec(subCid, subBp, mailboxes)
 
   var emailCreate = initTable[CreationId, EmailBlueprint]()
   emailCreate[draftCid] = draftBp

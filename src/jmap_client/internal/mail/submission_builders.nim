@@ -117,11 +117,14 @@ func addEmailSubmissionQueryChanges*(
 func addEmailSubmissionSet*(
     b: sink RequestBuilder, accountId: AccountId, spec: EmailSubmissionSetSpec
 ): (RequestBuilder, EmailSubmissionHandles) =
-  ## EmailSubmission/set (RFC 8621 §7.5). The implicit Email/set the server runs
-  ## after the submission (§7.5 ¶3) is surfaced through ``handles.implicit`` —
-  ## an outcome when the spec's onSuccess* drove a change, ``Opt.none`` at
-  ## extraction otherwise. Total: the spec proved the RFC 8620 §5.3
-  ## cross-reference at construction.
+  ## EmailSubmission/set (RFC 8621 §7.5). RFC 8621 §7.5 ¶3 has the server make a
+  ## single implicit Email/set after the submission "to perform any changes
+  ## requested in these two arguments"; in observed server behaviour (Stalwart /
+  ## Cyrus / Apache James) that response is returned only when an onSuccess*
+  ## argument requested a change. The implicit Email/set is therefore surfaced
+  ## through ``handles.implicit`` as an outcome when the spec carried an
+  ## onSuccess*, ``Opt.none`` at extraction otherwise. Total: the spec proved the
+  ## RFC 8620 §5.3 cross-reference at construction.
   let req = SetRequest[
     AnyEmailSubmission, EmailSubmissionBlueprint, NonEmptyEmailSubmissionUpdates
   ](
@@ -144,10 +147,12 @@ func addEmailSubmissionSet*(
     setMeta(spec.create, spec.update, spec.destroy),
   )
   let brand = b1.builderId
-  # RFC 8621 §7.5 ¶3: the server runs the implicit Email/set only when the
-  # request carried an onSuccess* extension. The implicit handle is present
-  # iff one was requested, so a simple submission yields a ``none`` implicit
-  # and ``getBoth`` stays total over its absence (RFC 8620 §5.4).
+  # RFC 8621 §7.5 ¶3 mandates a single implicit Email/set "to perform any
+  # changes requested in these two arguments"; in observed server behaviour
+  # (Stalwart / Cyrus / Apache James) the response is returned only when an
+  # onSuccess* argument requested a change. The implicit handle is therefore
+  # present iff one was requested, so a simple submission yields a ``none``
+  # implicit and ``getBoth`` stays total over its absence (RFC 8620 §5.4).
   let implicitRequested =
     spec.onSuccessUpdateEmail.isSome or spec.onSuccessDestroyEmail.isSome
   let implicit =

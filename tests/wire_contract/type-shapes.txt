@@ -1243,6 +1243,14 @@
   pspSubject = "subject"
   pspSentAt = "sentAt"
 
+## PlainTextMessage [jmap_client/internal/one_shot]
+  fromAddr*: string
+  to*: seq[string]
+  subject*: string
+  body*: string
+  cc*: seq[string]
+  bcc*: seq[string]
+
 ## PropertyName [jmap_client/internal/types/framework]
 
 ## ProtocolFault [jmap_client/internal/protocol/jmap_error]
@@ -1357,6 +1365,10 @@
   accountId*: AccountId
   list*: seq[SearchSnippet]
   notFound*: seq[Id]
+
+## SendMailboxes [jmap_client/internal/one_shot]
+  drafts*: Id
+  sent*: Id
 
 ## SendProc [jmap_client/internal/transport]
   proc (req: HttpRequest): Result[HttpResponse, TransportError] {.closure, raises: [].}

@@ -322,11 +322,11 @@ RFC 8620/8621 entity area exercised at least once, including the
 | Email/query + back-ref | `email query` | `addEmailQuery` + `reference` + `addPartialEmailGet` |
 | Email/get (full) | `email read` | `addEmailGet` (+ body values) |
 | Email/set (update) | `email flag`, `email move` | `addEmailSet(update=)` |
-| Email/set (create) | `email send` | `addEmailSet(create=)` |
+| Email/set (create) | `email send` | `sendPlainText` (draft create, internal `addEmailSet(create=)`) |
 | Email/changes | `email sync` | `addEmailChangesToGet` (convenience) |
 | Thread | `thread show` | `addThreadGet` |
 | Identity | `identity list` | `addIdentityGet` |
-| EmailSubmission | `email send` | `addEmailSubmissionAndEmailSet` (+ onSuccess) |
+| EmailSubmission | `email send` | `sendPlainText` (submission + onSuccess Drafts → Sent move) |
 | VacationResponse (get/set) | `vacation` | `addVacationResponseGet`/`Set` |
 | SearchSnippet | `search` | `addEmailQueryWithSnippets` + `getBoth` |
 | Query-then-get / changes combinators | `email query --one-shot`, `email sync` | `queryEmails` (S4 one-shot wrapping `addEmailQueryThenGet`), `addEmailChangesToGet` |
