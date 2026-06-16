@@ -93,11 +93,13 @@ type NonEmptyEmailImportMap
 type ParsedEmail
 type PartialEmail
 type PlainSortProperty
+func bodyValue (e: Email, pid: PartId): Opt[EmailBodyValue]
 enumfield bvsAll
 enumfield bvsHtml
 enumfield bvsNone
 enumfield bvsText
 enumfield bvsTextAndHtml
+func decodedTextBody (e: Email): Opt[string]
 const ebpBlobId : EmailBodyProperty
 const ebpCharset : EmailBodyProperty
 const ebpCid : EmailBodyProperty
@@ -194,6 +196,7 @@ func kind (p: EmailGetProperty): EmailGetPropertyKind
 enumfield kspAllInThreadHaveKeyword
 enumfield kspHasKeyword
 enumfield kspSomeInThreadHaveKeyword
+iterator leafTextParts (e: Email): EmailBodyPart
 func parseEmailBodyProperty (raw: string): Result[EmailBodyProperty, ValidationError]
 func parseEmailGetProperty (raw: string): Result[EmailGetProperty, ValidationError]
 func plainComparator (property: PlainSortProperty, direction: SortDirection = sdServerDefault, collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm)): EmailComparator
@@ -203,6 +206,8 @@ enumfield pspSentAt
 enumfield pspSize
 enumfield pspSubject
 enumfield pspTo
+func textBodies (): EmailBodyFetchOptions
+func textBodies (maxBytes: UnsignedInt): EmailBodyFetchOptions
 func toTable (m: NonEmptyEmailImportMap): Table[CreationId, EmailImportItem]
 func wireName (p: EmailBodyProperty): string
 func wireName (p: EmailGetProperty): string
@@ -241,6 +246,7 @@ func mailboxIds (bp: EmailBlueprint): NonEmptyMailboxIdSet
 func messageId (bp: EmailBlueprint): Opt[seq[string]]
 iterator pairs (a: BodyPartPath): (int, int)
 func parseEmailBlueprint (mailboxIds: NonEmptyMailboxIdSet, body: EmailBlueprintBody = flatBody(), keywords: KeywordSet = initKeywordSet(@[]), receivedAt: Opt[UTCDate] = Opt.none(UTCDate), fromAddr: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), to: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), cc: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), bcc: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), replyTo: Opt[seq[EmailAddress]] = Opt.none(seq[EmailAddress]), sender: Opt[EmailAddress] = Opt.none(EmailAddress), subject: Opt[string] = Opt.none(string), sentAt: Opt[Date] = Opt.none(Date), messageId: Opt[seq[string]] = Opt.none(seq[string]), inReplyTo: Opt[seq[string]] = Opt.none(seq[string]), references: Opt[seq[string]] = Opt.none(seq[string]), extraHeaders: Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue] = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()): Result[EmailBlueprint, NonEmptySeq[ValidationError]]
+func plainTextBody (text: string): EmailBlueprintBody
 func receivedAt (bp: EmailBlueprint): Opt[UTCDate]
 func references (bp: EmailBlueprint): Opt[seq[string]]
 func replyTo (bp: EmailBlueprint): Opt[seq[EmailAddress]]
@@ -571,11 +577,13 @@ type MailboxUpdateVariantKind
 type NonEmptyMailboxIdSet
 type NonEmptyMailboxUpdates
 type PartialMailbox
+func hasRole (mb: Mailbox, kind: MailboxRoleKind): bool
 func hash (p: MailboxGetProperty): Hash
 func hash (r: MailboxRole): Hash
 func identifier (r: MailboxRole): string
 func initMailboxIdSet (ids: openArray[Id]): MailboxIdSet
 func initMailboxUpdateSet (updates: openArray[MailboxUpdate]): Result[MailboxUpdateSet, NonEmptySeq[ValidationError]]
+func isInbox (mb: Mailbox): bool
 iterator items (ms: MailboxIdSet): Id
 func kind (p: MailboxGetProperty): MailboxGetPropertyKind
 func kind (r: MailboxRole): MailboxRoleKind
@@ -921,7 +929,6 @@ type Misuse
 type ProtocolFault
 type ProtocolFaultKind
 type SessionFault
-type SessionFaultKind
 enumfield jeMisuse
 enumfield jeProtocol
 enumfield jeRequest
@@ -943,9 +950,7 @@ enumfield mokValue
 enumfield pfDecode
 enumfield pfMalformedError
 enumfield pfMissingCall
-func sessionFault (kind: SessionFaultKind, capability: CapabilityKind): SessionFault
-enumfield sfCapabilityAbsent
-enumfield sfPrimaryAccountAbsent
+func sessionFault (capability: CapabilityKind): SessionFault
 func toJmapError (request: RequestError): JmapError
 func toJmapError (session: SessionFault): JmapError
 func toJmapError (transport: TransportError): JmapError
@@ -990,7 +995,9 @@ iterator updateFailures [T; U](r: SetResponse[T, U]): tuple[id: Id, error: SetEr
 iterator updated [T; U](r: SetResponse[T, U]): tuple[id: Id, serverEcho: Opt[U]]
 
 ## jmap_client/internal/protocol/preflight
-func requirePrimaryAccount (session: Session, kind: CapabilityKind): Result[AccountId, JmapError]
+func requireMail (session: Session): Result[AccountId, JmapError]
+func requireSubmission (session: Session): Result[AccountId, JmapError]
+func requireVacation (session: Session): Result[AccountId, JmapError]
 
 ## jmap_client/internal/push
 type PushChannel
@@ -1203,6 +1210,7 @@ enumfield foAnd
 enumfield foNot
 enumfield foOr
 func initAddedItem (id: Id, index: UnsignedInt): AddedItem
+func limit (count: UnsignedInt): QueryParams
 func operands [C](f: Filter[C]): seq[Filter[C]]
 func parseComparator (property: PropertyName, direction: SortDirection = sdServerDefault, collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm)): Comparator
 func parsePropertyName (raw: string): Result[PropertyName, ValidationError]

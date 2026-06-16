@@ -4,7 +4,7 @@
 ## `jmap-cli email query [--unread]` — query the Inbox (optionally unread
 ## only), newest-first, then back-reference the matching ids into a partial
 ## Email/get for id/sender/subject/preview. The Inbox is resolved by
-## fetching mailboxes and matching `role.kind == mrInbox`.
+## fetching mailboxes and matching `mb.isInbox` (the S3 role predicate).
 ##
 ## (`--via-convenience` selects the opt-in combinator path; this module also
 ## owns the hand-wired Email/query -> #ids -> Email/get back-reference.)
@@ -26,9 +26,8 @@ proc resolveInbox(ctx: CliContext): JmapResult[Opt[Id]] =
     ok(Opt.none(Id))
   of mokValue:
     for mb in outcome.value.list:
-      for role in mb.role: # Opt[MailboxRole] unwrap
-        if role.kind == mrInbox:
-          return ok(Opt.some(mb.id))
+      if mb.isInbox: # S3 predicate — replaces the role.kind == mrInbox idiom
+        return ok(Opt.some(mb.id))
     ok(Opt.none(Id))
 
 proc viaConvenience(ctx: CliContext, unreadOnly: bool): JmapResult[int] =
@@ -41,7 +40,7 @@ proc viaConvenience(ctx: CliContext, unreadOnly: bool): JmapResult[int] =
       Opt.some(filterCondition(EmailFilterCondition(notKeyword: Opt.some(kwSeen))))
     else:
       Opt.none(Filter[EmailFilterCondition])
-  let qp = QueryParams(limit: Opt.some(parseUnsignedInt(10).get()))
+  let qp = limit(parseUnsignedInt(10).get()) # S3 window helper, no field name / Opt wrap
   let (b, handles) = ctx.client.newBuilder().addEmailQueryThenGet(
       ctx.mailAccount, filter = filter, queryParams = qp
     )
@@ -75,7 +74,7 @@ proc queryInbox(ctx: CliContext, unreadOnly: bool): JmapResult[int] =
     cond.notKeyword = Opt.some(kwSeen) # kwSeen: hub-reachable Keyword const
   let filter = filterCondition(cond)
   let sort = @[plainComparator(pspReceivedAt, sdDescending)]
-  let qp = QueryParams(limit: Opt.some(parseUnsignedInt(20).get()))
+  let qp = limit(parseUnsignedInt(20).get()) # S3 window helper, no field name / Opt wrap
 
   let (b1, queryH) = ctx.client.newBuilder().addEmailQuery(
       ctx.mailAccount,

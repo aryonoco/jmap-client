@@ -142,3 +142,9 @@ type QueryParams* = object
   anchorOffset*: JmapInt ## default 0
   limit*: Opt[UnsignedInt] ## default: absent
   calculateTotal*: bool ## default false
+
+func limit*(count: UnsignedInt): QueryParams =
+  ## A ``QueryParams`` window limited to ``count`` results (RFC 8620 §5.5).
+  ## ``addEmailQuery(b, acc, queryParams = limit(n))`` replaces
+  ## ``QueryParams(limit: Opt.some(n))`` — no field name, no ``Opt`` wrap.
+  QueryParams(limit: Opt.some(count))

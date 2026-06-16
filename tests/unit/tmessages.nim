@@ -139,7 +139,7 @@ testCase tJmapErrorValidationArm:
   doAssert je.message == "AccountId: contains control characters"
 
 testCase tSessionFaultMessage:
-  let sf = sessionFault(sfCapabilityAbsent, ckMail)
+  let sf = sessionFault(ckMail)
   doAssert sf.message ==
     "session does not advertise the urn:ietf:params:jmap:mail capability"
   doAssert jmapSession(sf).message == sf.message

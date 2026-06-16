@@ -10,7 +10,7 @@
 ##
 ## With the unified rail the whole probe threads one ``JmapError`` on a single
 ## ``?``: the two smart constructors take one ``.lift`` each; ``initJmapClient``,
-## ``fetchSession``, ``requirePrimaryAccount`` and ``send`` thread bare.
+## ``fetchSession``, ``requireMail`` and ``send`` thread bare.
 
 import std/os
 import jmap_client
@@ -32,10 +32,11 @@ proc connectAndProbe(sessionUrl, user, pass: string): JmapResult[int] =
   echo "connected as: ", session.username
   echo "api url:      ", session.apiUrl
 
-  # 5. Capability pre-flight + primary mail account in one rail step:
-  #    requirePrimaryAccount resolves ckMail's primary account or fails with a
-  #    jeSession fault — no hand-rolled Opt unwrap, no fabricated string.
-  let mailAccount = ?session.requirePrimaryAccount(ckMail)
+  # 5. Capability pre-flight + mail account in one rail step: requireMail (the
+  #    S3 sugar) resolves the JMAP Mail account, primary-preferred with a
+  #    per-account fallback (RFC 8620 §2), or fails with a jeSession fault — no
+  #    ckMail enum to discover, no hand-rolled Opt unwrap, no fabricated string.
+  let mailAccount = ?session.requireMail()
   echo "mail account: ", $mailAccount
 
   # 6. Surface a few core limits. ``core`` is a direct public field of the

@@ -48,32 +48,22 @@ import ../serialisation/serde_diagnostics
 # strictCaseObjects Rule 4 never bites at the JmapError level)
 # =============================================================================
 
-type SessionFaultKind* = enum
-  ## Why a capability/account preflight failed against the live session.
-  sfCapabilityAbsent ## the session does not advertise the required capability
-  sfPrimaryAccountAbsent ## no primary account exists for the required capability
-
 type SessionFault* = object
   ## ``jeSession`` payload. ``capability`` is the URN the consumer required;
   ## ``CapabilityKind`` is used rather than a raw string so the failure is a
   ## named value an FFI layer can project to one code.
-  kind*: SessionFaultKind
   capability*: CapabilityKind
 
-func sessionFault*(kind: SessionFaultKind, capability: CapabilityKind): SessionFault =
+func sessionFault*(capability: CapabilityKind): SessionFault =
   ## Constructs a ``SessionFault``.
-  SessionFault(kind: kind, capability: capability)
+  SessionFault(capability: capability)
 
 func message*(sf: SessionFault): string =
   ## Human-readable diagnostic. Renders the registered URI when known, else
   ## the enum's symbolic name (``ckUnknown``).
   let uri = sf.capability.capabilityUri.valueOr:
     $sf.capability
-  case sf.kind
-  of sfCapabilityAbsent:
-    "session does not advertise the " & uri & " capability"
-  of sfPrimaryAccountAbsent:
-    "no primary account for the " & uri & " capability"
+  "session does not advertise the " & uri & " capability"
 
 func `$`*(sf: SessionFault): string =
   ## Delegates to ``message`` for the single canonical projection.
@@ -182,7 +172,7 @@ type JmapErrorKind* = enum
   jeValidation ## client-supplied input was invalid (construction)
   jeTransport ## network / TLS / timeout / HTTP status, before any JMAP processing
   jeRequest ## the whole request was rejected (RFC 7807 problem details)
-  jeSession ## an expected capability or primary account is absent
+  jeSession ## an expected session capability is absent
   jeMisuse ## a programming bug — a handle from a different builder was applied
   jeProtocol ## the server's response was malformed or did not conform
 

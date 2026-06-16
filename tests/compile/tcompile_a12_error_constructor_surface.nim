@@ -37,7 +37,6 @@ static:
   doAssert declared(sessionFault)
   doAssert declared(toJmapError)
   doAssert declared(lift)
-  doAssert declared(requirePrimaryAccount)
 
   # =========================================================================
   # NEGATIVE — library-internal error constructors are unreachable. This

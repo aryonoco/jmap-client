@@ -310,6 +310,28 @@ func structuredBody*(bodyStructure: BlueprintBodyPart): EmailBlueprintBody =
   ## duplicate rules are checked by ``parseEmailBlueprint``.
   EmailBlueprintBody(kind: ebkStructured, bodyStructure: bodyStructure)
 
+func plainTextBody*(text: string): EmailBlueprintBody =
+  ## Smart constructor for the single most common send body: one inline
+  ## ``text/plain`` leaf carrying ``text`` (RFC 8621 §4.6). Auto-mints the
+  ## creation-time ``partId`` so the caller never touches the 4-layer
+  ## ``BlueprintBodyValue`` → ``BlueprintLeafPart`` → ``BlueprintBodyPart`` →
+  ## ``flatBody`` chain. The ``text/plain`` content type satisfies
+  ## ``parseEmailBlueprint``'s flat-body constraint, so the result passes
+  ## straight to its ``body`` parameter.
+  let part = BlueprintBodyPart(
+    contentType: "text/plain",
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+    isMultipart: false,
+    leaf: BlueprintLeafPart(
+      source: bpsInline,
+      # The literal "text" is non-empty and control-character-free, so the
+      # lenient PartId parser cannot Err here.
+      partId: parsePartIdFromServer("text").get(),
+      value: BlueprintBodyValue(value: text),
+    ),
+  )
+  flatBody(textBody = Opt.some(part))
+
 # =============================================================================
 # EmailBlueprint (aggregate — Pattern A sealed)
 # =============================================================================

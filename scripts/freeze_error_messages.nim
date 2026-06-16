@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Regenerator for the H15 error-message snapshot. Enumerates the 38
+## Regenerator for the H15 error-message snapshot. Enumerates the 41
 ## representative error values in declaration order, projects each via
 ## ``message()``, and writes the locked-format snapshot to stdout. The
 ## ``just freeze-error-messages`` recipe redirects stdout onto
@@ -218,26 +218,24 @@ proc main() =
     "jmapValidation(validationError(\"AccountId\", \"contains control characters\", \"\"))",
     je3.message,
   )
-  let je4 = jmapSession(sessionFault(sfCapabilityAbsent, ckMail))
-  emit("jmapSession(sessionFault(sfCapabilityAbsent, ckMail))", je4.message)
-  let je5 = jmapSession(sessionFault(sfPrimaryAccountAbsent, ckMail))
-  emit("jmapSession(sessionFault(sfPrimaryAccountAbsent, ckMail))", je5.message)
-  let je6 = jmapMisuse(
+  let je4 = jmapSession(sessionFault(ckMail))
+  emit("jmapSession(sessionFault(ckMail))", je4.message)
+  let je5 = jmapMisuse(
     initBuilderId(1'u64, 1'u64),
     initBuilderId(1'u64, 2'u64),
     parseMethodCallId("c0").get(),
   )
   emit(
     "jmapMisuse(initBuilderId(1'u64, 1'u64), initBuilderId(1'u64, 2'u64), parseMethodCallId(\"c0\").get())",
-    je6.message,
+    je5.message,
   )
-  let je7 = jmapProtocol(protocolMissingCall(parseMethodCallId("c0").get()))
+  let je6 = jmapProtocol(protocolMissingCall(parseMethodCallId("c0").get()))
   emit(
-    "jmapProtocol(protocolMissingCall(parseMethodCallId(\"c0\").get()))", je7.message
+    "jmapProtocol(protocolMissingCall(parseMethodCallId(\"c0\").get()))", je6.message
   )
-  let je8 = jmapProtocol(protocolMalformedError(parseMethodCallId("c0").get()))
+  let je7 = jmapProtocol(protocolMalformedError(parseMethodCallId("c0").get()))
   emit(
-    "jmapProtocol(protocolMalformedError(parseMethodCallId(\"c0\").get()))", je8.message
+    "jmapProtocol(protocolMalformedError(parseMethodCallId(\"c0\").get()))", je7.message
   )
 
 when isMainModule:

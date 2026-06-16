@@ -445,6 +445,19 @@ type EmailBodyFetchOptions* {.ruleOff: "objects".} = object
   fetchBodyValues*: BodyValueScope ## Default: bvsNone.
   maxBodyValueBytes*: Opt[UnsignedInt] ## Absent = no truncation.
 
+func textBodies*(maxBytes: UnsignedInt): EmailBodyFetchOptions =
+  ## Fetch options requesting the decoded values of the ``textBody`` parts
+  ## (RFC 8621 §4.2 ``fetchTextBodyValues``), capping each to ``maxBytes``
+  ## octets. Per the §4.2 ``maxBodyValueBytes`` boundary, ``maxBytes`` = 0 means
+  ## NO truncation — equivalent to the no-argument ``textBodies()`` — and only a
+  ## positive ``maxBytes`` caps each value to that many octets. Removes the
+  ## ``BodyValueScope`` discovery and the ``maxBodyValueBytes`` ``Opt`` wrap.
+  EmailBodyFetchOptions(fetchBodyValues: bvsText, maxBodyValueBytes: Opt.some(maxBytes))
+
+func textBodies*(): EmailBodyFetchOptions =
+  ## ``textBodies`` with no per-value truncation cap (RFC 8621 §4.2 default).
+  EmailBodyFetchOptions(fetchBodyValues: bvsText)
+
 # =============================================================================
 # Email
 # =============================================================================
@@ -527,6 +540,53 @@ func isLeaf*(part: EmailBodyPart): bool =
   ## for asserting the RFC guarantee that textBody, htmlBody, and attachments
   ## contain only leaf parts (D6).
   not part.isMultipart
+
+func bodyValue*(e: Email, pid: PartId): Opt[EmailBodyValue] =
+  ## The decoded value for the body part identified by ``pid`` (RFC 8621
+  ## §4.1.4), or ``Opt.none`` when no value was fetched for it. A total,
+  ## ``std/tables``-free lookup into ``bodyValues`` — the consumer never imports
+  ## ``std/tables`` nor risks the ``KeyError`` of ``bodyValues[pid]``. Carries
+  ## the per-part ``isTruncated`` / ``isEncodingProblem`` signals.
+  if e.bodyValues.hasKey(pid):
+    Opt.some(e.bodyValues.getOrDefault(pid))
+  else:
+    Opt.none(EmailBodyValue)
+
+iterator leafTextParts*(e: Email): EmailBodyPart =
+  ## Yields the leaf parts of ``textBody`` — the RFC 8621 §4.1.4 display-body
+  ## list, rendered sequentially, ``text/plain``-preferred, already flat (every
+  ## entry is a non-multipart leaf).
+  ## Filters defensively to leaves so a non-conformant server that nests a
+  ## multipart in ``textBody`` is skipped rather than yielded.
+  for part in e.textBody:
+    case part.isMultipart
+    of false:
+      yield part
+    of true:
+      discard
+
+func decodedTextBody*(e: Email): Opt[string] =
+  ## The decoded plain-text body: the ``value``s of every ``text/plain`` leaf in
+  ## ``textBody``, concatenated in order (RFC 8621 §4.1.4 sequential rendering).
+  ## ``Opt.none`` when there is no ``text/plain`` content or none was fetched;
+  ## ``Opt.some`` otherwise. Library policy (RFC-permitted, not RFC-mandated):
+  ## filters to ``text/plain`` case-insensitively (RFC 2045 §5.1) and skips a
+  ## part whose value was not fetched.
+  ## Per-part ``isTruncated`` / ``isEncodingProblem`` are read via ``bodyValue`` —
+  ## deliberately not folded into this convenience.
+  var pieces: seq[string] = @[]
+  for part in e.textBody:
+    case part.isMultipart
+    of false:
+      if cmpIgnoreCase(part.contentType, "text/plain") == 0:
+        for v in e.bodyValue(part.partId):
+          pieces.add(v.value)
+    of true:
+      discard
+  if pieces.len == 0:
+    Opt.none(string)
+  else:
+    Opt.some(pieces.join(""))
 
 # =============================================================================
 # PartialEmail

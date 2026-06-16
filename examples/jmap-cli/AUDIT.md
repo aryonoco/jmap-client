@@ -384,10 +384,12 @@ for S2–S4. Mapping (finding → fix):
   each violation's reason), folding into `jeValidation` like every other
   construction failure — the "three error-rail shapes in one command" become one.
 - **"`primaryAccount(ckMail)` returns `Opt[AccountId]` forcing an unwrap"**
-  (session:capability) → PARTIALLY RESOLVED. `requirePrimaryAccount(session,
-  ckMail)` now resolves the capability/account on the rail (`jeSession`), so the
-  preflight composes under `?`. The mail-specific *shorthand*
-  (`requireMail` / `mailAccountId`) is S3.
+  (session:capability) → PARTIALLY RESOLVED at S1; **fully resolved in S3 + the
+  capability-resolution reconcile.** S1 first put capability/account resolution
+  on the rail (`jeSession`); S3 added the named-soft shorthand `requireMail`
+  (+ `requireSubmission` / `requireVacation`), and the reconcile then retired the
+  interim general-strict resolver, leaving one coherent named-soft family. See the
+  S3 resolution section below.
 
 Still open after S1 (tracked to their sub-projects): the sealing-chain
 constructor ceremony and the missing `connect()` / bare-get / `sendPlainText`
@@ -509,3 +511,120 @@ uniform, but the convenience readers that turn a settled shape into a one-liner
 S3; the sealing-chain ceremony and the missing `connect()` / bare-get /
 `sendPlainText` one-shots are S4; and the snapshot-integrity freeze-blocker is
 its own track. The read-model unevenness the bench reported is gone.
+
+## S3 resolution — body readers, role predicates, preflight sugar
+
+Sub-project **S3** shipped the convenience readers and predicates the S2 pass
+left `[open]` — the symbols that turn a settled SHAPE into a one-liner. The
+design throughout is the libcurl/SQLite split, not the OpenSSL one: a **rich
+primitive** that carries every signal (`bodyValue`, with `isTruncated` /
+`isEncodingProblem`) sits beside a **simple convenience** that covers the
+overwhelmingly common case (`decodedTextBody`); capability resolution is a
+**uniform bare-`AccountId`** resolve (`requireMail` and siblings); and where a
+roll-up would bake one library's opinion into the type, S3 ships **no roll-up at
+all** (the nine mailbox rights stay orthogonal). The inline finding lines keep
+their `[open]` tag, matching the S1/S2 observe-only convention; the mapping
+lives here. The CLI was re-benched against these symbols — every adoption below
+is in the tree and compiles public-surface-only. Mapping (finding → fix):
+
+- **"no `canRead`/`canMutate`/`canDelete` (or any) roll-up over `MailboxRights`'
+  nine independent `may*` bools (tracker C4)"** (mailbox:rightsSummary) →
+  RESOLVED AS WON'T-FIX (by decision, not by symbol). S3 ships NO rights
+  roll-up: the nine RFC 8621 §2 `may*` rights are orthogonal (read; the four
+  write components; the three admin components; submit), and any blessed
+  `canWrite` digest would freeze one library's opinion of which flags constitute
+  "write" into the API — the OpenSSL-style over-abstraction the bench rejects.
+  The CLI keeps its own `rwas` digest (`commands/mailbox.nim`) as a *consumer*
+  choice; the hub stays primitives-only. (libcurl exposes the bytes; it does not
+  decide what they mean.)
+- **"'is this the inbox?' needs one of three divergent idioms — `role.kind ==
+  mrInbox`, the snapshot-UNLISTED const `roleInbox`, or
+  `parseMailboxRole("inbox").get()`"** (mailbox:mb.role; S2-deferred) →
+  RESOLVED. `isInbox(mb)` is the one blessed spelling; `hasRole(mb, kind)`
+  generalises it to any well-known role. The CLI adopted both: `mb.isInbox` in
+  `commands/email_query.nim` (`resolveInbox`) and `mb.hasRole(mrDrafts)` /
+  `mb.hasRole(mrSent)` in `commands/email_send.nim` (`resolveRoles`), deleting
+  the per-mailbox `for role in mb.role` unwrap at each site.
+- **"decoding the text body is a manual `textBody`-walk joined against the
+  `bodyValues` table by partId; every consumer re-implements this … the genuine
+  residual ask is an `email.leafTextParts` iterator or an
+  `email.decodedTextBody(): string`"** (email read:decodeText, email
+  read:isMultipart; S2-deferred) → RESOLVED. Both shipped. `decodedTextBody(e):
+  Opt[string]` joins the `text/plain` leaves (case-insensitive media-type match,
+  RFC 8621 §4.1.4 sequential order), `none` when none was fetched — the single
+  most common read is now one call. `leafTextParts` iterates the display leaves
+  for callers that need per-part access. The CLI's hand-written `decodeTextBody`
+  func is DELETED (`commands/email_read.nim`); the read is
+  `e.decodedTextBody().valueOr(…)`.
+- **"`Email.bodyValues` is a `std/tables` Table, but the hub re-exports
+  `results` and NOT std/tables, so the consumer must add `import std/tables`
+  solely to read a returned field"** (email read:bodyValues; S2-deferred) →
+  RESOLVED. `bodyValue(e, pid): Opt[EmailBodyValue]` is a total,
+  `std/tables`-free lookup — no `KeyError`, no container-type leak. The CLI
+  DROPPED its `import std/tables` (it existed only for the `withValue` join);
+  since UnusedImport is a hard error here, the drop is load-bearing proof the
+  leak is gone.
+- **"a compile-time-constant byte cap (65536) must be sealed through
+  `parseUnsignedInt(65536).get()` then re-wrapped `Opt.some(...)` … no
+  `EmailBodyFetchOptions.textBodies(maxBytes)` convenience"** (email
+  read:maxBodyValueBytes) → RESOLVED (the convenience half). `textBodies(maxBytes)`
+  / `textBodies()` build the fetch options with the `bvsText` scope set and the
+  `maxBodyValueBytes` `Opt` wrapped internally; the CLI passes
+  `bodyFetchOptions = textBodies(parseUnsignedInt(65536).get())`. The residual
+  `parseUnsignedInt(…).get()` to mint the `UnsignedInt` is the standing
+  no-int-literal-helper note, not a `textBodies` gap.
+- **"`EmailBodyValue.isTruncated` / `.isEncodingProblem` are plain bools the
+  happy path silently ignores; nothing ties a truncated value back to the
+  `maxBodyValueBytes` cap"** (email read:truncation) → RESOLVED (read path).
+  `bodyValue` is the rich primitive that carries `isTruncated` /
+  `isEncodingProblem`, deliberately NOT folded into the `decodedTextBody`
+  convenience (rich primitive vs simple convenience — the consumer opts into the
+  detail). The CLI now reads it: after the `decodedTextBody` print it walks
+  `leafTextParts` and flags any `bodyValue(…).isTruncated`, closing the loop
+  back to the `textBodies` cap.
+- **"a constant page size is a triple wrap `Opt.some(parseUnsignedInt(20).get())`
+  … no plain-int convenience or `withLimit(20)`"** (email query:QueryParams.limit)
+  → RESOLVED (the window half). `limit(count)` returns a `QueryParams` with the
+  field set and the `Opt` wrapped; the CLI uses `limit(parseUnsignedInt(20).get())`
+  / `limit(parseUnsignedInt(10).get())`, dropping the
+  `QueryParams(limit: Opt.some(…))` field name + Opt wrap. (The `parseUnsignedInt`
+  seal is the same standing no-int-literal note.)
+- **"there is NO plain-text body shorthand anywhere on the hub … requires
+  hand-building a 4-layer chain `BlueprintBodyValue -> BlueprintLeafPart{bpsInline}
+  -> BlueprintBodyPart{text/plain} -> flatBody`"** (email send:no-body-helper,
+  **high**) → RESOLVED (the S3 half). `plainTextBody(text)` mints the inline
+  `text/plain` leaf and its creation-time `partId` in one call, returning the
+  `EmailBlueprintBody` `parseEmailBlueprint` expects. The CLI's
+  `buildDraftBlueprint` 4-layer chain (and its `parsePartIdFromServer("text")`)
+  collapses to `let draftBody = plainTextBody(body)`. The one-shot
+  `sendPlainText(…)` that would ALSO wire the submission + onSuccess move
+  remains S4 — `plainTextBody` is only the body half.
+- **"`primaryAccount(ckMail)` returns `Opt[AccountId]` forcing an unwrap, and
+  requires the caller to first discover the `ckMail` enum value … rather than
+  offering a mail-specific shorthand like `session.mailAccountId()`"**
+  (session:capability; S1 left `requirePrimaryAccount` PARTIALLY RESOLVED, the
+  mail-specific shorthand deferred to S3) → RESOLVED. The three capability
+  resolvers ship: `requireMail` / `requireSubmission` / `requireVacation`, each a
+  uniform bare-`AccountId` resolve on the `JmapError` rail (`jeSession` when no
+  account advertises the capability), primary-preferred with a per-account
+  fallback (RFC 8620 §2) — no `ckMail` enum at the call site, no `Opt` unwrap.
+  The CLI adopted `requireMail` in both the shared `connect()`
+  (`commands/cli_session.nim`) and the verbose onboarding probe
+  (`commands/session.nim`), replacing `requirePrimaryAccount(ckMail)`.
+  `requireSubmission` / `requireVacation` are the submission/vacation siblings of
+  the same shape; the CLI routes those entities through its single shared mail
+  account, so it does not separately resolve them, but they close the identical
+  finding for those two capabilities.
+  The capability-resolution reconcile then removed the interim general-strict
+  resolver and its dead `sfPrimaryAccountAbsent` session fault, so the resolver
+  family is uniformly named-soft with a single session-fault condition (the
+  required capability is not advertised); the designated-primary-specific need
+  is served by the public `session.primaryAccount(kind): Opt`.
+
+Still open after S3 (tracked to their sub-projects): the readers and predicates
+are now one-liners, but the request-lifecycle one-shots that still cost the full
+five-symbol chain — `connect()`, a bare-Get combinator, and the `sendPlainText`
+one-shot (the submission half `plainTextBody` does not cover) — are S4; the
+sealing-chain ceremony around them is S4; the standing `parseUnsignedInt(…).get()`
+no-int-literal seal rides along with it; and the snapshot-integrity freeze-blocker
+is its own track. The read-model convenience the bench asked for is in.
