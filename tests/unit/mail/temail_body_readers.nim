@@ -93,6 +93,23 @@ testCase decodedTextBodyNoneWhenNotFetched:
   )
   assertNone e.decodedTextBody()
 
+testCase decodedTextBodyMatchesTextPlainCaseInsensitively:
+  # Pins the RFC 2045 §5.1 case-insensitive content-type match: every other
+  # literal here is lowercase, so a regression to ``==`` would pass silently.
+  let e = emailWith(
+    @[textLeaf("Text/Plain", "1")], @[(pid("1"), EmailBodyValue(value: "hi"))]
+  )
+  assertSomeEq e.decodedTextBody(), "hi"
+
+testCase decodedTextBodyJoinsOnlyFetchedParts:
+  # Two text/plain leaves but only the second has a bodyValues entry: the
+  # unfetched part is skipped and the fetched value still yields Opt.some.
+  let e = emailWith(
+    @[textLeaf("text/plain", "1"), textLeaf("text/plain", "2")],
+    @[(pid("2"), EmailBodyValue(value: "only2"))],
+  )
+  assertSomeEq e.decodedTextBody(), "only2"
+
 testCase leafTextPartsYieldsTextBodyLeaves:
   let e = emailWith(
     @[textLeaf("text/plain", "1"), textLeaf("text/html", "2")],

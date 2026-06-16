@@ -447,9 +447,11 @@ type EmailBodyFetchOptions* {.ruleOff: "objects".} = object
 
 func textBodies*(maxBytes: UnsignedInt): EmailBodyFetchOptions =
   ## Fetch options requesting the decoded values of the ``textBody`` parts
-  ## (RFC 8621 §4.2 ``fetchTextBodyValues``), truncating each to ``maxBytes``
-  ## octets. Removes the ``BodyValueScope`` discovery and the
-  ## ``maxBodyValueBytes`` ``Opt`` wrap.
+  ## (RFC 8621 §4.2 ``fetchTextBodyValues``), capping each to ``maxBytes``
+  ## octets. Per the §4.2 ``maxBodyValueBytes`` boundary, ``maxBytes`` = 0 means
+  ## NO truncation — equivalent to the no-argument ``textBodies()`` — and only a
+  ## positive ``maxBytes`` caps each value to that many octets. Removes the
+  ## ``BodyValueScope`` discovery and the ``maxBodyValueBytes`` ``Opt`` wrap.
   EmailBodyFetchOptions(fetchBodyValues: bvsText, maxBodyValueBytes: Opt.some(maxBytes))
 
 func textBodies*(): EmailBodyFetchOptions =
