@@ -1503,7 +1503,9 @@ proc seedSubmissionCorpus*(
         buildEnvelope(fromAddr.email, recipient.email).valueOr:
           return err("seedSubmissionCorpus[" & $i & "] buildEnvelope: " & error)
     let blueprint = parseEmailSubmissionBlueprint(
-      identityId = identityId, emailId = draftId, envelope = Opt.some(envelope)
+      identityId = identityId,
+      emailId = directRef(draftId),
+      envelope = Opt.some(envelope),
     ).valueOr:
       return err("seedSubmissionCorpus[" & $i & "] parseEmailSubmissionBlueprint")
     let cid = parseCreationId(creationLabelPrefix & "-sub-" & $i).valueOr:

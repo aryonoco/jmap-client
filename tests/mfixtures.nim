@@ -2400,7 +2400,7 @@ proc makeEmailSubmissionBlueprint*(
     envelope: Opt[Envelope] = Opt.none(Envelope),
 ): EmailSubmissionBlueprint =
   parseEmailSubmissionBlueprint(
-    identityId = identityId, emailId = emailId, envelope = envelope
+    identityId = identityId, emailId = directRef(emailId), envelope = envelope
   )
     .get()
 
@@ -2411,7 +2411,7 @@ proc makeFullEmailSubmissionBlueprint*(): EmailSubmissionBlueprint =
   ## than having to compose ``makeEmailSubmissionBlueprint`` by hand.
   parseEmailSubmissionBlueprint(
     identityId = makeId("idenFull"),
-    emailId = makeId("emailFull"),
+    emailId = directRef(makeId("emailFull")),
     envelope = Opt.some(makeFullEnvelope()),
   )
     .get()

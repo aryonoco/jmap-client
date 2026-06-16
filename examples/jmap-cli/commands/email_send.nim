@@ -5,17 +5,18 @@
 ## Email and submit it in ONE request, moving it to Sent on success. This
 ## is the gnarliest public path. The body is now a single `plainTextBody(text)`
 ## call — the S3 shorthand mints the inline text/plain leaf and its creation-time
-## partId, retiring the 4-layer hand-build. Two findings remain on the
-## submission wiring (S4 scope), each recorded:
+## partId, retiring the 4-layer hand-build. One finding remains on the
+## submission wiring (addressed next):
 ##
 ##  1. addEmailSubmissionAndEmailSet does NOT create the email — its `create`
 ##     is the submission table only. The draft is created by a SEPARATE
 ##     addEmailSet(create=...) on the SAME builder; the "AndEmailSet" is the
 ##     server's IMPLICIT onSuccess Email/set (an update). One request = three
 ##     method calls.
-##  2. EmailSubmissionBlueprint.emailId is a plain Id with no typed
-##     forward-reference, so the same-request link to the draft is smuggled
-##     via parseIdFromServer("#" & $draftCid) (strict parseId rejects '#').
+##
+## The same-request link to the draft is now a typed forward-reference:
+## `EmailSubmissionBlueprint.emailId` takes an `IdOrCreationRef`, so the draft
+## is referenced with `creationRef(draftCid)` — no `#`-string smuggling.
 ##
 ## Error handling is the headline: every construction call folds onto the one
 ## ``JmapError`` rail with a single ``.lift``, every pipeline call threads with
@@ -100,9 +101,9 @@ proc buildDraftBlueprint(
 proc buildSubmissionBlueprint(
     identityId: Id, draftCid: CreationId, fromEmail, toAddress: string
 ): JmapResult[EmailSubmissionBlueprint] =
-  # emailId is a plain Id; the same-request forward-ref is "#<draftCid>",
-  # which only the lenient parser accepts (strict parseId rejects '#').
-  let emailRef = ?parseIdFromServer("#" & $draftCid).lift
+  # The draft Email is created in this same /set request, so emailId is a
+  # creation reference (RFC 8620 §5.3) — ``creationRef`` carries the
+  # ``"#<draftCid>"`` forward-ref in the type, no manual ``"#"`` smuggling.
   let fromMb = ?parseRFC5321Mailbox(fromEmail).lift
   let toMb = ?parseRFC5321Mailbox(toAddress).lift
   let fromSa =
@@ -111,7 +112,7 @@ proc buildSubmissionBlueprint(
   let rcpts = ?parseNonEmptyRcptList(@[toSa]).lift
   let env = Envelope(mailFrom: reversePath(fromSa), rcptTo: rcpts)
   let subBp = ?parseEmailSubmissionBlueprint(
-    identityId = identityId, emailId = emailRef, envelope = Opt.some(env)
+    identityId = identityId, emailId = creationRef(draftCid), envelope = Opt.some(env)
   ).lift
   ok(subBp)
 

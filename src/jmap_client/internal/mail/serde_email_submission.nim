@@ -202,6 +202,46 @@ func fromJson*(
   )
 
 # =============================================================================
+# IdOrCreationRef — creation-reference key for onSuccessUpdate/Destroy maps
+# =============================================================================
+
+func idOrCreationRefWireKey*(r: IdOrCreationRef): string =
+  ## Raw wire string form — the ``Id`` verbatim or ``"#"`` +
+  ## ``CreationId`` per RFC 8620 §5.3 / RFC 8621 §7.5 ¶3. Exported for
+  ## Table-key stringification by the compound builder, where the
+  ## wrapping ``JsonNode`` layer is unnecessary.
+  case r.kind
+  of icrDirect:
+    # invariant: kind == icrDirect proves Ok
+    $r.asDirectRef.get()
+  of icrCreation:
+    # invariant: kind == icrCreation proves Ok
+    "#" & $r.asCreationRef.get()
+
+func toJson*(r: IdOrCreationRef): JsonNode =
+  ## JSON string form of ``idOrCreationRefWireKey`` — used when
+  ## ``IdOrCreationRef`` appears as a list element (e.g.,
+  ## ``onSuccessDestroyEmail``) rather than a map key.
+  return %idOrCreationRefWireKey(r)
+
+func toJson*(v: NonEmptyOnSuccessUpdateEmail): JsonNode =
+  ## Flatten to RFC 8621 §7.5 ¶3 wire shape
+  ## ``{idOrCreationRefKey: patchObj, ...}``. Non-empty + distinct-key
+  ## invariants enforced by ``parseNonEmptyOnSuccessUpdateEmail``.
+  var node = newJObject()
+  for k, patchSet in v.toTable:
+    node[idOrCreationRefWireKey(k)] = patchSet.toJson()
+  return node
+
+func toJson*(v: NonEmptyOnSuccessDestroyEmail): JsonNode =
+  ## Flatten to RFC 8621 §7.5 ¶3 wire shape
+  ## ``[idOrCreationRefKey, ...]``.
+  var arr = newJArray()
+  for r in v.toSeq:
+    arr.add(%idOrCreationRefWireKey(r))
+  return arr
+
+# =============================================================================
 # EmailSubmissionBlueprint — /set create value
 # =============================================================================
 
@@ -253,46 +293,6 @@ func toJson*(us: NonEmptyEmailSubmissionUpdates): JsonNode =
     patch[key] = value
     node[$id] = patch
   return node
-
-# =============================================================================
-# IdOrCreationRef — creation-reference key for onSuccessUpdate/Destroy maps
-# =============================================================================
-
-func idOrCreationRefWireKey*(r: IdOrCreationRef): string =
-  ## Raw wire string form — the ``Id`` verbatim or ``"#"`` +
-  ## ``CreationId`` per RFC 8620 §5.3 / RFC 8621 §7.5 ¶3. Exported for
-  ## Table-key stringification by Step 18's compound builder, where the
-  ## wrapping ``JsonNode`` layer is unnecessary.
-  case r.kind
-  of icrDirect:
-    # invariant: kind == icrDirect proves Ok
-    $r.asDirectRef.get()
-  of icrCreation:
-    # invariant: kind == icrCreation proves Ok
-    "#" & $r.asCreationRef.get()
-
-func toJson*(r: IdOrCreationRef): JsonNode =
-  ## JSON string form of ``idOrCreationRefWireKey`` — used when
-  ## ``IdOrCreationRef`` appears as a list element (e.g.,
-  ## ``onSuccessDestroyEmail``) rather than a map key.
-  return %idOrCreationRefWireKey(r)
-
-func toJson*(v: NonEmptyOnSuccessUpdateEmail): JsonNode =
-  ## Flatten to RFC 8621 §7.5 ¶3 wire shape
-  ## ``{idOrCreationRefKey: patchObj, ...}``. Non-empty + distinct-key
-  ## invariants enforced by ``parseNonEmptyOnSuccessUpdateEmail``.
-  var node = newJObject()
-  for k, patchSet in v.toTable:
-    node[idOrCreationRefWireKey(k)] = patchSet.toJson()
-  return node
-
-func toJson*(v: NonEmptyOnSuccessDestroyEmail): JsonNode =
-  ## Flatten to RFC 8621 §7.5 ¶3 wire shape
-  ## ``[idOrCreationRefKey, ...]``.
-  var arr = newJArray()
-  for r in v.toSeq:
-    arr.add(%idOrCreationRefWireKey(r))
-  return arr
 
 # =============================================================================
 # EmailSubmissionFilterCondition — /query filter (RFC 8621 §7.3)

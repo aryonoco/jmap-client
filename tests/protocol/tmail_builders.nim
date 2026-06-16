@@ -750,7 +750,7 @@ testCase addEmailSubmissionAndEmailSetWireAnchor:
   ## ``onSuccessDestroyEmail`` extension is a JArray of wire-key strings.
   let identityId = makeId("idt1")
   let emailId = makeId("m-abc")
-  let bp = parseEmailSubmissionBlueprint(identityId, emailId).get()
+  let bp = parseEmailSubmissionBlueprint(identityId, directRef(emailId)).get()
   let updKey = directRef(emailId)
   let us = initEmailUpdateSet(@[markRead()]).get()
   let onUpd = parseNonEmptyOnSuccessUpdateEmail(@[(updKey, us)]).get()

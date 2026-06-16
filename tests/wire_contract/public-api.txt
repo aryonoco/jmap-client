@@ -289,7 +289,7 @@ func asPending (s: AnyEmailSubmission): Opt[EmailSubmission[usPending]]
 func cancelUpdate (s: EmailSubmission[usPending]): EmailSubmissionUpdate
 func creationRef (cid: CreationId): IdOrCreationRef
 func directRef (id: Id): IdOrCreationRef
-func emailId (bp: EmailSubmissionBlueprint): Id
+func emailId (bp: EmailSubmissionBlueprint): IdOrCreationRef
 func envelope (bp: EmailSubmissionBlueprint): Opt[Envelope]
 enumfield esgkDeliveryStatus
 enumfield esgkDsnBlobIds
@@ -325,7 +325,7 @@ func identityId (bp: EmailSubmissionBlueprint): Id
 func kind (p: EmailSubmissionGetProperty): EmailSubmissionGetPropertyKind
 func kind (x: IdOrCreationRef): IdOrCreationRefKind
 func len (a: NonEmptyEmailSubmissionUpdates): int
-func parseEmailSubmissionBlueprint (identityId: Id, emailId: Id, envelope: Opt[Envelope] = Opt.none(Envelope)): Result[EmailSubmissionBlueprint, NonEmptySeq[ValidationError]]
+func parseEmailSubmissionBlueprint (identityId: Id, emailId: IdOrCreationRef, envelope: Opt[Envelope] = Opt.none(Envelope)): Result[EmailSubmissionBlueprint, NonEmptySeq[ValidationError]]
 func parseEmailSubmissionComparator (rawProperty: string, direction: SortDirection = sdServerDefault, collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm)): Result[EmailSubmissionComparator, ValidationError]
 func parseEmailSubmissionGetProperty (raw: string): Result[EmailSubmissionGetProperty, ValidationError]
 func parseNonEmptyEmailSubmissionUpdates (items: openArray[(Id, EmailSubmissionUpdate)]): Result[NonEmptyEmailSubmissionUpdates, NonEmptySeq[ValidationError]]

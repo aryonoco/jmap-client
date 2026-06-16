@@ -129,53 +129,6 @@ func asCanceled*(s: AnyEmailSubmission): Opt[EmailSubmission[usCanceled]] =
     Opt.none(EmailSubmission[usCanceled])
 
 # -----------------------------------------------------------------------------
-# EmailSubmissionBlueprint — creation model (RFC 8621 §7.5)
-#
-# Shape: Pattern A sealing (raw* private fields + same-name UFCS accessors)
-# combined with Result[T, NonEmptySeq[ValidationError]] error rail.
-# -----------------------------------------------------------------------------
-
-type EmailSubmissionBlueprint* {.ruleOff: "objects".} = object
-  ## Creation model for ``EmailSubmission/set`` create operations. Carries
-  ## the three client-settable fields per RFC 8621 §7.5: ``identityId``,
-  ## ``emailId``, and an optional ``envelope``.
-  ##
-  ## Fields are module-private with a ``raw`` prefix; construction is gated
-  ## by ``parseEmailSubmissionBlueprint`` and read access is via same-name
-  ## UFCS accessors below.
-  ##
-  ## When ``envelope`` is ``Opt.none``, the server synthesises the envelope
-  ## from the referenced Email's headers per RFC §7.5 ¶4.
-  rawIdentityId: Id
-  rawEmailId: Id
-  rawEnvelope: Opt[Envelope]
-
-func parseEmailSubmissionBlueprint*(
-    identityId: Id, emailId: Id, envelope: Opt[Envelope] = Opt.none(Envelope)
-): Result[EmailSubmissionBlueprint, NonEmptySeq[ValidationError]] =
-  ## Accumulating-error smart constructor. The three fields are already
-  ## fully validated by their own L1 types, so no violation can arise here;
-  ## the accumulating error rail is retained for signature symmetry with the
-  ## sibling blueprint constructors and forwards compatibility.
-  ok(
-    EmailSubmissionBlueprint(
-      rawIdentityId: identityId, rawEmailId: emailId, rawEnvelope: envelope
-    )
-  )
-
-func identityId*(bp: EmailSubmissionBlueprint): Id =
-  ## UFCS accessor — ``bp.identityId`` reads as a field access.
-  bp.rawIdentityId
-
-func emailId*(bp: EmailSubmissionBlueprint): Id =
-  ## UFCS accessor — ``bp.emailId`` reads as a field access.
-  bp.rawEmailId
-
-func envelope*(bp: EmailSubmissionBlueprint): Opt[Envelope] =
-  ## UFCS accessor — ``bp.envelope`` reads as a field access.
-  bp.rawEnvelope
-
-# -----------------------------------------------------------------------------
 # EmailSubmissionUpdate — update algebra (RFC 8621 §7.5 ¶3)
 #
 # Typed patch operations for EmailSubmission/set update. The RFC permits
@@ -544,6 +497,61 @@ func creationRef*(cid: CreationId): IdOrCreationRef =
   ## operation. The ``"#"`` prefix is a wire concern — added at
   ## ``toJson`` time, not stored on the ``CreationId``.
   IdOrCreationRef(rawKind: icrCreation, rawCreationId: cid)
+
+# -----------------------------------------------------------------------------
+# EmailSubmissionBlueprint — creation model (RFC 8621 §7.5)
+#
+# Shape: Pattern A sealing (raw* private fields + same-name UFCS accessors)
+# combined with Result[T, NonEmptySeq[ValidationError]] error rail.
+# -----------------------------------------------------------------------------
+
+type EmailSubmissionBlueprint* {.ruleOff: "objects".} = object
+  ## Creation model for ``EmailSubmission/set`` create operations. Carries
+  ## the three client-settable fields per RFC 8621 §7.5: ``identityId``,
+  ## ``emailId``, and an optional ``envelope``.
+  ##
+  ## ``emailId`` is an ``IdOrCreationRef``: it references either an Email
+  ## already persisted on the server (``directRef``) or one being created
+  ## in the same ``/set`` request through a ``"#"``-prefixed creation
+  ## reference (``creationRef``) per RFC 8620 §5.3.
+  ##
+  ## Fields are module-private with a ``raw`` prefix; construction is gated
+  ## by ``parseEmailSubmissionBlueprint`` and read access is via same-name
+  ## UFCS accessors below.
+  ##
+  ## When ``envelope`` is ``Opt.none``, the server synthesises the envelope
+  ## from the referenced Email's headers per RFC §7.5 ¶4.
+  rawIdentityId: Id
+  rawEmailId: IdOrCreationRef
+  rawEnvelope: Opt[Envelope]
+
+func parseEmailSubmissionBlueprint*(
+    identityId: Id,
+    emailId: IdOrCreationRef,
+    envelope: Opt[Envelope] = Opt.none(Envelope),
+): Result[EmailSubmissionBlueprint, NonEmptySeq[ValidationError]] =
+  ## Accumulating-error smart constructor. The three fields are already
+  ## fully validated by their own L1 types, so no violation can arise here;
+  ## the accumulating error rail is retained for signature symmetry with the
+  ## sibling blueprint constructors and forwards compatibility.
+  ok(
+    EmailSubmissionBlueprint(
+      rawIdentityId: identityId, rawEmailId: emailId, rawEnvelope: envelope
+    )
+  )
+
+func identityId*(bp: EmailSubmissionBlueprint): Id =
+  ## UFCS accessor — ``bp.identityId`` reads as a field access.
+  bp.rawIdentityId
+
+func emailId*(bp: EmailSubmissionBlueprint): IdOrCreationRef =
+  ## UFCS accessor — ``bp.emailId`` reads as a field access. The result is
+  ## a direct or creation reference per RFC 8620 §5.3.
+  bp.rawEmailId
+
+func envelope*(bp: EmailSubmissionBlueprint): Opt[Envelope] =
+  ## UFCS accessor — ``bp.envelope`` reads as a field access.
+  bp.rawEnvelope
 
 # =============================================================================
 # NonEmptyOnSuccessUpdateEmail / NonEmptyOnSuccessDestroyEmail

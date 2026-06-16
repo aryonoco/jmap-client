@@ -139,7 +139,9 @@ testCase tEmailSubmissionChangesLive:
         )
         .expect("seedDraftEmail " & label)
       let blueprint = parseEmailSubmissionBlueprint(
-          identityId = identityId, emailId = draftId, envelope = Opt.some(envelope)
+          identityId = identityId,
+          emailId = directRef(draftId),
+          envelope = Opt.some(envelope),
         )
         .expect("parseEmailSubmissionBlueprint " & label)
       let cid = parseCreationId(label).expect("parseCreationId " & label)

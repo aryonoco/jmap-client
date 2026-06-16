@@ -35,7 +35,9 @@ import ../../mtestblock
 proc makeBlueprint(): EmailSubmissionBlueprint =
   ## Minimal valid blueprint — identityId + emailId are enough; envelope
   ## defaults to none.
-  parseEmailSubmissionBlueprint(identityId = makeId("idtA"), emailId = makeId("emailA"))
+  parseEmailSubmissionBlueprint(
+    identityId = makeId("idtA"), emailId = directRef(makeId("emailA"))
+  )
     .get()
 
 proc makeUpdateSet(): EmailUpdateSet =

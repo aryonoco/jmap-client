@@ -60,7 +60,9 @@ testCase tEmailBobReceivesAliceDeliveryLive:
       )
       .expect("seedDraftEmail[" & $target.kind & "]")
     let blueprint = parseEmailSubmissionBlueprint(
-        identityId = identityId, emailId = draftId, envelope = Opt.some(envelope)
+        identityId = identityId,
+        emailId = directRef(draftId),
+        envelope = Opt.some(envelope),
       )
       .expect("parseEmailSubmissionBlueprint[" & $target.kind & "]")
     let subCid =

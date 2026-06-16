@@ -70,7 +70,9 @@ testCase tEmailSubmissionOnSuccessDestroyLive:
         "parseNonEmptyOnSuccessDestroyEmail"
       )
     let blueprint = parseEmailSubmissionBlueprint(
-        identityId = identityId, emailId = draftId, envelope = Opt.some(envelope)
+        identityId = identityId,
+        emailId = directRef(draftId),
+        envelope = Opt.some(envelope),
       )
       .expect("parseEmailSubmissionBlueprint[" & $target.kind & "]")
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
