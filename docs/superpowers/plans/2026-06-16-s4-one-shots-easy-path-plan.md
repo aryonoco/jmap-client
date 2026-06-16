@@ -47,7 +47,9 @@ L4 `{.push raises: [].}`, nimalyzer (`complexity ≤ 10`, `hasdoc`,
 | 3 | dissolve the `convenience` quarantine | ✅ DONE (`just ci` ✅) | combinators → `internal/mail/combinators`; public path deleted; symbol set proven unchanged |
 | 4 | the one-shot module (`connect`/gets/queries/`sendPlainText`) | ✅ DONE (`just ci` ✅) | + `jeSet` arm (user-approved, symmetric to `jeMethod`) for one-shot create SetErrors |
 | 5 | re-bench `examples/jmap-cli` + reconcile AUDIT / design 16 | ✅ DONE (public-only ✅, zero warnings; docs honest per review) | one-shots adopted; send 239→84 LoC |
-| 6 | final snapshot reconciliation + BOTH gates | 🔄 review ✅ (3 findings landed); `just ci` ✅; live gate green once + re-running on final | adversarial Workflow: 3 confirmed (sendPlainText→records; §7.5¶3 divergence citation; AUDIT table) |
+| 6 | final snapshot reconciliation + BOTH gates | ✅ DONE — **BOTH GATES GREEN on `cfb60f2`** | `just ci` ✅; live `test-full` ✅ (joinable 23 + stalwart/james/cyrus 73 each, 0 fail); adversarial Workflow 3 findings landed |
+
+**S4 COMPLETE.** All seven commits on `api/s4-one-shots` (`569e324`..`cfb60f2`); both gates green on the final state. NOT pushed/merged — push/PR/merge awaits user confirmation. After merge: the triage ledger.
 
 **Dependency order:** 0 → (1, 2 may interleave; 2 depends on 1's `IdOrCreationRef`
 emailId only inside `sendPlainText`, not in the builder) → 3 → 4 (needs 0's
