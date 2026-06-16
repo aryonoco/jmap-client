@@ -33,7 +33,7 @@ to validate against the RFC.
 ## §0. STATE (resume oracle — flip in the SAME commit as each task)
 
 - [x] **T0** — Land the canonical handoff doc (untracked on entry) + commit this plan ✅
-- [ ] **T1** — `asSeq` family rename + lent view + uplift + re-freeze contract
+- [x] **T1** — `asSeq` family rename + lent view + uplift + re-freeze contract ✅ (commit pending in this step)
 - [ ] **T2** — Test-hygiene cleanup (UnusedImport + Uninit)
 - [ ] **T3** — AUDIT triage: flip 98 `[open]` tags + author `## S0 resolution`
 - [ ] **T4** — Full Section C audit + append new `filed-as-Cn` items
@@ -116,8 +116,13 @@ generic `asSeq` docstring):*
 
 *src/ call-sites (`.toSeq` → `.asSeq`):*
 - `serde_vacation.nim:139`, `serde_identity_update.nim:54`, `serde_mailbox.nim:385`,
-  `serde_email_update.nim:59`, `email_update.nim:281`, `email_submission.nim:690`,
-  `serde_email_submission.nim:240`.
+  `serde_email_update.nim:59`, `email_submission.nim:690`,
+  `serde_email_submission.nim:240`. **Correction (implementer + both reviewers,
+  verified):** the originally-listed `email_update.nim:281` is NOT a wrapper
+  call-site — that `updates.toSeq` is `std/sequtils.toSeq` over the
+  `openArray[EmailUpdate]` parameter of `initEmailUpdateSet` (the wrapper does
+  not exist yet at that point), so it correctly stays `toSeq`. Real src/ ripple
+  is **6 sites, not 7.**
 
 *tests/ call-sites (`.toSeq` → `.asSeq`):*
 - `mfixtures.nim:2183-2184` (`emailUpdateSetEq`), `unit/mail/tthread.nim:42`,

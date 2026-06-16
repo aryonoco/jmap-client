@@ -39,7 +39,7 @@ testCase idAccessor: # scenario 16
 
 testCase emailIdsAccessor: # scenario 17
   let t = parseThread(id, @[e1, e2, e3]).get()
-  assertEq t.emailIds.toSeq, @[e1, e2, e3]
+  assertEq t.emailIds.asSeq, @[e1, e2, e3]
 
 # ============= C. Sealed field safety =============
 

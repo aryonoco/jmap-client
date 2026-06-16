@@ -24,7 +24,7 @@ proc showThread(threadIdArg: string): JmapResult[int] =
     return ok(1)
   for th in resp.list:
     # id and emailIds are direct public fields; emailIds (a NonEmptyIdSeq)
-    # answers `.len` and iterates directly — no .toSeq needed to print it.
+    # answers `.len` and iterates directly — no `.asSeq` needed to print it.
     echo "thread ", $th.id, " has ", $th.emailIds.len, " emails:"
     for eid in th.emailIds:
       echo "  ", $eid

@@ -85,4 +85,4 @@ testCase tthreadGetLive:
     assertOn target,
       $t.id == $threadId, "returned Thread.id must match the threadId from Email/get"
     assertOn target,
-      seededId in t.emailIds.toSeq, "seeded EmailId must appear in Thread.emailIds"
+      seededId in t.emailIds.asSeq, "seeded EmailId must appear in Thread.emailIds"

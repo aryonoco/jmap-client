@@ -585,8 +585,11 @@ type NonEmptyOnSuccessDestroyEmail* {.ruleOff: "objects".} = object
   ## Construction is gated by ``parseNonEmptyOnSuccessDestroyEmail``.
   rawValue: seq[IdOrCreationRef]
 
-func toSeq*(s: NonEmptyOnSuccessDestroyEmail): seq[IdOrCreationRef] {.inline.} =
-  ## Value-projection accessor — returns a copy of the underlying seq.
+func asSeq*(s: NonEmptyOnSuccessDestroyEmail): lent seq[IdOrCreationRef] {.inline.} =
+  ## Borrow-projection accessor — returns a read-only view of the
+  ## underlying seq, mirroring ``NonEmptySeq[T].asSeq``. ``lent`` keeps
+  ## consumers from copying; named ``asSeq`` (not ``toSeq``) to avoid the
+  ## ``std/sequtils.toSeq`` clash.
   s.rawValue
 
 func parseNonEmptyOnSuccessUpdateEmail*(
@@ -687,7 +690,7 @@ iterator onSuccessRefs(
     for key in u.toTable.keys:
       yield key
   for d in destroys:
-    for key in d.toSeq:
+    for key in d.asSeq:
       yield key
 
 func badOnSuccessRefs(

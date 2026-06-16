@@ -56,7 +56,7 @@ func toJson*(us: EmailUpdateSet): JsonNode =
   ## and every other conflict class, so blind aggregation here cannot
   ## shadow a prior entry.
   var node = newJObject()
-  for u in us.toSeq:
+  for u in us.asSeq:
     let (key, value) = u.toJson()
     node[key] = value
   return node

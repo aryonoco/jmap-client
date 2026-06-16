@@ -51,7 +51,7 @@ func toJson*(us: IdentityUpdateSet): JsonNode =
   ## ``initIdentityUpdateSet`` has already rejected duplicate target
   ## properties, so blind aggregation here cannot shadow a prior entry.
   var node = newJObject()
-  for u in us.toSeq:
+  for u in us.asSeq:
     let (k, v) = u.toJson()
     node[k] = v
   return node

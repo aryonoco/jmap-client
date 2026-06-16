@@ -136,7 +136,7 @@ func toJson*(us: VacationResponseUpdateSet): JsonNode =
   ## ``initVacationResponseUpdateSet`` has already rejected duplicate
   ## target properties, so blind aggregation cannot shadow.
   var node = newJObject()
-  for u in us.toSeq:
+  for u in us.asSeq:
     let (key, value) = u.toJson()
     node[key] = value
   return node

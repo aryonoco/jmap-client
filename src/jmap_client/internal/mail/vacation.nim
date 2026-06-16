@@ -193,8 +193,11 @@ type VacationResponseUpdateSet* {.ruleOff: "objects".} = object
   ## ``initVacationResponseUpdateSet``.
   rawValue: seq[VacationResponseUpdate]
 
-func toSeq*(s: VacationResponseUpdateSet): seq[VacationResponseUpdate] {.inline.} =
-  ## Value-projection accessor — returns a copy of the underlying seq.
+func asSeq*(s: VacationResponseUpdateSet): lent seq[VacationResponseUpdate] {.inline.} =
+  ## Borrow-projection accessor — returns a read-only view of the
+  ## underlying seq, mirroring ``NonEmptySeq[T].asSeq``. ``lent`` keeps
+  ## consumers from copying; named ``asSeq`` (not ``toSeq``) to avoid the
+  ## ``std/sequtils.toSeq`` clash.
   s.rawValue
 
 func initVacationResponseUpdateSet*(

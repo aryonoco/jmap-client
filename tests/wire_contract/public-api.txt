@@ -287,6 +287,7 @@ func asCreationRef (x: IdOrCreationRef): Opt[CreationId]
 func asDirectRef (x: IdOrCreationRef): Opt[Id]
 func asFinal (s: AnyEmailSubmission): Opt[EmailSubmission[usFinal]]
 func asPending (s: AnyEmailSubmission): Opt[EmailSubmission[usPending]]
+func asSeq (s: NonEmptyOnSuccessDestroyEmail): lent seq[IdOrCreationRef]
 func cancelUpdate (s: EmailSubmission[usPending]): EmailSubmissionUpdate
 func create (s: EmailSubmissionSetSpec): Opt[Table[CreationId, EmailSubmissionBlueprint]]
 func creationRef (cid: CreationId): IdOrCreationRef
@@ -342,7 +343,6 @@ func setUndoStatusToCanceled (): EmailSubmissionUpdate
 func toAny (s: EmailSubmission[usCanceled]): AnyEmailSubmission
 func toAny (s: EmailSubmission[usFinal]): AnyEmailSubmission
 func toAny (s: EmailSubmission[usPending]): AnyEmailSubmission
-func toSeq (s: NonEmptyOnSuccessDestroyEmail): seq[IdOrCreationRef]
 func toTable (s: NonEmptyEmailSubmissionUpdates): Table[Id, EmailSubmissionUpdate]
 func toTable (s: NonEmptyOnSuccessUpdateEmail): Table[IdOrCreationRef, EmailUpdateSet]
 func update (s: EmailSubmissionSetSpec): Opt[NonEmptyEmailSubmissionUpdates]
@@ -355,6 +355,7 @@ type EmailUpdateVariantKind
 type NonEmptyEmailUpdates
 func addKeyword (k: Keyword): EmailUpdate
 func addToMailbox (id: Id): EmailUpdate
+func asSeq (s: EmailUpdateSet): lent seq[EmailUpdate]
 enumfield euAddKeyword
 enumfield euAddToMailbox
 enumfield euRemoveFromMailbox
@@ -373,7 +374,6 @@ func removeFromMailbox (id: Id): EmailUpdate
 func removeKeyword (k: Keyword): EmailUpdate
 func setKeywords (ks: KeywordSet): EmailUpdate
 func setMailboxIds (ids: NonEmptyMailboxIdSet): EmailUpdate
-func toSeq (s: EmailUpdateSet): seq[EmailUpdate]
 func toTable (s: NonEmptyEmailUpdates): Table[Id, EmailUpdateSet]
 
 ## jmap_client/internal/mail/headers
@@ -433,6 +433,7 @@ type IdentityUpdateSet
 type IdentityUpdateVariantKind
 type NonEmptyIdentityUpdates
 type PartialIdentity
+func asSeq (s: IdentityUpdateSet): lent seq[IdentityUpdate]
 enumfield daNo
 enumfield daUnreported
 enumfield daYes
@@ -470,7 +471,6 @@ func setHtmlSignature (htmlSignature: string): IdentityUpdate
 func setName (name: string): IdentityUpdate
 func setReplyTo (replyTo: Opt[seq[EmailAddress]]): IdentityUpdate
 func setTextSignature (textSignature: string): IdentityUpdate
-func toSeq (s: IdentityUpdateSet): seq[IdentityUpdate]
 func toTable (s: NonEmptyIdentityUpdates): Table[Id, IdentityUpdateSet]
 func wireName (p: IdentityGetProperty): string
 
@@ -585,6 +585,7 @@ type MailboxUpdateVariantKind
 type NonEmptyMailboxIdSet
 type NonEmptyMailboxUpdates
 type PartialMailbox
+func asSeq (s: MailboxUpdateSet): lent seq[MailboxUpdate]
 func hasRole (mb: Mailbox, kind: MailboxRoleKind): bool
 func hash (p: MailboxGetProperty): Hash
 func hash (r: MailboxRole): Hash
@@ -655,7 +656,6 @@ func setRole (role: Opt[MailboxRole]): MailboxUpdate
 func setSortOrder (sortOrder: UnsignedInt): MailboxUpdate
 func toHashSet (ms: MailboxIdSet): HashSet[Id]
 func toHashSet (ms: NonEmptyMailboxIdSet): HashSet[Id]
-func toSeq (s: MailboxUpdateSet): seq[MailboxUpdate]
 func toTable (s: NonEmptyMailboxUpdates): Table[Id, MailboxUpdateSet]
 func wireName (p: MailboxGetProperty): string
 
@@ -848,6 +848,7 @@ const VacationResponseSingletonId : string
 type VacationResponseUpdate
 type VacationResponseUpdateSet
 type VacationResponseUpdateVariantKind
+func asSeq (s: VacationResponseUpdateSet): lent seq[VacationResponseUpdate]
 func hash (p: VacationResponseGetProperty): Hash
 func initVacationResponseUpdateSet (updates: openArray[VacationResponseUpdate]): Result[VacationResponseUpdateSet, NonEmptySeq[ValidationError]]
 func kind (p: VacationResponseGetProperty): VacationResponseGetPropertyKind
@@ -858,7 +859,6 @@ func setIsEnabled (isEnabled: bool): VacationResponseUpdate
 func setSubject (subject: Opt[string]): VacationResponseUpdate
 func setTextBody (textBody: Opt[string]): VacationResponseUpdate
 func setToDate (toDate: Opt[UTCDate]): VacationResponseUpdate
-func toSeq (s: VacationResponseUpdateSet): seq[VacationResponseUpdate]
 enumfield vrgkFromDate
 enumfield vrgkHtmlBody
 enumfield vrgkIsEnabled
@@ -1341,6 +1341,7 @@ type NonEmptySeq [T]
 type UTCDate
 type UnsignedInt
 func [] (a: NonEmptyIdSeq, i: Idx): lent Id
+func asSeq (a: NonEmptyIdSeq): lent seq[Id]
 func asSeq [T](a: NonEmptySeq[T]): lent seq[T]
 func head (a: NonEmptyIdSeq): lent Id
 func head [T](a: NonEmptySeq[T]): lent T
@@ -1358,7 +1359,6 @@ func parseUtcDate (raw: string): Result[UTCDate, ValidationError]
 func toInt64 (j: JmapInt): int64
 func toInt64 (m: MaxChanges): int64
 func toInt64 (u: UnsignedInt): int64
-func toSeq (a: NonEmptyIdSeq): seq[Id]
 
 ## jmap_client/internal/types/session
 func $ (t: UriTemplate): string

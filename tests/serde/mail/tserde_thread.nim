@@ -39,13 +39,13 @@ testCase fromJsonValidSingle: # scenario 19
   assertOk res
   assertEq res.get().id, id
   assertLen res.get().emailIds, 1
-  assertEq res.get().emailIds.toSeq[0], e1
+  assertEq res.get().emailIds.asSeq[0], e1
 
 testCase fromJsonValidMultipleOrder: # scenario 20
   let node = %*{"id": "t1", "emailIds": ["e1", "e2", "e3"]}
   let res = thread.Thread.fromJson(node)
   assertOk res
-  assertEq res.get().emailIds.toSeq, @[e1, e2, e3]
+  assertEq res.get().emailIds.asSeq, @[e1, e2, e3]
 
 testCase fromJsonEmptyEmailIds: # scenario 21
   let node = %*{"id": "t1", "emailIds": []}
