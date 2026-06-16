@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Regenerator for the H15 error-message snapshot. Enumerates the 42
+## Regenerator for the H15 error-message snapshot. Enumerates the 43
 ## representative error values in declaration order, projects each via
 ## ``message()``, and writes the locked-format snapshot to stdout. The
 ## ``just freeze-error-messages`` recipe redirects stdout onto
@@ -244,6 +244,8 @@ proc main() =
     "jmapMethod(methodFault(mnEmailGet, methodError(\"serverFail\", Opt.some(\"internal error\"))))",
     je8.message,
   )
+  let je9 = jmapSet(setFault(mnEmailSet, setError("overQuota")))
+  emit("jmapSet(setFault(mnEmailSet, setError(\"overQuota\")))", je9.message)
 
 when isMainModule:
   main()

@@ -22,6 +22,7 @@ import jmap_client/internal/types
 import jmap_client/internal/protocol
 import jmap_client/internal/transport
 import jmap_client/internal/client
+import jmap_client/internal/one_shot
 import jmap_client/internal/mail
 import jmap_client/internal/push
 import jmap_client/internal/websocket
@@ -30,6 +31,7 @@ export types
 export protocol
 export transport
 export client
+export one_shot
 export mail
 export push
 export websocket

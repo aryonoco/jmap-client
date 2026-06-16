@@ -2,10 +2,11 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## The single consumer-facing error rail (P13). ``JmapError`` is a flat
-## seven-arm sum covering every way a JMAP *call* can fail at the call level:
+## eight-arm sum covering every way a JMAP *call* can fail at the call level:
 ## invalid client input, transport failure, whole-request rejection, an
 ## absent session capability, consumer misuse, a malformed server response,
-## or a single method's collapsed one-shot error. The whole
+## a single method's collapsed one-shot error, or a single /set create's
+## collapsed one-shot SetError. The whole
 ## ``freeze -> send -> get`` pipeline returns this one type, so it composes
 ## under a single ``?``.
 ##
@@ -22,8 +23,10 @@
 ## never discards its successful siblings. Mirrors SQLite's row-status code vs
 ## column data, and libcurl's perform code vs per-transfer ``CURLMsg``. A
 ## single-method one-shot, with no sibling to protect, may instead collapse
-## its outcome onto the rail via ``fulfil`` (the ``jeMethod`` arm) — a caller
-## convenience, not a reclassification of §3.6.2's data semantics.
+## its outcome onto the rail via ``fulfil`` (the ``jeMethod`` arm); a
+## single-create one-shot, with no sibling object to protect, may likewise lift
+## a refused create's SetError onto the ``jeSet`` arm — a caller convenience,
+## not a reclassification of §3.6.2/§5.3's data semantics.
 ##
 ## L1 smart constructors stay on their pure ``ValidationError`` rail; the leaf
 ## rails fold into ``JmapError`` once, at the boundary, via ``toJmapError`` and
@@ -187,12 +190,32 @@ func `$`*(mf: MethodFault): string =
   ## Delegates to ``message`` for the single canonical projection.
   mf.message
 
+type SetFault* = object
+  ## ``jeSet`` payload (RFC 8620 §5.3). A single object in a /set create that the
+  ## server refused with a typed SetError. A single-purpose one-shot lifts it onto
+  ## the rail — there is no sibling object whose result it must preserve as data,
+  ## mirroring the jeMethod treatment of a method-level error.
+  methodName*: MethodName
+  error*: SetError
+
+func setFault*(methodName: MethodName, error: SetError): SetFault =
+  ## Constructs a ``SetFault``.
+  SetFault(methodName: methodName, error: error)
+
+func message*(sf: SetFault): string =
+  ## Human-readable diagnostic — reads "Email/set create failed: <error>".
+  $sf.methodName & " create failed: " & sf.error.message
+
+func `$`*(sf: SetFault): string =
+  ## Delegates to ``message`` for the single canonical projection.
+  sf.message
+
 # =============================================================================
 # JmapError — the one consumer rail
 # =============================================================================
 
 type JmapErrorKind* = enum
-  ## Discriminator for ``JmapError`` — the seven ways a JMAP call fails at the
+  ## Discriminator for ``JmapError`` — the eight ways a JMAP call fails at the
   ## call level. Additive: a new arm forces a compile error at every
   ## exhaustive ``case`` (here and in any FFI projection), never a silent gap.
   jeValidation ## client-supplied input was invalid (construction)
@@ -202,6 +225,7 @@ type JmapErrorKind* = enum
   jeMisuse ## a programming bug — a handle from a different builder was applied
   jeProtocol ## the server's response was malformed or did not conform
   jeMethod ## a single method returned a server method-level error (one-shot path)
+  jeSet ## a single /set create was refused with a typed SetError (one-shot path)
 
 type JmapError* = object
   ## The single error rail for the public pipeline. Flat top-level arms (not a
@@ -223,6 +247,8 @@ type JmapError* = object
     protocol*: ProtocolFault
   of jeMethod:
     methodFault*: MethodFault
+  of jeSet:
+    setFault*: SetFault
 
 func jmapValidation*(violation: ValidationError): JmapError =
   ## Lifts a single construction failure onto the rail. ``@[violation]`` has
@@ -260,6 +286,12 @@ func jmapMethod*(fault: MethodFault): JmapError =
   ## (RFC 8620 §3.6.2).
   JmapError(kind: jeMethod, methodFault: fault)
 
+func jmapSet*(fault: SetFault): JmapError =
+  ## Lifts a single /set create's server-refused SetError onto the rail (the
+  ## one-shot fail-fast path). The structured ``SetResponse.createResults`` keeps
+  ## it as data (RFC 8620 §5.3).
+  JmapError(kind: jeSet, setFault: fault)
+
 func message*(err: JmapError): string =
   ## Canonical human-readable diagnostic. Exhaustive over ``JmapErrorKind`` —
   ## adding an arm forces a compile error here. The validation arm joins every
@@ -282,6 +314,8 @@ func message*(err: JmapError): string =
     err.protocol.message
   of jeMethod:
     err.methodFault.message
+  of jeSet:
+    err.setFault.message
 
 func `$`*(err: JmapError): string =
   ## Delegates to ``message`` for the single canonical projection.

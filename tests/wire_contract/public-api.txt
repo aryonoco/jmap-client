@@ -880,6 +880,22 @@ enumfield vruSetTextBody
 enumfield vruSetToDate
 func wireName (p: VacationResponseGetProperty): string
 
+## jmap_client/internal/one_shot
+type QueryThenGet [T]
+type SentEmail
+proc connect (url, username, password: string): Result[JmapClient, JmapError]
+proc connect (url, username, password: string, transport: Transport): Result[JmapClient, JmapError]
+proc getEmailSubmissions (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])): Result[GetResponse[AnyEmailSubmission], JmapError]
+proc getEmails (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): Result[GetResponse[Email], JmapError]
+proc getIdentities (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])): Result[GetResponse[Identity], JmapError]
+proc getMailboxes (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])): Result[GetResponse[Mailbox], JmapError]
+proc getThreads (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])): Result[GetResponse[Thread], JmapError]
+proc getVacationResponse (client: JmapClient, accountId: AccountId): Result[GetResponse[VacationResponse], JmapError]
+proc queryEmailSubmissions (client: JmapClient, accountId: AccountId, filter: Opt[Filter[EmailSubmissionFilterCondition]] = Opt.none(Filter[EmailSubmissionFilterCondition]), sort: Opt[seq[EmailSubmissionComparator]] = Opt.none(seq[EmailSubmissionComparator]), queryParams: QueryParams = QueryParams()): Result[QueryThenGet[AnyEmailSubmission], JmapError]
+proc queryEmails (client: JmapClient, accountId: AccountId, filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]), sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]), queryParams: QueryParams = QueryParams(), collapseThreads: bool = false, bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): Result[QueryThenGet[Email], JmapError]
+proc queryMailboxes (client: JmapClient, accountId: AccountId, filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]), sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]), queryParams: QueryParams = QueryParams(), sortAsTree: bool = false, filterAsTree: bool = false): Result[QueryThenGet[Mailbox], JmapError]
+proc sendPlainText (client: JmapClient, accountId: AccountId, identityId: Id, draftMailbox: Id, sentMailbox: Id, fromAddr: string, to: seq[string], subject: string, body: string, cc: seq[string] = @[], bcc: seq[string] = @[]): Result[SentEmail, JmapError]
+
 ## jmap_client/internal/protocol/builder
 type BuiltRequest
 type RequestBuilder
@@ -928,6 +944,7 @@ func $ (m: Misuse): string
 func $ (mf: MethodFault): string
 func $ (p: ProtocolFault): string
 func $ (sf: SessionFault): string
+func $ (sf: SetFault): string
 type JmapError
 type JmapErrorKind
 type JmapResult [T]
@@ -938,12 +955,14 @@ type Misuse
 type ProtocolFault
 type ProtocolFaultKind
 type SessionFault
+type SetFault
 func fulfil [T](outcome: MethodOutcome[T], methodName: MethodName): Result[T, JmapError]
 enumfield jeMethod
 enumfield jeMisuse
 enumfield jeProtocol
 enumfield jeRequest
 enumfield jeSession
+enumfield jeSet
 enumfield jeTransport
 enumfield jeValidation
 func jmapRequest (request: RequestError): JmapError
@@ -957,6 +976,7 @@ func message (m: Misuse): string
 func message (mf: MethodFault): string
 func message (p: ProtocolFault): string
 func message (sf: SessionFault): string
+func message (sf: SetFault): string
 enumfield mokMethodError
 enumfield mokValue
 enumfield pfDecode

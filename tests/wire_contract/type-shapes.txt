@@ -834,6 +834,8 @@
     protocol*: ProtocolFault
   of jeMethod:
     methodFault*: MethodFault
+  of jeSet:
+    setFault*: SetFault
 
 ## JmapErrorKind [jmap_client/internal/protocol/jmap_error]
   jeValidation
@@ -843,6 +845,7 @@
   jeMisuse
   jeProtocol
   jeMethod
+  jeSet
 
 ## JmapInt [jmap_client/internal/types/primitives]
 
@@ -1289,6 +1292,10 @@
   total*: Opt[UnsignedInt]
   limit*: Opt[UnsignedInt]
 
+## QueryThenGet [jmap_client/internal/one_shot]
+  query*: QueryResponse[T]
+  get*: GetResponse[T]
+
 ## RFC5321Keyword [jmap_client/internal/types/submission_atoms]
 
 ## RFC5321Mailbox [jmap_client/internal/mail/submission_mailbox]
@@ -1353,6 +1360,10 @@
 
 ## SendProc [jmap_client/internal/transport]
   proc (req: HttpRequest): Result[HttpResponse, TransportError] {.closure, raises: [].}
+
+## SentEmail [jmap_client/internal/one_shot]
+  emailId*: Id
+  submissionId*: Id
 
 ## ServerCapability [jmap_client/internal/types/capabilities]
   uri*: string
@@ -1442,6 +1453,10 @@
   setForbiddenToSend = "forbiddenToSend"
   setCannotUnsend = "cannotUnsend"
   setUnknown
+
+## SetFault [jmap_client/internal/protocol/jmap_error]
+  methodName*: MethodName
+  error*: SetError
 
 ## SetRequest [jmap_client/internal/protocol/methods]
   accountId*: AccountId
