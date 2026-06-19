@@ -3,7 +3,7 @@
 
 > **You are a fresh agent with ZERO prior context. Read this whole document
 > before doing anything.** It is the single canonical orientation for the
-> campaign as of 2026-06-18, after **ALL SEVEN items — S0, S1, S2, the
+> campaign as of 2026-06-19, after **ALL SEVEN items — S0, S1, S2, the
 > RFC-conformance sweep, S3+E1, S4, and the triage ledger — are merged to `main`.
 > THE CAMPAIGN IS COMPLETE.** It supersedes the earlier handoffs
 > (`2026-06-15-CAMPAIGN-HANDOFF.md`,
@@ -18,7 +18,7 @@
 > next action.
 >
 > **The TRIAGE LEDGER — the campaign's last item — is MERGED** (PR #13, merge
-> `57429ff`, 2026-06-18; branch `api/triage`, both gates green, 8 commits).
+> `57429ff`, 2026-06-16; branch `api/triage`, both gates green, 8 commits).
 > It flipped all 90 inline `examples/jmap-cli/AUDIT.md` findings to a disposition
 > (56 resolved-S0..S4 / 14 affirmed / 11 accepted / 9 filed), authored the
 > missing `## S0 resolution` section, audited Section C of the pre-1.0 tracker
@@ -38,7 +38,7 @@
 
 ---
 
-## 0. TL;DR — where we are right now (2026-06-18)
+## 0. TL;DR — where we are right now (2026-06-19)
 
 - **Project:** `jmap-client` — a cross-platform JMAP (RFC 8620 core + RFC 8621
   mail) **email** client library in Nim, designed for eventual FFI use from
@@ -59,7 +59,7 @@
   - **S4 (one-shots + easy-path + dissolve the quarantine)** — ✅ **merged
     (PR #12, merge `a525d80`, 2026-06-16). Clears R1 + R4.** (See §4.6 for what it
     shipped.)
-  - **Triage ledger** — ✅ **MERGED (PR #13, merge `57429ff`, 2026-06-18). The
+  - **Triage ledger** — ✅ **MERGED (PR #13, merge `57429ff`, 2026-06-16). The
     campaign is COMPLETE.**
 - **Root causes (R1–R6, see §4.3): ALL CLEARED.**
 - **You are on `main`** (`git checkout main && git pull` first). `main`'s tip is
@@ -582,7 +582,7 @@ Code footer.**
 
 ---
 
-## 10. Current working state (snapshot, 2026-06-18)
+## 10. Current working state (snapshot, 2026-06-19)
 
 - On **`main`** (up to date with `origin/main`, tip `57429ff` = PR #13). **S0 + S1
   + S2 + the RFC sweep + S3 + E1 + S4 + the triage ledger are ALL merged; the
@@ -600,7 +600,7 @@ Code footer.**
 **The triage ledger is MERGED — the campaign is COMPLETE.** The triage landed on
 branch `api/triage` (8 commits, both gates green: `just ci` ✅ + the four-shard
 live `test-full` ✅ "All shards passed", stalwart/james/cyrus 73 each + joinable
-23, 0 fail) and merged to `main` as **PR #13** (merge `57429ff`, 2026-06-18;
+23, 0 fail) and merged to `main` as **PR #13** (merge `57429ff`, 2026-06-16;
 `main` verified byte-identical to the gates-green tip `3c32c58`, ghost-free,
 `just build` → SuccessX). It dispositioned all 90 inline `AUDIT.md` findings,
 authored the `## S0 resolution` section, audited Section C (C1–C10 reconciled,
