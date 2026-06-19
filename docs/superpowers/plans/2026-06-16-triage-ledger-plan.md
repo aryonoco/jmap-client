@@ -39,7 +39,7 @@ to validate against the RFC.
 - [x] **T4** — Full Section C audit + append new `filed-as-Cn` items ✅ (C1–C10 markers reconciled; C11–C22 appended; C13 RFC cite corrected §5.1→§5.3)
 - [x] **T5** — Final adversarial Workflow over the whole diff ✅ (5-lens; 5 confirmed findings landed: §5.2→§5, flag/move set-construction resolved-S2→filed-as-C15, Summary C11–C16 split, C1 past-tense, C12 trim; 1 dismissed)
 - [x] **T6** — BOTH gates green (controller-run), then refresh canonical handoff ✅ (`just ci` ✅; `test-full` ✅ "All shards passed" — stalwart/james/cyrus 73, joinable 23, 0 fail; handoff refreshed to campaign-complete)
-- [ ] **T7** — Confirm push/PR/merge with the human; merge; verify main
+- [x] **T7** — Confirm push/PR/merge with the human; merge; verify main ✅ (merged as PR #13, merge `57429ff`, 2026-06-18; `main` verified byte-identical to the gates-green branch tip `3c32c58`, ghost-free, `just build` → SuccessX)
 
 **Position on entry:** branch `api/triage` off `main` `a525d80`. `just build` →
 SuccessX; `check-public-only.sh` OK; `nim c examples/jmap-cli/jmap_cli.nim` →
@@ -245,11 +245,12 @@ the S-campaign and read stale.
       parking lot / a future additive pass remains, at the human's discretion".
 - [ ] Update memory `api-libcurl-sqlite-refactor` (triage merged). Flip **T6** ✅.
 
-## T7 — Push / PR / merge (CONFIRM WITH HUMAN FIRST)
+## T7 — Push / PR / merge (DONE)
 
-- [ ] Confirm with the human. Then push `api/triage` → open PR (NO Claude footer)
-      → merge to `main` → `git checkout main && git pull` → verify main's tree is
-      byte-identical to the gates-green branch tip + ghost-free. Flip **T7** ✅.
+- [x] Confirmed with the human. Pushed `api/triage` → opened PR #13 (no Claude
+      footer) → merged to `main` (merge `57429ff`, 2026-06-18) → `git checkout
+      main && git pull` → verified `main`'s tree byte-identical to the gates-green
+      branch tip `3c32c58` + ghost-free (`just build` → SuccessX). **T7** ✅.
 
 ---
 

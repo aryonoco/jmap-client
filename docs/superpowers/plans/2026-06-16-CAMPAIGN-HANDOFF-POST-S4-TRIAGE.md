@@ -1,14 +1,15 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# CAMPAIGN HANDOFF — jmap-client API → libcurl/SQLite refactor (post-S4)
+# CAMPAIGN HANDOFF — jmap-client API → libcurl/SQLite refactor (COMPLETE)
 
 > **You are a fresh agent with ZERO prior context. Read this whole document
 > before doing anything.** It is the single canonical orientation for the
-> campaign as of 2026-06-16, after **ALL SIX sub-projects — S0, S1, S2, the
-> RFC-conformance sweep, S3+E1, and S4 — are merged to `main`**. It supersedes
-> the earlier handoffs (`2026-06-15-CAMPAIGN-HANDOFF.md`,
+> campaign as of 2026-06-18, after **ALL SEVEN items — S0, S1, S2, the
+> RFC-conformance sweep, S3+E1, S4, and the triage ledger — are merged to `main`.
+> THE CAMPAIGN IS COMPLETE.** It supersedes the earlier handoffs
+> (`2026-06-15-CAMPAIGN-HANDOFF.md`,
 > `2026-06-16-CAMPAIGN-HANDOFF-S4-AND-TRIAGE.md`,
 > `2026-06-16-E1-RECONCILE-AND-S3-WRAPUP-HANDOFF.md`) for *current status* — those
-> say "S4 is your next job"; **S4 is DONE.**
+> say "S4 is your next job"; **S4 and the triage ledger are both DONE.**
 >
 > It tells you: what the human is trying to achieve, what this campaign is, how
 > things were at the start, exactly what is done, exactly what is left, every
@@ -16,27 +17,28 @@
 > principles, the process discipline that carried seven merges, and the immediate
 > next action.
 >
-> **The TRIAGE LEDGER — the campaign's last item — is now DONE** (branch
-> `api/triage`, both gates green, 8 commits; pending push/PR/merge confirmation).
+> **The TRIAGE LEDGER — the campaign's last item — is MERGED** (PR #13, merge
+> `57429ff`, 2026-06-18; branch `api/triage`, both gates green, 8 commits).
 > It flipped all 90 inline `examples/jmap-cli/AUDIT.md` findings to a disposition
 > (56 resolved-S0..S4 / 14 affirmed / 11 accepted / 9 filed), authored the
 > missing `## S0 resolution` section, audited Section C of the pre-1.0 tracker
 > (C1–C10 reconciled, C11–C22 filed), and landed two clean code fixes (the
-> `asSeq` sealed-seq unification + test-hygiene). **Upon merge the entire
+> `asSeq` sealed-seq unification + test-hygiene). **With it merged, the entire
 > campaign is COMPLETE** — only the Section C parking lot (C11–C22, future
 > additive passes) remains, at the human's discretion. Details:
 > `docs/superpowers/plans/2026-06-16-triage-ledger-plan.md`. See §6 and §11.
 >
 > Companion auto-loaded memories (in
 > `~/.claude/projects/-workspaces-jmap-client/memory/`):
-> `api-libcurl-sqlite-refactor` (campaign state — marks all six merged, triage
-> next), `api-design-only-consumers` (the design lens), `rfc-is-authoritative`
+> `api-libcurl-sqlite-refactor` (campaign state — marks all seven items merged,
+> campaign complete), `api-design-only-consumers` (the design lens),
+> `rfc-is-authoritative`
 > (the methodology lesson — read it). Per-sub-project plans live in
 > `docs/superpowers/plans/`; gitignored design specs in `docs/superpowers/specs/`.
 
 ---
 
-## 0. TL;DR — where we are right now (2026-06-16)
+## 0. TL;DR — where we are right now (2026-06-18)
 
 - **Project:** `jmap-client` — a cross-platform JMAP (RFC 8620 core + RFC 8621
   mail) **email** client library in Nim, designed for eventual FFI use from
@@ -47,8 +49,7 @@
   and SQLite**, not like **OpenSSL or libdbus**, driven entirely by the **future
   application developer** who will link this library into an email client.
   (Mission verbatim in §1; the non-negotiable design lens in §2.)
-- **Status — ALL SIX sub-projects DONE & merged to `main`; only the triage
-  ledger remains:**
+- **Status — ALL SEVEN items DONE & merged to `main`; THE CAMPAIGN IS COMPLETE:**
   - **S0 (truthful contract)** — ✅ merged (PR #5, `73dee1a`). Clears R5.
   - **S1 (one error rail, `JmapError`)** — ✅ merged (PR #6, `011830b`). Clears R3.
   - **S2 (read-model uniformity)** — ✅ merged (PR #7, `1be1514`). Clears R6.
@@ -58,17 +59,17 @@
   - **S4 (one-shots + easy-path + dissolve the quarantine)** — ✅ **merged
     (PR #12, merge `a525d80`, 2026-06-16). Clears R1 + R4.** (See §4.6 for what it
     shipped.)
-  - **Triage ledger** — ✅ **DONE on `api/triage` (both gates green, 8 commits);
-    pending push/PR/merge. Campaign COMPLETE upon merge.**
+  - **Triage ledger** — ✅ **MERGED (PR #13, merge `57429ff`, 2026-06-18). The
+    campaign is COMPLETE.**
 - **Root causes (R1–R6, see §4.3): ALL CLEARED.**
 - **You are on `main`** (`git checkout main && git pull` first). `main`'s tip is
-  the S4 merge (`a525d80`); `just build` → SuccessX. Every merged sub-project
-  passed BOTH gates (`just ci` + the full live `test-full` against
+  the triage merge (PR #13, `57429ff`); `just build` → SuccessX. Every merged
+  item passed BOTH gates (`just ci` + the full live `test-full` against
   Stalwart/James/Cyrus).
-- **Immediate next action:** the triage ledger (§6.1, §11). It is mostly a
-  documentation-reconciliation + re-bench task; any code it spawns is small and
-  goes through the same brainstorm→plan→subagent loop (§8). **No large
-  implementation is planned.**
+- **Immediate next action:** NONE — the campaign is COMPLETE. Only the Section C
+  parking lot (C11–C22, all future *additive* passes) remains, entirely at the
+  human's discretion (§6.2, §11). The deferred-campaign-wide items (Layer-5 C FFI,
+  Push, Blob) remain open by design. **No implementation is planned.**
 
 ---
 
@@ -231,7 +232,7 @@ critique). `examples/jmap-cli/check-public-only.sh` enforces public-only imports
 | **RFC-conformance sweep** | — | ✅ MERGED (PR #8, `ef8c932`) |
 | **S3** Complete the core **+ E1** | R2 | ✅ MERGED (PR #10, `266fd80`) |
 | **S4** One-shots + easy-path + dissolve | R1, R4 | ✅ MERGED (PR #12, `a525d80`) |
-| **Triage ledger** | all | ✅ DONE (`api/triage`, both gates green; pending merge) |
+| **Triage ledger** | all | ✅ MERGED (PR #13, `57429ff`) |
 
 (There were also docs-only handoff PRs #9 `1517a76` and #11 `de19d04`.)
 
@@ -337,7 +338,7 @@ every protocol-correctness question; the agent-authored design docs
 handoffs) are fallible and have been WRONG.**
 
 Grounding in the RFC has repeatedly caught real errors: D5 (the broad `toJson`
-null-for-none defect, RFC 8620 §5.1 — still **parked**, §6.3); B12 (`parseAccount`
+null-for-none defect, RFC 8620 §5.3 — still **parked**, §6.2); B12 (`parseAccount`
 dropped a read-only account's caps); F1 (the header-`null` bug). **S4's own
 adversarial Workflow caught one:** a comment cited RFC 8621 §7.5 ¶3 as *mandating*
 the conditional implicit Email/set, but §7.5 ¶3's literal text is an
@@ -350,39 +351,29 @@ attributed as such and recorded in `docs/design/known-server-deviations.md`.
 
 ## 6. What is LEFT
 
-### 6.1 The triage ledger (AUDIT Phase 2) — YOUR JOB
-`examples/jmap-cli/AUDIT.md` has **98 inline findings mechanically marked
-`[open]`** (Phase 1 was observe-only — see its lines 8-12). Many are now FIXED by
-S1/S2/S3/S4 and described in the document's per-sub-project **resolution sections**
-(`## S1 resolution`, `## S2 resolution`, `## S3 resolution`, `## S4 resolution`),
-but the **inline `[open]` tags were never flipped per-line**. The job:
+### 6.1 The triage ledger (AUDIT Phase 2) — ✅ DONE (merged, PR #13)
+The campaign's last item. `examples/jmap-cli/AUDIT.md` had **98 inline findings
+mechanically marked `[open]`** (Phase 1 was observe-only). The triage flipped
+every one to a disposition — `resolved-Sn` / `affirmed` / `accepted-as-trade-off`
+/ `filed-as-Cn` — cross-checked against the per-sub-project resolution sections
+and (for `resolved-S0`) the verified `public-api.txt` contract, then authored the
+once-missing `## S0 resolution` section and audited Section C of the pre-1.0
+tracker. **Final tally: 56 resolved / 14 affirmed / 11 accepted / 9 filed** (§11).
+It also landed two clean code fixes — the `asSeq` sealed-seq unification and a
+test-hygiene pass — each through the full subagent loop, then a 5-lens adversarial
+Workflow before both gates. Full executed record: the triage plan
+`docs/superpowers/plans/2026-06-16-triage-ledger-plan.md` and the dispositioned
+`AUDIT.md`.
 
-1. **Re-bench first.** Re-run the CLI public-surface-only against the final `main`
-   state (`bash examples/jmap-cli/check-public-only.sh`; `nim c
-   examples/jmap-cli/jmap_cli.nim` — zero warnings). It already builds clean
-   post-S4; confirm.
-2. **Convert every `[open]` line → `resolved-Sn | accepted-as-trade-off |
-   filed-as-Cn`**, mapped to the sub-project that fixed it (cross-check against the
-   four resolution sections), with a one-line rationale. The four resolution
-   sections already contain most of the mapping prose — this pass makes it
-   per-line and decides the accept/file calls for what's *not* resolved.
-3. **Decide the genuinely-residual findings:** `accepted-as-trade-off` (a
-   conscious, documented cost — e.g. the standing `parseUnsignedInt(N).get()`
-   no-int-literal seal; the `Result`-of-`Opt` `SetResponse.updateResults` read) or
-   `filed-as-Cn` (a real gap to track for a future additive pass — see §6.2).
-4. This is **mostly documentation reconciliation**; if it spawns a *small* code
-   fix (e.g. a one-line convenience), it goes through the brainstorm→plan→subagent
-   loop (§8) and BOTH gates (§7). **Do not turn triage into a new implementation
-   sub-project without the human's explicit go-ahead.**
-
-### 6.2 The deferred parking lot (candidates for `filed-as-Cn` or a future additive pass)
+### 6.2 The deferred parking lot (filed as C11–C22 — future *additive* passes)
+The triage filed these in Section C of `docs/TODO/pre-1.0-api-alignment.md`
+(C11–C22). None is freeze-blocking (the campaign is version-agnostic); each is a
+future additive pass at the human's discretion:
 - **A read-side `EmailLeaf` view type** for `leafTextParts` (P16: `partId`/`blobId`
   sit behind a `case`). Needs a NEW type — out of S3's "no new types" scope.
 - **`leafTextParts` / `limit` naming**; the still-public raw `Blueprint*` part
   constructors (a P15 tightening / non-additive removal).
-- **`NonEmptyIdSeq.toSeq` vs `std/sequtils.toSeq` collision** (a `.asSeq` rename
-  matching the sibling `NonEmptySeq[T].asSeq` would fix it).
-- **D5 — the broad `toJson` null-for-none serde-fidelity defect** (RFC 8620 §5.1).
+- **D5 — the broad `toJson` null-for-none serde-fidelity defect** (RFC 8620 §5.3).
   Only Email headers fixed so far; needs its OWN serde audit, NOT a blind
   generalisation of the omit rule.
 - **`ParsedEmail` body-reader overloads; `htmlBodies()`/`allBodies()` fetch-option
@@ -393,13 +384,6 @@ but the **inline `[open]` tags were never flipped per-line**. The job:
   (`addEmailQueryWithSnippets` stays hand-wired). These are the obvious next
   additive combinators if the human wants a "write/snippet one-shots" follow-up —
   but they are NOT in the planned scope.
-- **Test-hygiene latent issues** (pre-existing, NOT S4 regressions): a few test
-  files don't standalone-compile under the strict `--warningAsError` battery but
-  pass via the megatest JOIN — e.g. `tests/serde/mail/tserde_email_submission.nim`
-  (`UnusedImport: 'errors'`) and `tests/lint/h15_error_message_snapshot.nim`
-  (`Uninit` in `diffPairs`). They pass through their intended recipes
-  (`just lint-error-messages` runs h15 with `--warnings:off`). A hygiene pass could
-  clean them; `file-as-Cn`.
 
 ### 6.3 Explicitly NOT in scope (deferred campaign-wide)
 Layer-5 C FFI, Push (RFC 8620 §7), Blob upload/download. Do not start these.
@@ -598,39 +582,39 @@ Code footer.**
 
 ---
 
-## 10. Current working state (snapshot, 2026-06-16)
+## 10. Current working state (snapshot, 2026-06-18)
 
-- On **`main`** (up to date with `origin/main`, tip `a525d80` = PR #12). **S0 + S1
-  + S2 + the RFC sweep + S3 + E1 + S4 are ALL merged.** Working tree clean (the
-  `.claude/settings.json` plugin change was committed on the S4 branch, `8787a54`,
-  and rode PR #12). `main`'s tree verified byte-identical to the gates-green branch
-  tip; `just build` → SuccessX.
-- **Only the triage ledger remains.** No implementation sub-project is planned.
-- Memories present + current: `api-libcurl-sqlite-refactor` (marks all six merged,
-  triage next), `api-design-only-consumers`, `rfc-is-authoritative`.
+- On **`main`** (up to date with `origin/main`, tip `57429ff` = PR #13). **S0 + S1
+  + S2 + the RFC sweep + S3 + E1 + S4 + the triage ledger are ALL merged; the
+  campaign is COMPLETE.** Working tree clean. `main`'s tree verified byte-identical
+  to the gates-green branch tip `3c32c58`; `just build` → SuccessX.
+- **The campaign is COMPLETE — no work remains** beyond the Section C parking lot
+  (C11–C22, future *additive* passes, at the human's discretion).
+- Memories present + current: `api-libcurl-sqlite-refactor` (marks all seven items
+  merged, campaign complete), `api-design-only-consumers`, `rfc-is-authoritative`.
 
 ---
 
 ## 11. Immediate next action
 
-**The triage ledger is DONE — the campaign is COMPLETE upon merge.** The triage
-landed on branch `api/triage` (8 commits, both gates green: `just ci` ✅ + the
-four-shard live `test-full` ✅ "All shards passed", stalwart/james/cyrus 73 each
-+ joinable 23, 0 fail). It dispositioned all 90 inline `AUDIT.md` findings,
+**The triage ledger is MERGED — the campaign is COMPLETE.** The triage landed on
+branch `api/triage` (8 commits, both gates green: `just ci` ✅ + the four-shard
+live `test-full` ✅ "All shards passed", stalwart/james/cyrus 73 each + joinable
+23, 0 fail) and merged to `main` as **PR #13** (merge `57429ff`, 2026-06-18;
+`main` verified byte-identical to the gates-green tip `3c32c58`, ghost-free,
+`just build` → SuccessX). It dispositioned all 90 inline `AUDIT.md` findings,
 authored the `## S0 resolution` section, audited Section C (C1–C10 reconciled,
 C11–C22 filed), and landed the `asSeq` unification + test-hygiene fixes — each
 through the full subagent loop, then a 5-lens adversarial Workflow (which caught
-and fixed two more `resolved-S2` over-claims, re-filed to C15). **Only the merge
-remains** (push → PR → merge → verify main byte-identical), pending the human's
-go-ahead. Plan + STATE + ripple ledger:
-`docs/superpowers/plans/2026-06-16-triage-ledger-plan.md`.
+and fixed two more `resolved-S2` over-claims, re-filed to C15). Plan + STATE +
+ripple ledger: `docs/superpowers/plans/2026-06-16-triage-ledger-plan.md`.
 
-**After merge, there is NO planned work left.** The only remaining items are the
-Section C parking lot (C11–C22 in `docs/TODO/pre-1.0-api-alignment.md`) — all
-future *additive* passes (write/snippet one-shots, the `EmailLeaf` view type, the
-D5 serde audit, a query filter/sort builder, …), entirely at the human's
-discretion. The deferred-campaign-wide items (Layer-5 C FFI, Push, Blob) remain
-open by design.
+**The campaign is COMPLETE; there is NO planned work left.** The only remaining
+items are the Section C parking lot (C11–C22 in
+`docs/TODO/pre-1.0-api-alignment.md`) — all future *additive* passes (write/snippet
+one-shots, the `EmailLeaf` view type, the D5 serde audit, a query filter/sort
+builder, …), entirely at the human's discretion. The deferred-campaign-wide items
+(Layer-5 C FFI, Push, Blob) remain open by design.
 
 **When in doubt, re-read §2.** Optimise for the future application developer,
 comprehensively, no corners cut, exemplary/showcase quality — **libcurl/SQLite,
