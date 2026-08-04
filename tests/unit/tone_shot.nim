@@ -679,6 +679,8 @@ testCase oneShotSetVacationResponseSuccess:
   for id, serverEcho in res.value.updated:
     confirmed.inc
     assertEq($id, "singleton")
+    doAssert serverEcho.isNone,
+      "the canned response confirms with a null echo, so the partial-echo arm must be none"
   assertEq(confirmed, 1)
 
 testCase oneShotSetVacationResponseEmptyIsValidation:
@@ -691,3 +693,15 @@ testCase oneShotSetVacationResponseEmptyIsValidation:
   doAssert res.isErr, "an empty update batch must reject at the seal, not the wire"
   doAssert res.error.kind == jeValidation,
     "an empty update batch is a validation failure, not a transport one"
+
+testCase oneShotSetVacationResponseMethodError:
+  ## A whole-method error collapses fail-fast onto jeMethod, matching the
+  ## destroy/mark one-shots' method-error coverage.
+  let responseJson = envelope(%*[["error", {"type": "serverFail"}, "c0"]])
+  let client = cannedClient(responseJson)
+  let res = client.setVacationResponse(makeAccountId("acct-1"), @[setIsEnabled(true)])
+  doAssert res.isErr, "expected a rail error for a method-level failure"
+  doAssert res.error.kind == jeMethod,
+    "a server error invocation collapses onto jeMethod"
+  doAssert res.error.methodFault.error.kind == metServerFail,
+    "the method-error kind must survive onto the rail"
