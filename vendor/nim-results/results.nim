@@ -440,7 +440,7 @@ func raiseResultError[T, E](self: Result[T, E]) {.noreturn, noinline.} =
 
 func raiseResultDefect(m: string, v: auto) {.noreturn, noinline.} =
   mixin `$`
-  when compiles($v):
+  when compiles((func (x: typeof(v)): string {.noSideEffect.} = $x)(v)):
     raise (ref ResultDefect)(msg: m & ": " & $v)
   else:
     raise (ref ResultDefect)(msg: m)
