@@ -35,22 +35,25 @@ cannot be expressed with hub-public symbols at all (highest severity).
   RFC 8620/8621 entity area is covered (see [Coverage](#coverage)),
   live-verified against Stalwart — including real alice → bob delivery and
   an incremental-sync delta.
-- **Findings: 98 ledger lines** — the build-environment, positives,
-  per-command, cross-cutting and Phase-0 lines. After **Phase 2 triage**
-  (90 inline findings carry a disposition; the other 8 `[open]` substrings
-  are prose references to the old observe-only convention), the breakdown is:
+- **Findings: 99 ledger lines** — the build-environment, positives,
+  per-command, cross-cutting and Phase-0 lines. After **Phase 2 triage** and
+  the C15 easy-path branch that acted on it (91 inline findings carry a
+  disposition; the other 8 `[open]` substrings are prose references to the old
+  observe-only convention), the breakdown is:
   **resolved-S0 7, resolved-S1 9, resolved-S2 9, resolved-S3 9,
-  resolved-S4 22, affirmed 14, accepted-as-trade-off 11, filed-as-Cn 9**.
-  Many resolutions also carry a RESIDUAL pointer (6 residual
+  resolved-S4 22, affirmed 14, accepted-as-trade-off 11, resolved-Cn 5,
+  filed-as-Cn 5**. Many resolutions also carry a RESIDUAL pointer (6 residual
   accepted-as-trade-off, and residual `filed-as-C11/C12/C16`) for a
-  deeper gap left after the common case was fixed. So **56 of 90 inline
-  findings are resolved by S0–S4**, 14 were positives all along, 11 are
-  documented trade-offs, and 9 are filed to Section C — seven to fresh items
-  created this triage (C15 the Email/set write one-shot, C17 the
-  changes-combinator gap, C20 a query filter/sort builder, C21 a per-type
-  state accessor, C22 typing the vacation singleton id) and two to the existing
-  C3 (the by-ids one-shots collapse the lifecycle but not the
-  `Opt.some(direct(@[id]))` input wrapping). Each
+  deeper gap left after the common case was fixed. So **56 of 91 inline
+  findings are resolved by S0–S4** and a further **5 by the C15 easy-path
+  branch** (C15 the Email/set write one-shots — including the projection
+  iterators' `std/tables` container leak that adopting them uncovered — C17 the
+  changes combinator's `/updated` gap, C21 the per-type state accessor), 14
+  were positives all along, 11 are documented trade-offs, and 5 remain filed
+  to Section C — three to fresh items created this triage (C20 a query
+  filter/sort builder, C22 typing the vacation singleton id) and two to the
+  existing C3 (the by-ids one-shots collapse the lifecycle but not the
+  `Opt.some(direct(@[id]))` input wrapping). Each still-open
   filed-as-Cn item is registered in Section C of
   `docs/TODO/pre-1.0-api-alignment.md` (alongside the residual-pointer items
   C11/C12/C16, the no-inline-anchor items C13/C14, and the done-in-triage

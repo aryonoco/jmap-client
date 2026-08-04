@@ -44,6 +44,9 @@ proc syncSince(ctx: CliContext, sinceArg: string): JmapResult[int] =
 
   # One call for the whole delta: the changes call plus both record fetches,
   # each outcome collapsed onto the rail, so there is no per-method `case` here.
+  # The trade the bench records: the hand-wired path treated a failed body fetch
+  # as non-fatal and still printed the counts and the cursor, whereas the folded
+  # path is fail-fast, so any one method error now costs the cursor line too.
   let sync = ?ctx.client.syncEmails(ctx.mailAccount, sinceState)
 
   let ch = sync.changes
