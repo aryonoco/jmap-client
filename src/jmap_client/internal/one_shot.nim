@@ -143,6 +143,16 @@ proc getVacationResponse*(
     client, mnVacationResponseGet, client.newBuilder().addVacationResponseGet(accountId)
   )
 
+proc getEmailState*(
+    client: JmapClient, accountId: AccountId
+): Result[JmapState, JmapError] =
+  ## Current ``Email`` object state — the ``sinceState`` cursor a first
+  ## ``syncEmails`` call needs. Issues an ``Email/get`` with an empty ids
+  ## list purely for its ``state`` field, so bootstrapping a sync cursor
+  ## costs no email payload.
+  let resp = ?client.getEmails(accountId, ids = Opt.some(direct(newSeq[Id]())))
+  ok(resp.state)
+
 # =============================================================================
 # Query-then-get one-shots (RFC 8620 §3.7 back-reference chains)
 # =============================================================================

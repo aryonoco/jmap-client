@@ -360,3 +360,33 @@ testCase oneShotSendPlainTextAbsentDraftCreate:
   doAssert r.error.kind == jeProtocol, "an absent create is a protocol fault"
   doAssert r.error.protocol.kind == pfMissingCall,
     "the absent create maps to pfMissingCall"
+
+# -----------------------------------------------------------------------------
+# getEmailState
+# -----------------------------------------------------------------------------
+
+testCase oneShotGetEmailStateSuccess:
+  ## The state bootstrap issues one empty-ids Email/get and surfaces its
+  ## ``state`` field alone — the sinceState cursor for a first sync.
+  let responseJson = envelope(
+    %*[
+      [
+        "Email/get",
+        {"accountId": "acct-1", "state": "s-42", "list": [], "notFound": []},
+        "c0",
+      ]
+    ]
+  )
+  let client = cannedClient(responseJson)
+  let res = client.getEmailState(makeAccountId("acct-1"))
+  assertOk(res)
+  assertEq(res.value, makeState("s-42"))
+
+testCase oneShotGetEmailStateMethodError:
+  ## A method-level error on the single call collapses onto the rail as
+  ## jeMethod — the fail-fast one-shot contract.
+  let responseJson = envelope(%*[["error", {"type": "serverFail"}, "c0"]])
+  let client = cannedClient(responseJson)
+  let res = client.getEmailState(makeAccountId("acct-1"))
+  doAssert res.isErr
+  doAssert res.error.kind == jeMethod

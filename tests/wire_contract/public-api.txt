@@ -908,6 +908,7 @@ type SendMailboxes
 type SentEmail
 proc connect (url, username, password: string): Result[JmapClient, JmapError]
 proc connect (url, username, password: string, transport: Transport): Result[JmapClient, JmapError]
+proc getEmailState (client: JmapClient, accountId: AccountId): Result[JmapState, JmapError]
 proc getEmailSubmissions (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])): Result[GetResponse[AnyEmailSubmission], JmapError]
 proc getEmails (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): Result[GetResponse[Email], JmapError]
 proc getIdentities (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])): Result[GetResponse[Identity], JmapError]
