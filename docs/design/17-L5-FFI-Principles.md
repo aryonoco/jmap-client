@@ -368,8 +368,8 @@ The v1 C surface is the easy path, complete for an email client:
 | Read email (bodies) | `jmap_get_emails` | `getEmails` + body readers |
 | Threads / identities / vacation | `jmap_get_threads` / … | one-shots |
 | Send plain text | `jmap_send_plain_text` | `sendPlainText` |
-| Flag / move / destroy | `jmap_mark_read` / `jmap_move_emails` / … | `markEmailsRead` / `markEmailsUnread` / `moveEmails` / `destroyEmails` (C15, landed) |
-| Incremental sync | `jmap_sync_emails` | `syncEmails` → `EmailSync` (C23, landed) |
+| Flag / move / destroy | `jmap_mark_read` / `jmap_move_emails` / … | `markEmailsRead` / `markEmailsUnread` / `moveEmails` / `destroyEmails` |
+| Incremental sync | `jmap_sync_emails` | `syncEmails` |
 
 - **Prerequisite Nim PR (landed 2026-08-04, branch
   `api/c15-easy-path-one-shots`):** two lifts, on the same

@@ -73,7 +73,7 @@ Last reconciled 2026-08-04 against `main` at 4185bb9 (the PR #18
 merge, which landed D10 and is the base of the current work). Four
 deltas are folded into the counts below and are not yet on `main`, all
 from branch `api/c15-easy-path-one-shots`: C15, C17, and C21 flipped
-to ✅ DONE, and C23 was opened and closed as the sync one-shot D10's
+to ✅ DONE, and C23 was opened and closed as the sync one-shot doc 17
 §8 named as a prerequisite.
 
 | Status | Count | What it means |
