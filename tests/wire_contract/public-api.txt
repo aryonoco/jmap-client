@@ -38,18 +38,39 @@ type EmailBodyPart
 type EmailBodyValue
 const MaxBodyPartDepth : int literal(128)
 type PartId
+func blobId (leaf: BlueprintLeafPart): Opt[BlobId]
+func blobRefPart (blobId: BlobId, contentType: string, size: Opt[UnsignedInt] = Opt.none(UnsignedInt), charset: Opt[string] = Opt.none(string), name: Opt[string] = Opt.none(string), disposition: Opt[ContentDisposition] = Opt.none(ContentDisposition), cid: Opt[string] = Opt.none(string), language: Opt[seq[string]] = Opt.none(seq[string]), location: Opt[string] = Opt.none(string), extraHeaders: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()): BlueprintBodyPart
 enumfield bpsBlobRef
 enumfield bpsInline
 enumfield cdAttachment
 enumfield cdExtension
 enumfield cdInline
+func charset (leaf: BlueprintLeafPart): Opt[string]
+func cid (part: BlueprintBodyPart): Opt[string]
+func contentType (part: BlueprintBodyPart): string
+func disposition (part: BlueprintBodyPart): Opt[ContentDisposition]
 const dispositionAttachment : ContentDisposition
 const dispositionInline : ContentDisposition
+func extraHeaders (part: BlueprintBodyPart): lent Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]
 func hash (d: ContentDisposition): Hash
 func identifier (d: ContentDisposition): string
+func inlinePart (partId: PartId, contentType: string, value: string, name: Opt[string] = Opt.none(string), disposition: Opt[ContentDisposition] = Opt.none(ContentDisposition), cid: Opt[string] = Opt.none(string), language: Opt[seq[string]] = Opt.none(seq[string]), location: Opt[string] = Opt.none(string), extraHeaders: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()): BlueprintBodyPart
+func isMultipart (part: BlueprintBodyPart): bool
 func kind (d: ContentDisposition): ContentDispositionKind
+func language (part: BlueprintBodyPart): Opt[seq[string]]
+func leaf (part: BlueprintBodyPart): Opt[BlueprintLeafPart]
+iterator leaf (part: BlueprintBodyPart): lent BlueprintLeafPart
+func location (part: BlueprintBodyPart): Opt[string]
+func multipartPart (contentType: string, subParts: seq[BlueprintBodyPart], name: Opt[string] = Opt.none(string), disposition: Opt[ContentDisposition] = Opt.none(ContentDisposition), cid: Opt[string] = Opt.none(string), language: Opt[seq[string]] = Opt.none(seq[string]), location: Opt[string] = Opt.none(string), extraHeaders: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()): BlueprintBodyPart
+func name (part: BlueprintBodyPart): Opt[string]
 func parseContentDisposition (raw: string): Result[ContentDisposition, ValidationError]
 func parsePartIdFromServer (raw: string): Result[PartId, ValidationError]
+func partId (leaf: BlueprintLeafPart): Opt[PartId]
+func size (leaf: BlueprintLeafPart): Opt[UnsignedInt]
+func source (leaf: BlueprintLeafPart): BlueprintPartSource
+iterator subParts (part: BlueprintBodyPart): lent BlueprintBodyPart
+func subParts (part: BlueprintBodyPart): seq[BlueprintBodyPart]
+func value (leaf: BlueprintLeafPart): Opt[BlueprintBodyValue]
 
 ## jmap_client/internal/mail/combinators
 type ChangesGetHandles [T]

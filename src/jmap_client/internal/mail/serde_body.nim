@@ -305,6 +305,23 @@ func emitLanguage(node: var JsonNode, opt: Opt[seq[string]]) =
       arr.add(%lang)
     node["language"] = arr
 
+func emitLeafContent(node: var JsonNode, leaf: BlueprintLeafPart) =
+  ## Emit the content reference of a leaf part. An inline leaf emits only
+  ## its ``partId`` — the value itself is harvested by
+  ## ``EmailBlueprint.toJson`` into the top-level ``bodyValues`` object; a
+  ## blob-ref leaf emits the reference plus the metadata it declares.
+  case leaf.source
+  of bpsInline:
+    for partId in leaf.partId:
+      node["partId"] = partId.toJson()
+  of bpsBlobRef:
+    for blobId in leaf.blobId:
+      node["blobId"] = blobId.toJson()
+    for val in leaf.size:
+      node["size"] = val.toJson()
+    for val in leaf.charset:
+      node["charset"] = %val
+
 func bpToJsonImpl(bp: BlueprintBodyPart): JsonNode =
   ## Recursive serialisation of BlueprintBodyPart. Unbounded by construction:
   ## ``parseEmailBlueprint`` rejects trees exceeding ``MaxBodyPartDepth``
@@ -327,10 +344,9 @@ func bpToJsonImpl(bp: BlueprintBodyPart): JsonNode =
     let isAll = multiLen(mv) > 1
     node[composeHeaderKey(name, mv.form, isAll)] = blueprintMultiValueToJson(mv)
 
-  # Branch-specific — outer case on BlueprintBodyPart.isMultipart, inner
-  # case on BlueprintLeafPart.source. Each discriminator is on its own
-  # type, so strict tracks them independently (nested case objects on the
-  # same type would be rejected).
+  # Branch-specific. A container emits "subParts" even when empty, so the
+  # branch cannot collapse into an unconditional walk of the (neutral-empty)
+  # children; a leaf always carries content, so its loop body runs once.
   case bp.isMultipart
   of true:
     var subPartsArr = newJArray()
@@ -338,17 +354,8 @@ func bpToJsonImpl(bp: BlueprintBodyPart): JsonNode =
       subPartsArr.add(bpToJsonImpl(child))
     node["subParts"] = subPartsArr
   of false:
-    case bp.leaf.source
-    of bpsInline:
-      node["partId"] = bp.leaf.partId.toJson()
-      # bp.leaf.value is NOT emitted here — harvested by EmailBlueprint.toJson
-      # into a top-level "bodyValues" object (Design §5.4).
-    of bpsBlobRef:
-      node["blobId"] = bp.leaf.blobId.toJson()
-      for val in bp.leaf.size:
-        node["size"] = val.toJson()
-      for val in bp.leaf.charset:
-        node["charset"] = %val
+    for leaf in bp.leaf:
+      emitLeafContent(node, leaf)
 
   return node
 

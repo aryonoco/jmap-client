@@ -223,11 +223,13 @@ proc collectInlineLeafPartIds(part: BlueprintBodyPart): seq[PartId] =
     for c in part.subParts:
       result.add collectInlineLeafPartIds(c)
   of false:
-    case part.leaf.source
-    of bpsInline:
-      result.add part.leaf.partId
-    of bpsBlobRef:
-      discard
+    for leaf in part.leaf:
+      case leaf.source
+      of bpsInline:
+        for partId in leaf.partId:
+          result.add partId
+      of bpsBlobRef:
+        discard
 
 proc harvestInlinePartIds(bp: EmailBlueprint): seq[PartId] =
   ## Dispatches ``collectInlineLeafPartIds`` across whichever

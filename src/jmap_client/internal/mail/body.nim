@@ -243,29 +243,264 @@ type BlueprintLeafPart* {.ruleOff: "objects".} = object
   ## case-object facts (empirically verified — see CLAUDE.md under the
   ## strict section). Hoisting the inner case into its own type is the
   ## structural fix.
-  case source*: BlueprintPartSource
+  ##
+  ## Fully sealed: every field including the ``rawSource`` discriminator is
+  ## module-private, so neither a payload literal nor a discriminator-only
+  ## one is constructible elsewhere. Leaves are minted by ``inlinePart`` /
+  ## ``blobRefPart`` and read through the accessors below.
+  case rawSource: BlueprintPartSource
   of bpsInline:
-    partId*: PartId ## Co-located reference to the body value (R3-3).
-    value*: BlueprintBodyValue ## Co-located content (Design §5.1, R3-3).
+    rawPartId: PartId
+    rawValue: BlueprintBodyValue
   of bpsBlobRef:
-    blobId*: BlobId
-    size*: Opt[UnsignedInt] ## Optional, ignored by server.
-    charset*: Opt[string]
+    rawBlobId: BlobId
+    rawSize: Opt[UnsignedInt]
+    rawCharset: Opt[string]
 
 type BlueprintBodyPart* {.ruleOff: "objects".} = object
   ## Body structure for Email creation (RFC 8621 §4.6). The outer
   ## ``isMultipart`` separates containers from leaves; leaves carry a
   ## ``BlueprintLeafPart`` whose own case discriminates inline vs
   ## blob-referenced content.
-  contentType*: string
-  name*: Opt[string]
-  disposition*: Opt[ContentDisposition]
-  cid*: Opt[string]
-  language*: Opt[seq[string]]
-  location*: Opt[string]
-  extraHeaders*: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]
-  case isMultipart*: bool
+  ##
+  ## Fully sealed like ``BlueprintLeafPart``: the three total constructors
+  ## ``inlinePart`` / ``blobRefPart`` / ``multipartPart`` are the only way
+  ## in, and the same-name accessors the only way out. A part carries no
+  ## invariant of its own — it is a shape. Whether a tree of them is a
+  ## legal Email body is judged once, by ``parseEmailBlueprint``.
+  rawContentType: string
+  rawName: Opt[string]
+  rawDisposition: Opt[ContentDisposition]
+  rawCid: Opt[string]
+  rawLanguage: Opt[seq[string]]
+  rawLocation: Opt[string]
+  rawExtraHeaders: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]
+  case rawIsMultipart: bool
   of true:
-    subParts*: seq[BlueprintBodyPart] ## Recursive children.
+    rawSubParts: seq[BlueprintBodyPart]
   of false:
-    leaf*: BlueprintLeafPart
+    rawLeaf: BlueprintLeafPart
+
+func source*(leaf: BlueprintLeafPart): BlueprintPartSource =
+  ## Where the leaf's content comes from: carried inline in the blueprint,
+  ## or referenced as a previously uploaded blob.
+  leaf.rawSource
+
+func partId*(leaf: BlueprintLeafPart): Opt[PartId] =
+  ## Creation-time identifier under which an inline leaf's content travels
+  ## in the top-level ``bodyValues`` object. ``Opt.none`` for a blob-ref
+  ## leaf, which names its content by ``blobId`` instead.
+  case leaf.rawSource
+  of bpsInline:
+    Opt.some(leaf.rawPartId)
+  of bpsBlobRef:
+    Opt.none(PartId)
+
+func value*(leaf: BlueprintLeafPart): Opt[BlueprintBodyValue] =
+  ## Content co-located with the ``partId`` that carries it; ``Opt.none``
+  ## for a blob-ref leaf, whose content is already on the server.
+  case leaf.rawSource
+  of bpsInline:
+    Opt.some(leaf.rawValue)
+  of bpsBlobRef:
+    Opt.none(BlueprintBodyValue)
+
+func blobId*(leaf: BlueprintLeafPart): Opt[BlobId] =
+  ## Reference to the uploaded blob holding the content; ``Opt.none`` for
+  ## an inline leaf.
+  case leaf.rawSource
+  of bpsInline:
+    Opt.none(BlobId)
+  of bpsBlobRef:
+    Opt.some(leaf.rawBlobId)
+
+func size*(leaf: BlueprintLeafPart): Opt[UnsignedInt] =
+  ## Octet count declared alongside a blob reference — advisory, the server
+  ## may ignore it. ``Opt.none`` for an inline leaf, which declares none.
+  case leaf.rawSource
+  of bpsInline:
+    Opt.none(UnsignedInt)
+  of bpsBlobRef:
+    leaf.rawSize
+
+func charset*(leaf: BlueprintLeafPart): Opt[string] =
+  ## Character set declared alongside a blob reference. ``Opt.none`` for an
+  ## inline leaf, whose content is carried as decoded text.
+  case leaf.rawSource
+  of bpsInline:
+    Opt.none(string)
+  of bpsBlobRef:
+    leaf.rawCharset
+
+func contentType*(part: BlueprintBodyPart): string =
+  ## MIME type of the part, e.g. ``text/plain`` or ``multipart/mixed``.
+  part.rawContentType
+
+func name*(part: BlueprintBodyPart): Opt[string] =
+  ## Filename to suggest to the recipient (RFC 8621 §4.1.4).
+  part.rawName
+
+func disposition*(part: BlueprintBodyPart): Opt[ContentDisposition] =
+  ## RFC 2183 §2.1 disposition, or ``Opt.none`` to leave the choice to the
+  ## receiving client.
+  part.rawDisposition
+
+func cid*(part: BlueprintBodyPart): Opt[string] =
+  ## Content-Id without angle brackets — the target of a ``cid:`` URL in a
+  ## sibling HTML part.
+  part.rawCid
+
+func language*(part: BlueprintBodyPart): Opt[seq[string]] =
+  ## Content-Language tags for the part.
+  part.rawLanguage
+
+func location*(part: BlueprintBodyPart): Opt[string] =
+  ## Content-Location URI for the part.
+  part.rawLocation
+
+func extraHeaders*(
+    part: BlueprintBodyPart
+): lent Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] =
+  ## Part headers set verbatim, keyed by typed name. Borrowed view
+  ## (``lent``) — read-only, no per-call copy of the table.
+  part.rawExtraHeaders
+
+func isMultipart*(part: BlueprintBodyPart): bool =
+  ## Whether the part is a container (children in ``subParts``) rather than
+  ## a leaf (content in ``leaf``).
+  part.rawIsMultipart
+
+func subParts*(part: BlueprintBodyPart): seq[BlueprintBodyPart] =
+  ## Children of a container part; empty for a leaf, which holds content
+  ## rather than children. Returns a copy — the sealed subtree is never
+  ## aliased out. Traversal belongs to the ``subParts`` iterator below,
+  ## which costs nothing per node.
+  case part.rawIsMultipart
+  of true:
+    part.rawSubParts
+  of false:
+    @[]
+
+iterator subParts*(part: BlueprintBodyPart): lent BlueprintBodyPart =
+  ## Children of a container part, borrowed one at a time; a leaf yields
+  ## nothing. A ``for`` loop resolves here in preference to the accessor
+  ## above, which matters because a recursive walk over the seq form would
+  ## copy the whole subtree once per node visited.
+  case part.rawIsMultipart
+  of true:
+    for child in part.rawSubParts:
+      yield child
+  of false:
+    discard
+
+func leaf*(part: BlueprintBodyPart): Opt[BlueprintLeafPart] =
+  ## Content half of a leaf part; ``Opt.none`` for a container, whose
+  ## content lives in the leaves below it. Returns a copy; the ``leaf``
+  ## iterator below is the reading form.
+  case part.rawIsMultipart
+  of true:
+    Opt.none(BlueprintLeafPart)
+  of false:
+    Opt.some(part.rawLeaf)
+
+iterator leaf*(part: BlueprintBodyPart): lent BlueprintLeafPart =
+  ## Content half of a leaf part, borrowed; a container yields nothing.
+  ## Same arity as iterating the ``Opt`` the accessor returns — zero or one
+  ## yield — but an inline leaf carries its entire body value, so the
+  ## copying form is the wrong default for a tree walk.
+  case part.rawIsMultipart
+  of true:
+    discard
+  of false:
+    yield part.rawLeaf
+
+func inlinePart*(
+    partId: PartId,
+    contentType: string,
+    value: string,
+    name: Opt[string] = Opt.none(string),
+    disposition: Opt[ContentDisposition] = Opt.none(ContentDisposition),
+    cid: Opt[string] = Opt.none(string),
+    language: Opt[seq[string]] = Opt.none(seq[string]),
+    location: Opt[string] = Opt.none(string),
+    extraHeaders: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] =
+      initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+): BlueprintBodyPart =
+  ## A leaf whose content travels inside the creation request: ``value`` is
+  ## harvested to the top-level ``bodyValues`` object under ``partId``
+  ## (RFC 8621 §4.6). Total — every combination of the arguments is a
+  ## representable part; whether the surrounding tree is legal is
+  ## ``parseEmailBlueprint``'s question.
+  BlueprintBodyPart(
+    rawContentType: contentType,
+    rawName: name,
+    rawDisposition: disposition,
+    rawCid: cid,
+    rawLanguage: language,
+    rawLocation: location,
+    rawExtraHeaders: extraHeaders,
+    rawIsMultipart: false,
+    rawLeaf: BlueprintLeafPart(
+      rawSource: bpsInline,
+      rawPartId: partId,
+      rawValue: BlueprintBodyValue(value: value),
+    ),
+  )
+
+func blobRefPart*(
+    blobId: BlobId,
+    contentType: string,
+    size: Opt[UnsignedInt] = Opt.none(UnsignedInt),
+    charset: Opt[string] = Opt.none(string),
+    name: Opt[string] = Opt.none(string),
+    disposition: Opt[ContentDisposition] = Opt.none(ContentDisposition),
+    cid: Opt[string] = Opt.none(string),
+    language: Opt[seq[string]] = Opt.none(seq[string]),
+    location: Opt[string] = Opt.none(string),
+    extraHeaders: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] =
+      initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+): BlueprintBodyPart =
+  ## A leaf whose content is an already-uploaded blob (RFC 8621 §4.6).
+  ## ``size`` and ``charset`` are what the client believes about that blob;
+  ## the server is free to ignore both. Total, for the same reason as
+  ## ``inlinePart``.
+  BlueprintBodyPart(
+    rawContentType: contentType,
+    rawName: name,
+    rawDisposition: disposition,
+    rawCid: cid,
+    rawLanguage: language,
+    rawLocation: location,
+    rawExtraHeaders: extraHeaders,
+    rawIsMultipart: false,
+    rawLeaf: BlueprintLeafPart(
+      rawSource: bpsBlobRef, rawBlobId: blobId, rawSize: size, rawCharset: charset
+    ),
+  )
+
+func multipartPart*(
+    contentType: string,
+    subParts: seq[BlueprintBodyPart],
+    name: Opt[string] = Opt.none(string),
+    disposition: Opt[ContentDisposition] = Opt.none(ContentDisposition),
+    cid: Opt[string] = Opt.none(string),
+    language: Opt[seq[string]] = Opt.none(seq[string]),
+    location: Opt[string] = Opt.none(string),
+    extraHeaders: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] =
+      initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+): BlueprintBodyPart =
+  ## A container holding ``subParts`` children, e.g. ``multipart/mixed`` or
+  ## ``multipart/alternative`` (RFC 8621 §4.6). Total: an empty child list
+  ## and a non-multipart ``contentType`` are both representable here and
+  ## judged by ``parseEmailBlueprint``, which sees the whole tree.
+  BlueprintBodyPart(
+    rawContentType: contentType,
+    rawName: name,
+    rawDisposition: disposition,
+    rawCid: cid,
+    rawLanguage: language,
+    rawLocation: location,
+    rawExtraHeaders: extraHeaders,
+    rawIsMultipart: true,
+    rawSubParts: subParts,
+  )

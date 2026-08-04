@@ -22,7 +22,6 @@ import jmap_client/internal/mail/headers
 import jmap_client/internal/mail/mailbox
 import jmap_client/internal/mail/serde_body
 import jmap_client/internal/types/primitives
-import jmap_client/internal/types/identifiers
 import jmap_client/internal/types/validation
 
 import ../../massertions
@@ -128,20 +127,12 @@ testCase bodyPartContentDispositionDuplicate: # §6.1.1 scenario 7f
   # ``{content-type, content-disposition}``, so collision fires.
   var partExtra = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
   partExtra[makeBlueprintBodyHeaderName("content-disposition")] = makeBhmvTextSingle()
-  let leaf = BlueprintBodyPart(
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: makeBlueprintBodyValue(),
-    ),
-    contentType: "text/plain",
-    extraHeaders: partExtra,
-    name: Opt.none(string),
-    disposition: Opt.some(dispositionAttachment),
-    cid: Opt.none(string),
-    language: Opt.none(seq[string]),
-    location: Opt.none(string),
+  let leaf = inlinePart(
+    parsePartIdFromServer("1").get(),
+    "text/plain",
+    makeBlueprintBodyValue().value,
+    disposition = Opt.some(dispositionAttachment),
+    extraHeaders = partExtra,
   )
   let res = parseEmailBlueprint(
     mailboxIds = makeNonEmptyMailboxIdSet(), body = flatBody(textBody = Opt.some(leaf))

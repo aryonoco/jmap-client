@@ -1,12 +1,19 @@
 # RFC 8621 JMAP Mail — Cross-Cutting Architecture Design
 
-> **Currency banner — 2026-08-04.** The one statement that places
+> **Currency banner — 2026-08-04.** Two areas of this document predate
+> the code they describe. First, the one statement that places
 > `QueryGetHandles[T]` in "core's `convenience.nim`" predates the S4
 > refactor. `convenience.nim` was deleted: the pipeline combinators and
 > their handle bundles live in
 > `src/jmap_client/internal/mail/combinators.nim`, re-exported by the
-> hub. Ledger item D20 in `docs/TODO/pre-1.0-api-alignment.md` owns the
-> uplift; until it lands, read `src/` for this area.
+> hub. Second, §8.4 prints `BlueprintBodyPart` / `BlueprintLeafPart`
+> with public fields and public discriminators, which the C12 seal
+> removed: both types are now fully sealed — every field private and
+> `raw*`-prefixed, read back through same-named accessors and two
+> borrowed-traversal iterators, and built only by `inlinePart` /
+> `blobRefPart` / `multipartPart`. Ledger item D20 in
+> `docs/TODO/pre-1.0-api-alignment.md` owns the uplift for both; until it
+> lands, read `src/` for these areas.
 
 This document captures the architectural decisions that affect all entity types
 in the RFC 8621 (JMAP Mail) implementation. It is the single reference for

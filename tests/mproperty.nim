@@ -2461,49 +2461,40 @@ proc genBlueprintBodyPart*(rng: var Rand, maxDepth: int = 4): BlueprintBodyPart 
     let location = rng.genBlueprintPartLocation()
     let extraHeaders = rng.genBodyPartExtraHeaders()
     if rng.rand(0 .. 1) == 0:
-      return BlueprintBodyPart(
-        contentType: ct,
-        name: name,
-        disposition: disposition,
-        cid: cid,
-        language: language,
-        location: location,
-        extraHeaders: extraHeaders,
-        isMultipart: false,
-        leaf: BlueprintLeafPart(
-          source: bpsInline, partId: rng.genPartId(), value: rng.genBlueprintBodyValue()
-        ),
+      return inlinePart(
+        rng.genPartId(),
+        ct,
+        rng.genBlueprintBodyValue().value,
+        name = name,
+        disposition = disposition,
+        cid = cid,
+        language = language,
+        location = location,
+        extraHeaders = extraHeaders,
       )
-    return BlueprintBodyPart(
-      contentType: ct,
-      name: name,
-      disposition: disposition,
-      cid: cid,
-      language: language,
-      location: location,
-      extraHeaders: extraHeaders,
-      isMultipart: false,
-      leaf: BlueprintLeafPart(
-        source: bpsBlobRef,
-        blobId: parseBlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)).get(),
-        size: Opt.none(UnsignedInt),
-        charset: Opt.none(string),
-      ),
+    return blobRefPart(
+      parseBlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)).get(),
+      ct,
+      name = name,
+      disposition = disposition,
+      cid = cid,
+      language = language,
+      location = location,
+      extraHeaders = extraHeaders,
     )
   let ct = rng.oneOf(multipartTypes)
   var children: seq[BlueprintBodyPart] = @[]
   for _ in 0 ..< rng.rand(0 .. 3):
     children.add(rng.genBlueprintBodyPart(maxDepth - 1))
-  BlueprintBodyPart(
-    contentType: ct,
-    name: rng.genBlueprintPartName(),
-    disposition: rng.genBlueprintPartDisposition(),
-    cid: rng.genBlueprintPartCid(),
-    language: rng.genBlueprintPartLanguage(),
-    location: rng.genBlueprintPartLocation(),
-    extraHeaders: rng.genBodyPartExtraHeaders(),
-    isMultipart: true,
-    subParts: children,
+  multipartPart(
+    ct,
+    children,
+    name = rng.genBlueprintPartName(),
+    disposition = rng.genBlueprintPartDisposition(),
+    cid = rng.genBlueprintPartCid(),
+    language = rng.genBlueprintPartLanguage(),
+    location = rng.genBlueprintPartLocation(),
+    extraHeaders = rng.genBodyPartExtraHeaders(),
   )
 
 # J-9 ------------------------------------------------------------------------
@@ -2521,45 +2512,13 @@ proc genEmailBlueprintBody*(rng: var Rand, trial: int = -1): EmailBlueprintBody 
       return flatBody()
     of 1:
       return structuredBody(
-        BlueprintBodyPart(
-          contentType: "multipart/mixed",
-          name: Opt.none(string),
-          disposition: Opt.none(ContentDisposition),
-          cid: Opt.none(string),
-          language: Opt.none(seq[string]),
-          location: Opt.none(string),
-          extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-          isMultipart: true,
-          subParts: @[rng.genBlueprintBodyPart(maxDepth = 1)],
-        )
+        multipartPart("multipart/mixed", @[rng.genBlueprintBodyPart(maxDepth = 1)])
       )
     else:
-      let textLeaf = BlueprintBodyPart(
-        contentType: "text/plain",
-        name: Opt.none(string),
-        disposition: Opt.none(ContentDisposition),
-        cid: Opt.none(string),
-        language: Opt.none(seq[string]),
-        location: Opt.none(string),
-        extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-        isMultipart: false,
-        leaf: BlueprintLeafPart(
-          source: bpsInline, partId: rng.genPartId(), value: rng.genBlueprintBodyValue()
-        ),
-      )
-      let htmlLeaf = BlueprintBodyPart(
-        contentType: "text/html",
-        name: Opt.none(string),
-        disposition: Opt.none(ContentDisposition),
-        cid: Opt.none(string),
-        language: Opt.none(seq[string]),
-        location: Opt.none(string),
-        extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-        isMultipart: false,
-        leaf: BlueprintLeafPart(
-          source: bpsInline, partId: rng.genPartId(), value: rng.genBlueprintBodyValue()
-        ),
-      )
+      let textLeaf =
+        inlinePart(rng.genPartId(), "text/plain", rng.genBlueprintBodyValue().value)
+      let htmlLeaf =
+        inlinePart(rng.genPartId(), "text/html", rng.genBlueprintBodyValue().value)
       return flatBody(
         textBody = Opt.some(textLeaf),
         htmlBody = Opt.some(htmlLeaf),
@@ -2574,44 +2533,14 @@ proc genEmailBlueprintBody*(rng: var Rand, trial: int = -1): EmailBlueprintBody 
     let textLeaf =
       if rng.rand(0 .. 1) == 0:
         Opt.some(
-          BlueprintBodyPart(
-            contentType: "text/plain",
-            name: Opt.none(string),
-            disposition: Opt.none(ContentDisposition),
-            cid: Opt.none(string),
-            language: Opt.none(seq[string]),
-            location: Opt.none(string),
-            extraHeaders:
-              initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-            isMultipart: false,
-            leaf: BlueprintLeafPart(
-              source: bpsInline,
-              partId: rng.genPartId(),
-              value: rng.genBlueprintBodyValue(),
-            ),
-          )
+          inlinePart(rng.genPartId(), "text/plain", rng.genBlueprintBodyValue().value)
         )
       else:
         Opt.none(BlueprintBodyPart)
     let htmlLeaf =
       if rng.rand(0 .. 1) == 0:
         Opt.some(
-          BlueprintBodyPart(
-            contentType: "text/html",
-            name: Opt.none(string),
-            disposition: Opt.none(ContentDisposition),
-            cid: Opt.none(string),
-            language: Opt.none(seq[string]),
-            location: Opt.none(string),
-            extraHeaders:
-              initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-            isMultipart: false,
-            leaf: BlueprintLeafPart(
-              source: bpsInline,
-              partId: rng.genPartId(),
-              value: rng.genBlueprintBodyValue(),
-            ),
-          )
+          inlinePart(rng.genPartId(), "text/html", rng.genBlueprintBodyValue().value)
         )
       else:
         Opt.none(BlueprintBodyPart)
@@ -2643,21 +2572,8 @@ proc genEmailBlueprint*(rng: var Rand, trial: int = -1): EmailBlueprint =
       let bob = parseEmailAddress("bob@example.com", Opt.some("Bob")).get()
       var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
       extra[parseBlueprintEmailHeaderName("x-marker").get()] = textSingle("full")
-      let textInline = BlueprintBodyPart(
-        contentType: "text/plain",
-        name: Opt.none(string),
-        disposition: Opt.none(ContentDisposition),
-        cid: Opt.none(string),
-        language: Opt.none(seq[string]),
-        location: Opt.none(string),
-        extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-        isMultipart: false,
-        leaf: BlueprintLeafPart(
-          source: bpsInline,
-          partId: parsePartIdFromServer("1").get(),
-          value: BlueprintBodyValue(value: "text leaf"),
-        ),
-      )
+      let textInline =
+        inlinePart(parsePartIdFromServer("1").get(), "text/plain", "text leaf")
       let body = flatBody(textBody = Opt.some(textInline))
       return parseEmailBlueprint(
           mailboxIds = rng.genNonEmptyMailboxIdSet(trial = 2),
@@ -2766,17 +2682,7 @@ proc buildTrigger(
   of ebcBodyStructureHeaderDuplicate:
     var rootExtra = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
     rootExtra[parseBlueprintBodyHeaderName("from").get()] = textSingle("v")
-    let root = BlueprintBodyPart(
-      contentType: "multipart/mixed",
-      name: Opt.none(string),
-      disposition: Opt.none(ContentDisposition),
-      cid: Opt.none(string),
-      language: Opt.none(seq[string]),
-      location: Opt.none(string),
-      extraHeaders: rootExtra,
-      isMultipart: true,
-      subParts: @[],
-    )
+    let root = multipartPart("multipart/mixed", @[], extraHeaders = rootExtra)
     var topExtra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
     topExtra[parseBlueprintEmailHeaderName("from").get()] = textSingle("v")
     BlueprintTriggerArgs(
@@ -2790,20 +2696,8 @@ proc buildTrigger(
   of ebcBodyPartHeaderDuplicate:
     var partExtra = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
     partExtra[parseBlueprintBodyHeaderName("content-type").get()] = textSingle("v")
-    let leaf = BlueprintBodyPart(
-      contentType: "text/plain",
-      name: Opt.none(string),
-      disposition: Opt.none(ContentDisposition),
-      cid: Opt.none(string),
-      language: Opt.none(seq[string]),
-      location: Opt.none(string),
-      extraHeaders: partExtra,
-      isMultipart: false,
-      leaf: BlueprintLeafPart(
-        source: bpsInline,
-        partId: parsePartIdFromServer("1").get(),
-        value: BlueprintBodyValue(value: "v"),
-      ),
+    let leaf = inlinePart(
+      parsePartIdFromServer("1").get(), "text/plain", "v", extraHeaders = partExtra
     )
     BlueprintTriggerArgs(
       mailboxIds: rng.genNonEmptyMailboxIdSet(trial = 0),
@@ -2814,21 +2708,7 @@ proc buildTrigger(
       expected: @[triggerMarker(ebcBodyPartHeaderDuplicate)],
     )
   of ebcTextBodyNotTextPlain:
-    let leaf = BlueprintBodyPart(
-      contentType: "application/pdf",
-      name: Opt.none(string),
-      disposition: Opt.none(ContentDisposition),
-      cid: Opt.none(string),
-      language: Opt.none(seq[string]),
-      location: Opt.none(string),
-      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-      isMultipart: false,
-      leaf: BlueprintLeafPart(
-        source: bpsInline,
-        partId: parsePartIdFromServer("1").get(),
-        value: BlueprintBodyValue(value: "v"),
-      ),
-    )
+    let leaf = inlinePart(parsePartIdFromServer("1").get(), "application/pdf", "v")
     BlueprintTriggerArgs(
       mailboxIds: rng.genNonEmptyMailboxIdSet(trial = 0),
       body: flatBody(textBody = Opt.some(leaf)),
@@ -2838,21 +2718,7 @@ proc buildTrigger(
       expected: @[triggerMarker(ebcTextBodyNotTextPlain)],
     )
   of ebcHtmlBodyNotTextHtml:
-    let leaf = BlueprintBodyPart(
-      contentType: "text/plain",
-      name: Opt.none(string),
-      disposition: Opt.none(ContentDisposition),
-      cid: Opt.none(string),
-      language: Opt.none(seq[string]),
-      location: Opt.none(string),
-      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-      isMultipart: false,
-      leaf: BlueprintLeafPart(
-        source: bpsInline,
-        partId: parsePartIdFromServer("1").get(),
-        value: BlueprintBodyValue(value: "v"),
-      ),
-    )
+    let leaf = inlinePart(parsePartIdFromServer("1").get(), "text/plain", "v")
     BlueprintTriggerArgs(
       mailboxIds: rng.genNonEmptyMailboxIdSet(trial = 0),
       body: flatBody(htmlBody = Opt.some(leaf)),
@@ -2875,33 +2741,10 @@ proc buildTrigger(
     )
   of ebcBodyPartDepthExceeded:
     # Build a depth-129 spine of multipart containers around one leaf.
-    var leaf: BlueprintBodyPart = BlueprintBodyPart(
-      contentType: "text/plain",
-      name: Opt.none(string),
-      disposition: Opt.none(ContentDisposition),
-      cid: Opt.none(string),
-      language: Opt.none(seq[string]),
-      location: Opt.none(string),
-      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-      isMultipart: false,
-      leaf: BlueprintLeafPart(
-        source: bpsInline,
-        partId: parsePartIdFromServer("1").get(),
-        value: BlueprintBodyValue(value: "v"),
-      ),
-    )
+    var leaf: BlueprintBodyPart =
+      inlinePart(parsePartIdFromServer("1").get(), "text/plain", "v")
     for _ in 0 .. 128:
-      leaf = BlueprintBodyPart(
-        contentType: "multipart/mixed",
-        name: Opt.none(string),
-        disposition: Opt.none(ContentDisposition),
-        cid: Opt.none(string),
-        language: Opt.none(seq[string]),
-        location: Opt.none(string),
-        extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-        isMultipart: true,
-        subParts: @[leaf],
-      )
+      leaf = multipartPart("multipart/mixed", @[leaf])
     BlueprintTriggerArgs(
       mailboxIds: rng.genNonEmptyMailboxIdSet(trial = 0),
       body: structuredBody(leaf),
@@ -2991,21 +2834,7 @@ proc genEmailBlueprintError*(rng: var Rand, trial: int = -1): ValidationError =
   ## arm so both bounded-render paths are exercised. Returns the head
   ## accumulated error (exactly one constraint fires).
   let badType = rng.genLongArbitraryString(trial, maxLen = 1024)
-  let leaf = BlueprintBodyPart(
-    contentType: badType,
-    name: Opt.none(string),
-    disposition: Opt.none(ContentDisposition),
-    cid: Opt.none(string),
-    language: Opt.none(seq[string]),
-    location: Opt.none(string),
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: "v"),
-    ),
-  )
+  let leaf = inlinePart(parsePartIdFromServer("1").get(), badType, "v")
   let body =
     if trial mod 2 == 0:
       flatBody(textBody = Opt.some(leaf))
@@ -3125,33 +2954,10 @@ proc adversarialDepthBody(rng: var Rand): EmailBlueprintBody =
   ## ``MaxBodyPartDepth``.
   const depths = [0, 128, 129, 256]
   let depth = rng.oneOf(depths)
-  var leaf: BlueprintBodyPart = BlueprintBodyPart(
-    contentType: "text/plain",
-    name: Opt.none(string),
-    disposition: Opt.none(ContentDisposition),
-    cid: Opt.none(string),
-    language: Opt.none(seq[string]),
-    location: Opt.none(string),
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: "v"),
-    ),
-  )
+  var leaf: BlueprintBodyPart =
+    inlinePart(parsePartIdFromServer("1").get(), "text/plain", "v")
   for _ in 0 ..< depth:
-    leaf = BlueprintBodyPart(
-      contentType: "multipart/mixed",
-      name: Opt.none(string),
-      disposition: Opt.none(ContentDisposition),
-      cid: Opt.none(string),
-      language: Opt.none(seq[string]),
-      location: Opt.none(string),
-      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-      isMultipart: true,
-      subParts: @[leaf],
-    )
+    leaf = multipartPart("multipart/mixed", @[leaf])
   structuredBody(leaf)
 
 proc genAdversarialBlueprintArgs*(rng: var Rand, trial: int = -1): BlueprintCtorArgs =

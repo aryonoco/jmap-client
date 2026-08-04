@@ -3,12 +3,10 @@
 
 ## Unit tests for body sub-types (scenarios 70–76, 73a, 108a–108b, 125a–125d).
 
-import std/tables
-
 import jmap_client/internal/mail/body
-import jmap_client/internal/mail/headers
 import jmap_client/internal/types/validation
 import jmap_client/internal/types/primitives
+import jmap_client/internal/types/identifiers
 
 import ../../massertions
 import ../../mtestblock
@@ -97,58 +95,54 @@ testCase subPartsOnLeaf: # scenario 108b
 
 # ============= C. BlueprintBodyPart compile-time (scenarios 125a–125d) =============
 
+# Each of these four named a field that must not sit beside the content it
+# contradicts — a blob reference next to inline bytes, children next to a
+# leaf. They used to pin that pairing as the sole defect in an otherwise
+# valid literal (R3-3). Since C12 both types are sealed: every field,
+# discriminators included, is module-private and ``raw*``-prefixed, so no
+# literal survives long enough to be judged on its branch. Each scenario is
+# therefore restated against the rejection the seal actually issues — the
+# ``raw*`` field it names is not writable from here, the same claim the
+# ``treject_c12_*`` files pin by error message — and paired with the answer
+# the accessors give in its place, so a demoted accessor or a re-opened
+# field breaks the scenario rather than passing it vacuously.
+
 testCase blobIdOnInline: # scenario 125a
-  assertNotCompiles(
-    BlueprintBodyPart(
-      contentType: "text/plain",
-      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-      isMultipart: false,
-      leaf: BlueprintLeafPart(
-        source: bpsInline,
-        partId: parsePartIdFromServer("1").get(),
-        value: BlueprintBodyValue(value: ""),
-      ),
-      blobId: parseBlobId("abc").get(),
-    )
-  )
+  # A blob reference cannot be bolted onto inline content: the field is
+  # unwritable from here, and an inline leaf answers "no blob" when asked.
+  assertNotCompiles BlueprintLeafPart(rawBlobId: parseBlobId("abc").get())
+  let inlineLeaf =
+    inlinePart(parsePartIdFromServer("1").get(), "text/plain", "hello").leaf
+  assertSome inlineLeaf
+  assertNone inlineLeaf.get().blobId
 
 testCase charsetOnInline: # scenario 125b
-  assertNotCompiles(
-    BlueprintBodyPart(
-      contentType: "text/plain",
-      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-      isMultipart: false,
-      leaf: BlueprintLeafPart(
-        source: bpsInline,
-        partId: parsePartIdFromServer("1").get(),
-        value: BlueprintBodyValue(value: ""),
-      ),
-      charset: Opt.some("utf-8"),
-    )
-  )
+  # ``charset`` describes the bytes of an uploaded blob, so it belongs to a
+  # blob-ref leaf only: unwritable from here, absent on an inline leaf, and
+  # reachable solely through the blob-ref constructor's own parameter.
+  assertNotCompiles BlueprintLeafPart(rawCharset: Opt.some("utf-8"))
+  let inlineLeaf =
+    inlinePart(parsePartIdFromServer("1").get(), "text/plain", "hello").leaf
+  assertSome inlineLeaf
+  assertNone inlineLeaf.get().charset
+  let blobLeaf = blobRefPart(
+    parseBlobId("abc").get(), "application/pdf", charset = Opt.some("utf-8")
+  ).leaf
+  assertSome blobLeaf
+  assertSomeEq blobLeaf.get().charset, "utf-8"
 
 testCase partIdOnMultipartBlueprint: # scenario 125c
-  assertNotCompiles(
-    BlueprintBodyPart(
-      contentType: "multipart/mixed",
-      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-      isMultipart: true,
-      subParts: @[],
-      partId: parsePartIdFromServer("1").get(),
-    )
-  )
+  # A container has no identifier of its own: the identifier field is
+  # unwritable from here, ``multipartPart`` takes no identifier argument,
+  # and a container exposes no leaf that could carry one.
+  assertNotCompiles BlueprintLeafPart(rawPartId: parsePartIdFromServer("1").get())
+  assertNone multipartPart("multipart/mixed", @[]).leaf
 
 testCase subPartsOnLeafBlueprint: # scenario 125d
-  assertNotCompiles(
-    BlueprintBodyPart(
-      contentType: "text/plain",
-      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-      isMultipart: false,
-      leaf: BlueprintLeafPart(
-        source: bpsInline,
-        partId: parsePartIdFromServer("1").get(),
-        value: BlueprintBodyValue(value: ""),
-      ),
-      subParts: @[],
-    )
-  )
+  # Children belong to containers: the child list is unwritable from here,
+  # and a leaf reports itself as a leaf with no children rather than as a
+  # container that happens to be empty.
+  let child = inlinePart(parsePartIdFromServer("1").get(), "text/plain", "hello")
+  assertNotCompiles BlueprintBodyPart(rawSubParts: @[child])
+  assertFalse child.isMultipart, "an inline leaf is not a container"
+  assertLen child.subParts, 0

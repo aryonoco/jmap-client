@@ -154,20 +154,13 @@ func makeLeafPart*(spec: LeafPartSpec): BlueprintBodyPart =
   ## Constructs a non-multipart ``BlueprintBodyPart`` from ``spec``.
   ## Pure — every seed helper in this module funnels through it so the
   ## "inline leaf with these knobs" shape lives in one place.
-  BlueprintBodyPart(
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      partId: spec.partId,
-      value: BlueprintBodyValue(value: spec.body),
-    ),
-    contentType: spec.contentType,
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    name: spec.name,
-    disposition: spec.disposition,
-    cid: spec.cid,
-    language: Opt.none(seq[string]),
-    location: Opt.none(string),
+  inlinePart(
+    spec.partId,
+    spec.contentType,
+    spec.body,
+    name = spec.name,
+    disposition = spec.disposition,
+    cid = spec.cid,
   )
 
 func buildAliceAddr*(): EmailAddress =

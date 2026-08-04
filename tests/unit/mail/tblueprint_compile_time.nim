@@ -36,19 +36,19 @@ testCase emailBlueprintDirectConstructionSealed: # §6.1.6 scenario 40
   assertNotCompiles EmailBlueprint(rawMailboxIds: makeNonEmptyMailboxIdSet())
 
 testCase blueprintBodyPartInlineRequiresValue: # §6.1.6 scenario 41
-  # ``value`` lives on the ``bpsInline`` branch — pairing it with
-  # ``source: bpsBlobRef`` is a compile error (R3-3 co-location).
-  # (Nim brace construction with defaults means the absence form of
-  # this check is not enforceable at the language level; the
-  # branch-crossing form is the stricter structural check.)
-  assertNotCompiles BlueprintBodyPart(
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsBlobRef,
-      blobId: makeBlobId("b1"),
-      value: BlueprintBodyValue(value: "x"),
-    ),
-  )
+  # Inline bytes and a blob reference are alternatives, never a pair —
+  # ``value`` beside ``bpsBlobRef`` was the R3-3 co-location error this
+  # scenario watched. Both types are sealed since C12, so the value field
+  # is not writable from here at all (the rejection ``treject_c12_*`` pins
+  # by error message), and the read side answers "no inline value" for a
+  # blob-ref leaf while an inline leaf carries what it was built with.
+  assertNotCompiles BlueprintLeafPart(rawValue: BlueprintBodyValue(value: "x"))
+  let blobLeaf = blobRefPart(makeBlobId("b1"), "application/pdf").leaf
+  assertSome blobLeaf
+  assertNone blobLeaf.get().value
+  let inlineLeaf = makeBlueprintBodyPartInline().leaf
+  assertSome inlineLeaf
+  assertSome inlineLeaf.get().value
 
 testCase headerKeyCrossContextRejected: # §6.1.6 scenario 42
   # Creation-vocabulary header-name types are context-specific:

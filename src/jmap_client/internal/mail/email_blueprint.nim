@@ -17,6 +17,7 @@
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
+import std/enumerate
 import std/hashes
 import std/sequtils
 import std/sets
@@ -313,24 +314,14 @@ func structuredBody*(bodyStructure: BlueprintBodyPart): EmailBlueprintBody =
 func plainTextBody*(text: string): EmailBlueprintBody =
   ## Smart constructor for the single most common send body: one inline
   ## ``text/plain`` leaf carrying ``text`` (RFC 8621 §4.6). Auto-mints the
-  ## creation-time ``partId`` so the caller never touches the 4-layer
-  ## ``BlueprintBodyValue`` → ``BlueprintLeafPart`` → ``BlueprintBodyPart`` →
-  ## ``flatBody`` chain. The ``text/plain`` content type satisfies
-  ## ``parseEmailBlueprint``'s flat-body constraint, so the result passes
-  ## straight to its ``body`` parameter.
-  let part = BlueprintBodyPart(
-    contentType: "text/plain",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      # The literal "text" is non-empty and control-character-free, so the
-      # lenient PartId parser cannot Err here.
-      partId: parsePartIdFromServer("text").get(),
-      value: BlueprintBodyValue(value: text),
-    ),
-  )
-  flatBody(textBody = Opt.some(part))
+  ## creation-time ``partId`` so the caller never touches the
+  ## ``inlinePart`` → ``flatBody`` chain. The ``text/plain`` content type
+  ## satisfies ``parseEmailBlueprint``'s flat-body constraint, so the
+  ## result passes straight to its ``body`` parameter.
+  # The literal "text" is non-empty and control-character-free, so the
+  # lenient PartId parser cannot Err here.
+  let partId = parsePartIdFromServer("text").get()
+  flatBody(textBody = Opt.some(inlinePart(partId, "text/plain", text)))
 
 # =============================================================================
 # EmailBlueprint (aggregate — Pattern A sealed)
@@ -511,15 +502,19 @@ func locationOf(part: BlueprintBodyPart, path: seq[int]): BodyPartLocation =
   ## Computes the ``BodyPartLocation`` for a part at the given path.
   ## Multipart containers are located by path; leaves carry their
   ## identifier directly.
-  case part.isMultipart
-  of true:
-    BodyPartLocation(kind: bplMultipart, path: initBodyPartPath(path))
-  of false:
-    case part.leaf.source
+  for leaf in part.leaf:
+    case leaf.source
     of bpsInline:
-      BodyPartLocation(kind: bplInline, partId: part.leaf.partId)
+      for partId in leaf.partId:
+        return BodyPartLocation(kind: bplInline, partId: partId)
     of bpsBlobRef:
-      BodyPartLocation(kind: bplBlobRef, blobId: part.leaf.blobId)
+      for blobId in leaf.blobId:
+        return BodyPartLocation(kind: bplBlobRef, blobId: blobId)
+  # Reached when the part yields no leaf — a container, which has no
+  # identifier of its own and is located by its path. The two inner loops
+  # cannot fall through: each accessor is Some on the branch its own case
+  # arm has just proved, so a leaf always returns above.
+  BodyPartLocation(kind: bplMultipart, path: initBodyPartPath(path))
 
 func walkBodyPartDuplicates(
     part: BlueprintBodyPart, path: seq[int]
@@ -537,12 +532,8 @@ func walkBodyPartDuplicates(
         where: locationOf(part, path),
         bodyPartDupName: name,
       )
-  case part.isMultipart
-  of true:
-    for i, child in part.subParts:
-      result.add walkBodyPartDuplicates(child, path & @[i])
-  of false:
-    discard
+  for i, child in enumerate(part.subParts):
+    result.add walkBodyPartDuplicates(child, path & @[i])
 
 func checkBodyPartDuplicates(body: EmailBlueprintBody): seq[EmailBlueprintError] =
   ## Dispatches the tree walk: ebkStructured starts at the root with an
@@ -581,12 +572,8 @@ func walkBodyTreeAllowedForms(part: BlueprintBodyPart): seq[EmailBlueprintError]
       result.add EmailBlueprintError(
         constraint: ebcAllowedFormRejected, rejectedName: name, rejectedForm: v.form
       )
-  case part.isMultipart
-  of true:
-    for child in part.subParts:
-      result.add walkBodyTreeAllowedForms(child)
-  of false:
-    discard
+  for child in part.subParts:
+    result.add walkBodyTreeAllowedForms(child)
 
 func checkBodyTreeAllowedForms(body: EmailBlueprintBody): seq[EmailBlueprintError] =
   ## Dispatches the allowed-form tree walk over the body, mirroring the
@@ -618,12 +605,8 @@ func walkBodyPartDepth(
       depthLocation: locationOf(part, path),
     )
     return
-  case part.isMultipart
-  of true:
-    for i, child in part.subParts:
-      result.add walkBodyPartDepth(child, depth + 1, path & @[i])
-  of false:
-    discard
+  for i, child in enumerate(part.subParts):
+    result.add walkBodyPartDepth(child, depth + 1, path & @[i])
 
 func checkBodyPartDepth(body: EmailBlueprintBody): seq[EmailBlueprintError] =
   ## Enforces ``MaxBodyPartDepth`` as a construction-time invariant on the
@@ -796,14 +779,14 @@ func collectInlineValues(
   ## containers recurse; blob-ref leaves contribute no entry.
   ## Duplicate partIds across the tree are a documented gap (§7 E30);
   ## ``Table`` insert-last-wins applies here.
-  case part.isMultipart
-  of true:
-    for child in part.subParts:
-      collectInlineValues(child, acc)
-  of false:
-    case part.leaf.source
+  for child in part.subParts:
+    collectInlineValues(child, acc)
+  for leaf in part.leaf:
+    case leaf.source
     of bpsInline:
-      acc[part.leaf.partId] = part.leaf.value
+      for partId in leaf.partId:
+        for value in leaf.value:
+          acc[partId] = value
     of bpsBlobRef:
       discard
 
