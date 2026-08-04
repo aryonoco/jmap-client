@@ -69,12 +69,15 @@ consistency check) will be the freeze-time gate that mechanically
 catches dashboard drift; until it lands, the counts are maintained by
 hand.
 
-Last reconciled 2026-08-04 against `main` 7651250.
+Last reconciled 2026-08-04 against `main` at 7d442a9 (the PR #16 merge,
+which is the base of the current work). One delta is already folded into
+the counts below: C12 flipped to ✅ DONE on 2026-08-04 on branch
+`api/c12-seal-blueprint-parts`, which is not yet merged.
 
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 76 | Implemented and verified against source / tests. |
-| ⬜ TODO | 37 | Not yet implemented. |
+| ✅ DONE | 77 | Implemented and verified against source / tests. |
+| ⬜ TODO | 36 | Not yet implemented. |
 | 🟦 DEFERRED | 5 | Post-1.0, or deferred by user decision (E1; D1, D1.5, D9, D18). |
 | ❌ MOOT | 5 | Premise dissolved by later work (C7, C9, D16, F3, H7). |
 | 🟡 PARTIAL | 4 | Some parts implemented; gaps named in the item body. |
@@ -83,20 +86,20 @@ Last reconciled 2026-08-04 against `main` 7651250.
 
 **Freeze-blocking gaps**: no item carries the (FREEZE-BLOCKING) tag, and
 C1 (sample CLI consumer) with its scaffold C1.1 (`examples/jmap-cli/`)
-are both ✅ DONE. Two items nonetheless have to close before the 1.0 tag,
-because neither can ride a 1.x additive window: C12 (privatise the raw
-`BlueprintLeafPart` / `BlueprintBodyPart` constructors — a decided
-non-additive removal, shipping as its own code PR), and the B6/P18
-ship-or-affirm question on the public `bool` parameter family (affirming
-it as a documented exception is free; retyping it is a breaking
-parameter change). The re-export-hub snapshot
-gate (A26), the type-shape gate (A25/A25b), and their CI wiring (F6) have
-landed — `lint-public-api` (H16) and `lint-type-shapes` (H17) are wired
-into the local `check` and `ci` recipes, alongside `lint-error-messages`
-(H15). Wiring those snapshot lints into hosted CI is F2's remaining scope.
-The outstanding lint backstops (H2–H6, H8, H9, H14) can ship in the same
-window or shortly after; H1, H1b, H10–H13, and H15–H17 are already in
-place.
+are both ✅ DONE. C12 (privatise the raw `BlueprintLeafPart` /
+`BlueprintBodyPart` constructors — a decided non-additive removal) is
+closed, shipped on `api/c12-seal-blueprint-parts`. One item remains
+that has to close before the 1.0 tag, because it cannot ride a 1.x
+additive window: the B6/P18 ship-or-affirm question on the public
+`bool` parameter family (affirming it as a documented exception is
+free; retyping it is a breaking parameter change). The re-export-hub
+snapshot gate (A26), the type-shape gate (A25/A25b), and their CI
+wiring (F6) have landed — `lint-public-api` (H16) and
+`lint-type-shapes` (H17) are wired into the local `check` and `ci`
+recipes, alongside `lint-error-messages` (H15). Wiring those snapshot
+lints into hosted CI is F2's remaining scope. The outstanding lint
+backstops (H2–H6, H8, H9, H14) can ship in the same window or shortly
+after; H1, H1b, H10–H13, and H15–H17 are already in place.
 
 **Deferred by user decision (2026-08-04)**: D18 (the pre-1.0 freeze
 checklist tracker), D1 and D1.5 (the SemVer / deprecation policy), and D9
@@ -2223,8 +2226,11 @@ class.
 `rawKind` field, surfaced read-only via a `scheme` / `kind` accessor func. So
 `Credential(scheme: …)` / `SessionEndpoint(kind: …)` — and even the
 discriminator-only `Credential(rawScheme: …)` / `SessionEndpoint(rawKind: …)` —
-no longer compile outside the defining module; an empty-payload credential or
-endpoint is structurally **unrepresentable**, not merely inert-until-connect.
+no longer compile outside the defining module: no field-bearing literal is
+constructible elsewhere. Nim's zero-argument default `Credential()` /
+`SessionEndpoint()` still compiles — sealing closes the literal, not the
+implicit default — leaving only the inert default any non-`requiresInit`
+object admits (see C12's identical treatment).
 
 The TODO's original recommendation (boundary-reject for `Credential`) is
 **superseded** by full-seal: it is strictly stronger (P16 — the illegal state
@@ -2881,7 +2887,7 @@ the consumer to match the case. This needs a NEW type, which is
 outside S3's "no new types" scope. Future *additive* pass; not
 freeze-blocking.
 
-### C12. Raw `Blueprint*` part constructors made private *(P15)* — ⬜ TODO
+### C12. Raw `Blueprint*` part constructors made private *(P15)* — ✅ DONE (2026-08-04)
 
 Residual of AUDIT `email send:raw-case-literals` /
 `email send:parsePartIdFromServer`. S3/S4
@@ -2895,7 +2901,66 @@ constructors private". A P15 tightening makes them private.
 code PR, before the Layer-5 C ABI work starts. It is a non-additive
 removal, so it must land pre-freeze rather than wait for a 1.x additive
 window — which is precisely why it cannot ride along inside a larger
-change. The item stays open until that PR merges.
+change.
+
+**Shipped 2026-08-04** (branch `api/c12-seal-blueprint-parts`).
+`BlueprintLeafPart` and `BlueprintBodyPart` are now fully sealed,
+mirroring `ContentDisposition`/`SessionEndpoint` (A8b): every field is
+renamed `raw*` and made module-private, including the two
+discriminators (`rawIsMultipart`, `rawSource`), so
+`BlueprintBodyPart(rawIsMultipart: …)` and
+`BlueprintLeafPart(rawSource: …)` no longer compile outside
+`body.nim`. What the seal delivers, and what the reject tests pin, is
+that no field-bearing literal — not even the discriminator on its own —
+is constructible elsewhere; every field name fails with "the field '…'
+is not accessible". Nim's zero-argument default `BlueprintBodyPart()`
+still compiles, exactly as `SessionEndpoint()` does under A8b: sealing
+closes the literal, not the implicit default. Three total constructors
+replace the raw literal: `inlinePart`, `blobRefPart`,
+`multipartPart` (typed required
+params, six shared metadata params defaulted). Every former field has
+a same-named public read accessor that cases internally on the
+private discriminator; `leaf` and `subParts` cross the container/leaf
+split honestly (`Opt[BlueprintLeafPart]` / `@[]` respectively, since a
+leaf list is a true empty case but a missing leaf is not). No new
+validation was added — parts stay shapes; `parseEmailBlueprint` keeps
+owning tree validation, so wire output and error text are
+byte-identical to before the seal.
+
+Both branch accessors also have a borrowed-traversal iterator of the
+same name (`subParts`, `leaf`). A `for` loop resolves to the iterator,
+so a recursive walk reads the subtree in place. Without them the
+copying accessors turn every walk — the three `parseEmailBlueprint`
+validation passes, `bodyValues`, and `BlueprintBodyPart.toJson` — into
+one deep copy of the subtree per node visited: a 200 × 1 MiB
+attachment body measured 137 ms per ten `toJson` calls against 0.14 ms
+before the seal, and a 60-deep tree 22 ms against 0.06 ms. With the
+iterators both return to their pre-seal cost. The `lent seq` shape
+that would have kept one symbol is not expressible: a `const` empty
+seq has no address to borrow, and a `let` global trips the module's
+`noSideEffect` push.
+
+**Verification gate.** `tests/wire_contract/public-api.txt` gained
+exactly the 3 constructors + 16 accessors + 2 iterators
+(`H16`/`lint-public-api`);
+`tests/wire_contract/type-shapes.txt` lost every public field on both
+types down to the bare private discriminator, same shape as
+`ContentDisposition`/`SessionEndpoint` (`H17`/`lint-type-shapes`);
+`tests/wire_contract/error-messages.txt` is unchanged (`H15`/
+`lint-error-messages`). Two new compile-reject tests
+(`tests/compile/treject_c12_sealed_blueprintbodypart_construction.nim`,
+`tests/compile/treject_c12_sealed_blueprintleafpart_construction.nim`)
+assert the discriminator-only literal is unreachable, mirroring the
+A8b `treject_a20`/`treject_a21` pair. The five branch-co-location
+scenarios that predate the seal (125a–125d in
+`tests/unit/mail/tbody.nim`, 41 in
+`tests/unit/mail/tblueprint_compile_time.nim`) now assert the same
+rejection per payload field — `rawBlobId`, `rawCharset`, `rawPartId`,
+`rawSubParts`, `rawValue` — each paired with the answer its accessor
+gives instead, so the scenarios keep their subject and stop passing for
+the wrong reason. `tests/compile/tcompile_a1d_mail_hub_surface.nim`
+carries the matching positive half: all 16 accessors and both iterators
+must stay readable through the hub.
 
 ### C13. D5 — broad `toJson` null-for-none serde-fidelity audit *(RFC 8620 §5.3)* — ⬜ TODO (future)
 
