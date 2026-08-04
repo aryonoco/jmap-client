@@ -12,7 +12,18 @@
 ## result, the emitted request shape (including the to∪cc∪bcc envelope
 ## ``rcptTo`` union), a draft-create ``SetError`` collapsing onto the ``jeSet``
 ## rail, and an absent draft create collapsing onto ``jeProtocol``
-## (``pfMissingCall``).
+## (``pfMissingCall``). Then the state bootstrap ``getEmailState`` — the
+## surfaced state, the empty-ids request shape, and the method-error collapse;
+## the Email/set write one-shots — ``markEmailsRead`` (emitted patch, a per-id
+## ``SetError`` staying data on the ok branch, the empty-ids and duplicate-ids
+## seal rejections, and the whole-method collapse), ``markEmailsUnread``'s null
+## removal patch, ``moveEmails``' full-membership replace, and ``destroyEmails``
+## (destroyed ids, an empty-ids call still round-tripping, the method-error
+## collapse); ``setVacationResponse`` — the singleton update with its null
+## server-echo arm, the empty-batch validation rejection, and the method-error
+## collapse; and ``syncEmails`` —
+## the three-invocation delta with both back-referenced fetches, and the
+## fail-fast where the changes error beats the dependent cascade.
 
 import std/json
 import std/strutils

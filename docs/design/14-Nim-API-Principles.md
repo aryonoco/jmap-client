@@ -210,7 +210,11 @@ protocol-fidelity primitives (build a `RequestBuilder`, `freeze`,
 `send`, extract from the `DispatchedResponse`) and the easy path over
 them (the `connect` / bare-get / `queryEmails` / `sendPlainText`
 one-shots, and the `add<Entity>QueryThenGet` /
-`add<Entity>ChangesToGet` / `getBoth` pipeline combinators). There is
+`add<Entity>ChangesToGet` / `getBoth` pipeline combinators). The write
+half is on the same footing: the Email/set verbs (`markEmailsRead`,
+`markEmailsUnread`, `moveEmails`, `destroyEmails`),
+`setVacationResponse`, and the `syncEmails` delta over the
+`getEmailState` cursor. There is
 no second public module path. What the quarantine used to buy is
 bought by charter instead: the easy path composes core primitives and
 never acquires semantics JMAP does not have (no `fetchInbox`, no

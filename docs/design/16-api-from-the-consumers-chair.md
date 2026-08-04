@@ -458,6 +458,16 @@ one-shot is the obvious next combinator); and **Search** is unchanged — the
 snippet compound is still the best ergonomics in the library and still missing
 from the frozen contract, a snapshot-integrity matter, not an ergonomic one.
 
+**C15 update (2026-08-04).** The third verdict moves. **Mutating** is now
+reach-for-it: `markEmailsRead`, `markEmailsUnread`, `moveEmails` and
+`destroyEmails` seal one update across the ids, dispatch, and collapse the
+Email/set outcome onto the rail, and `setVacationResponse` does the same for
+the singleton — so the helper this section said every consumer would write is
+the library's, shipped as those named verbs rather than one generic
+`addEmailUpdate`. `syncEmails` (bootstrapped by `getEmailState`) additionally
+answers the *updated*-is-the-dominant-case finding above, fetching both halves
+of the delta in one round-trip. **Search** stands where S4 left it.
+
 **The first fifteen minutes (P29).** A newcomer meets ~8 concepts before
 `session` prints, reaches a trustworthy answer well inside the window, and
 — tellingly — writes a connect helper on the way, because the 4-call
@@ -518,7 +528,12 @@ sealing-chain ceremony is gone from connect, the plain reads and the send path;
 it survives only where no one-shot yet covers the call: the Email/set write
 envelope (flag/move/vacation-set), and the standing `parseUnsignedInt(N).get()`
 seal that mints every `UnsignedInt`. What was "cheap to fix before 1.0" is, bar
-one write combinator, fixed.
+one write combinator, fixed. **C15 then wrote that one (2026-08-04):**
+`markEmailsRead`, `markEmailsUnread`, `moveEmails`, `destroyEmails` and
+`setVacationResponse` cover the whole Email/set-and-vacation write envelope,
+and `syncEmails` / `getEmailState` add the incremental delta, so nothing on
+the wishlist is outstanding; the sealing-chain ceremony now survives only at
+the `parseUnsignedInt(N).get()` that mints every `UnsignedInt`.
 
 **The most consequential finding is not ergonomic at all.** The frozen
 `public-api.txt` contract — the thing meant to lock the surface at 1.0
@@ -544,3 +559,10 @@ for jmap-client directly for connect, read and send alike. What remains is one
 write combinator (`addEmailUpdate`), the snippet compound's contract visibility,
 and the freeze snapshot — the surface is a library people reach for, once the
 snapshot is fixed to prove it.*
+
+**C15 update — one-line verdict (2026-08-04).** *The write combinator is spent
+as well: `markEmailsRead` / `markEmailsUnread` / `moveEmails` /
+`destroyEmails`, `setVacationResponse`, and `syncEmails` over the
+`getEmailState` cursor put connect, read, write, send and sync each one call
+away, so what remains is not ergonomic at all — the snippet compound's contract
+visibility and the freeze snapshot.*

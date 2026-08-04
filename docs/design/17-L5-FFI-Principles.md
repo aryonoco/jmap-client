@@ -369,6 +369,8 @@ The v1 C surface is the easy path, complete for an email client:
 | Threads / identities / vacation | `jmap_get_threads` / … | one-shots |
 | Send plain text | `jmap_send_plain_text` | `sendPlainText` |
 | Flag / move / destroy | `jmap_mark_read` / `jmap_move_emails` / … | `markEmailsRead` / `markEmailsUnread` / `moveEmails` / `destroyEmails` |
+| Set vacation | `jmap_set_vacation` | `setVacationResponse` |
+| Sync cursor bootstrap | `jmap_get_email_state` | `getEmailState` |
 | Incremental sync | `jmap_sync_emails` | `syncEmails` |
 
 - **Prerequisite Nim PR (landed 2026-08-04, branch

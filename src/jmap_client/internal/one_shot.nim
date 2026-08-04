@@ -23,6 +23,17 @@
 ## ``GetResponse[T]`` so ``state`` and ``notFound`` survive. ``sendPlainText``
 ## encapsulates the RFC 8621 §7.5/§7.5.1 two-mailbox send: a draft created in
 ## Drafts and an EmailSubmission whose success moves the message to Sent.
+##
+## The write one-shots seal one RFC 8621 §4.6 ``Email/set`` update across every
+## id (``markEmailsRead`` / ``markEmailsUnread`` / ``moveEmails``, and
+## ``destroyEmails`` over the destroy slot); ``setVacationResponse`` does the
+## same for the §8 singleton. Only whole-method failure rides the rail — per-id
+## ``SetError``s stay data on the returned ``SetResponse``, so one rejected
+## record never hides its siblings' outcomes. ``getEmailState`` reads the
+## current ``Email`` state alone, which is the cursor a first ``syncEmails``
+## needs; ``syncEmails`` then dispatches the RFC 8620 §5.2 changes call plus
+## both §3.7 back-referenced fetches in one round-trip and fulfils all three
+## outcomes, so the caller receives a delta already off the rail.
 
 {.push raises: [].}
 {.experimental: "strictCaseObjects".}
@@ -178,8 +189,11 @@ proc syncEmails*(
   ## Incremental sync in one round-trip: ``Email/changes`` plus both
   ## back-referenced fetches. Persist ``changes.newState`` as the next
   ## cursor; when ``changes.hasMoreChanges`` is true, call again from
-  ## that cursor. Fail-fast: the changes call erroring is the root
-  ## cause, so it is what the rail reports.
+  ## that cursor. Fail-fast: any of the three method outcomes can put the
+  ## whole sync on the rail, and the changes error wins when more than one
+  ## fails, because it is the root cause of the fetches it feeds. A failed
+  ## fetch therefore costs the cursor too — nothing is returned, so the
+  ## caller retries the whole sync from the same ``sinceState``.
   let (b, handles) = client.newBuilder().addEmailChangesToGetAll(
       accountId, sinceState, maxChanges, bodyFetchOptions
     )
@@ -303,7 +317,9 @@ proc markEmailsRead*(
 proc markEmailsUnread*(
     client: JmapClient, accountId: AccountId, ids: openArray[Id]
 ): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError] =
-  ## Removes ``$seen`` from every id in one ``Email/set``.
+  ## Removes ``$seen`` from every id in one ``Email/set``. Empty or duplicate
+  ## ids reject at the seal (the update set demands distinct, non-empty
+  ## targets), so an empty call never reaches the network.
   runSet(client, accountId, ids, markUnread())
 
 proc moveEmails*(
@@ -322,8 +338,11 @@ proc destroyEmails*(
 ): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError] =
   ## Destroys every id in one ``Email/set``. Per-id refusals stay data
   ## (``destroyFailures``); the rail carries whole-method failure only.
-  ## An empty ids list is legal wire and destroys nothing — the call
-  ## still round-trips.
+  ## Unlike its update siblings this fills the destroy slot rather than an
+  ## update set, so neither an empty ids list nor a duplicate id is rejected
+  ## here: an empty call is legal wire that destroys nothing, and a repeat
+  ## travels to the server, which answers it per id (RFC 8620 §5.3). The
+  ## call round-trips either way.
   let (b, handle) = client.newBuilder().addEmailSet(accountId, destroy = directIds(ids))
   let dr = ?client.send(b.freeze())
   (?dr.get(handle)).fulfil(mnEmailSet)
