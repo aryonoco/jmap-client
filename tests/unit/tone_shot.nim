@@ -382,11 +382,49 @@ testCase oneShotGetEmailStateSuccess:
   assertOk(res)
   assertEq(res.value, makeState("s-42"))
 
+testCase oneShotGetEmailStateRequestShape:
+  ## The emitted Email/get call carries an explicit empty ``ids`` array — the
+  ## whole point of the one-shot is that bootstrapping ``sinceState`` costs no
+  ## email payload. Without this, a permissive ``ids = Opt.none`` implementation
+  ## would fetch the entire account's Email list just to read one state string.
+  let (transport, recorder) = newRecordingTransport(
+    newCannedTransport(
+      makeSessionJsonWithCoreCaps(realisticCoreCaps()),
+      envelope(
+        %*[
+          [
+            "Email/get",
+            {"accountId": "acct-1", "state": "s-42", "list": [], "notFound": []},
+            "c0",
+          ]
+        ]
+      ),
+    )
+  )
+  let client = initJmapClient(
+      directEndpoint("https://example.com/jmap").get(),
+      bearerCredential("t").get(),
+      transport,
+    )
+    .get()
+  discard client.fetchSession().get()
+  discard client.getEmailState(makeAccountId("acct-1"))
+  let reqBody = parseJson(recorder.lastRequest.body)
+  let calls = reqBody{"methodCalls"}
+  assertLen calls, 1
+  doAssert calls[0][0].getStr("") == "Email/get",
+    "getEmailState must issue a single Email/get call"
+  doAssert calls[0][1]{"ids"} == newJArray(),
+    "getEmailState must request ids: [] so no email payload is fetched"
+
 testCase oneShotGetEmailStateMethodError:
   ## A method-level error on the single call collapses onto the rail as
   ## jeMethod — the fail-fast one-shot contract.
   let responseJson = envelope(%*[["error", {"type": "serverFail"}, "c0"]])
   let client = cannedClient(responseJson)
   let res = client.getEmailState(makeAccountId("acct-1"))
-  doAssert res.isErr
-  doAssert res.error.kind == jeMethod
+  doAssert res.isErr, "expected a rail error for a method-level failure"
+  doAssert res.error.kind == jeMethod,
+    "a server error invocation collapses onto jeMethod"
+  doAssert res.error.methodFault.error.kind == metServerFail,
+    "the method-error kind must survive onto the rail"
