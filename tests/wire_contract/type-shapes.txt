@@ -58,18 +58,9 @@
 ## BlueprintBodyHeaderName [jmap_client/internal/mail/headers]
 
 ## BlueprintBodyPart [jmap_client/internal/mail/body]
-  contentType*: string
-  name*: Opt[string]
-  disposition*: Opt[ContentDisposition]
-  cid*: Opt[string]
-  language*: Opt[seq[string]]
-  location*: Opt[string]
-  extraHeaders*: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]
-  case isMultipart*: bool
+  case rawIsMultipart: bool
   of true:
-    subParts*: seq[BlueprintBodyPart]
   of false:
-    leaf*: BlueprintLeafPart
 
 ## BlueprintBodyValue [jmap_client/internal/mail/body]
   value*: string
@@ -94,14 +85,9 @@
     urlLists*: NonEmptySeq[seq[string]]
 
 ## BlueprintLeafPart [jmap_client/internal/mail/body]
-  case source*: BlueprintPartSource
+  case rawSource: BlueprintPartSource
   of bpsInline:
-    partId*: PartId
-    value*: BlueprintBodyValue
   of bpsBlobRef:
-    blobId*: BlobId
-    size*: Opt[UnsignedInt]
-    charset*: Opt[string]
 
 ## BlueprintPartSource [jmap_client/internal/mail/body]
   bpsInline

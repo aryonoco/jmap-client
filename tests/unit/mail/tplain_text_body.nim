@@ -28,9 +28,10 @@ testCase plainTextBodyShape:
   assertEq part.contentType, "text/plain"
   case part.isMultipart
   of false:
-    case part.leaf.source
+    let leaf = part.leaf.get()
+    case leaf.source
     of bpsInline:
-      assertEq part.leaf.value.value, "hello world"
+      assertEq leaf.value.get().value, "hello world"
     of bpsBlobRef:
       assertFalse true, "expected an inline leaf"
   of true:

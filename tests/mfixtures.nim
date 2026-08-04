@@ -1257,17 +1257,7 @@ proc makeBlueprintBodyPartInline*(
     extraHeaders: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] =
       initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
 ): BlueprintBodyPart =
-  BlueprintBodyPart(
-    isMultipart: false,
-    leaf: BlueprintLeafPart(source: bpsInline, partId: partId, value: value),
-    contentType: contentType,
-    extraHeaders: extraHeaders,
-    name: Opt.none(string),
-    disposition: Opt.none(ContentDisposition),
-    cid: Opt.none(string),
-    language: Opt.none(seq[string]),
-    location: Opt.none(string),
-  )
+  inlinePart(partId, contentType, value.value, extraHeaders = extraHeaders)
 
 # I-8 ------------------------------------------------------------------------
 proc makeBlueprintBodyPartBlobRef*(
@@ -1276,22 +1266,7 @@ proc makeBlueprintBodyPartBlobRef*(
     extraHeaders: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] =
       initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
 ): BlueprintBodyPart =
-  BlueprintBodyPart(
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsBlobRef,
-      blobId: blobId,
-      size: Opt.none(UnsignedInt),
-      charset: Opt.none(string),
-    ),
-    contentType: contentType,
-    extraHeaders: extraHeaders,
-    name: Opt.none(string),
-    disposition: Opt.none(ContentDisposition),
-    cid: Opt.none(string),
-    language: Opt.none(seq[string]),
-    location: Opt.none(string),
-  )
+  blobRefPart(blobId, contentType, extraHeaders = extraHeaders)
 
 # I-9 ------------------------------------------------------------------------
 proc makeBlueprintBodyPartMultipart*(
@@ -1300,17 +1275,7 @@ proc makeBlueprintBodyPartMultipart*(
     extraHeaders: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] =
       initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
 ): BlueprintBodyPart =
-  BlueprintBodyPart(
-    isMultipart: true,
-    subParts: subParts,
-    contentType: contentType,
-    extraHeaders: extraHeaders,
-    name: Opt.none(string),
-    disposition: Opt.none(ContentDisposition),
-    cid: Opt.none(string),
-    language: Opt.none(seq[string]),
-    location: Opt.none(string),
-  )
+  multipartPart(contentType, subParts, extraHeaders = extraHeaders)
 
 # I-10a ----------------------------------------------------------------------
 proc makeEmailBlueprint*(
@@ -1667,10 +1632,44 @@ proc blueprintLeafPartEq(a, b: BlueprintLeafPart): bool =
       a.blobId == b.blobId and a.size == b.size and a.charset == b.charset
 
 # K-5 ------------------------------------------------------------------------
+proc blueprintBodyPartEq*(a, b: BlueprintBodyPart): bool {.raises: [KeyError].}
+  ## Recursive case-object equality. Forward-declared so the two branch
+  ## helpers below can recurse into it while each stays under the
+  ## nimalyzer complexity budget; a forward declaration has no body to
+  ## infer effects from, hence the explicit ``raises`` — ``KeyError`` is
+  ## the extraHeaders table lookup in ``blueprintBodyExtraHeadersEq``.
+
+proc blueprintSubPartsEq(a, b: BlueprintBodyPart): bool =
+  ## Child-list equality for two containers, read through the borrowed
+  ## ``subParts`` iterators. The same-named accessor answers with a copy,
+  ## so indexing it pairwise clones both subtrees once per child and again
+  ## at every level of the recursion. The borrowed handles are taken and
+  ## spent inside this call, where both parts are known to be alive.
+  var aKids: seq[ptr BlueprintBodyPart] = @[]
+  for child in a.subParts:
+    aKids.add addr child
+  var bKids: seq[ptr BlueprintBodyPart] = @[]
+  for child in b.subParts:
+    bKids.add addr child
+  if aKids.len != bKids.len:
+    return false
+  for i, aKid in aKids:
+    if not blueprintBodyPartEq(aKid[], bKids[i][]):
+      return false
+  true
+
+proc blueprintLeafHalvesEq(a, b: BlueprintBodyPart): bool =
+  ## Leaf-half equality for two leaf parts, read through the borrowed
+  ## ``leaf`` iterators — an inline leaf carries its whole body value, so
+  ## the copying accessor would clone both payloads merely to compare
+  ## them. Callers have already established both parts are leaves, so each
+  ## iterator yields exactly once; anything else stays false.
+  result = false
+  for la in a.leaf:
+    for lb in b.leaf:
+      result = blueprintLeafPartEq(la, lb)
+
 proc blueprintBodyPartEq*(a, b: BlueprintBodyPart): bool =
-  ## Recursive case-object equality. Delegates shared fields to the two
-  ## sub-helpers and leaf variants to ``blueprintLeafPartEq``,
-  ## keeping each helper under the nimalyzer complexity budget.
   if not blueprintBodyPartCoreFieldsEq(a, b):
     return false
   if not blueprintBodyPartOptFieldsEq(a, b):
@@ -1679,12 +1678,7 @@ proc blueprintBodyPartEq*(a, b: BlueprintBodyPart): bool =
   of true:
     case b.isMultipart
     of true:
-      if a.subParts.len != b.subParts.len:
-        return false
-      for i in 0 ..< a.subParts.len:
-        if not blueprintBodyPartEq(a.subParts[i], b.subParts[i]):
-          return false
-      true
+      blueprintSubPartsEq(a, b)
     of false:
       false
   of false:
@@ -1692,7 +1686,7 @@ proc blueprintBodyPartEq*(a, b: BlueprintBodyPart): bool =
     of true:
       false
     of false:
-      blueprintLeafPartEq(a.leaf, b.leaf)
+      blueprintLeafHalvesEq(a, b)
 
 # K-4 sub-helpers ------------------------------------------------------------
 

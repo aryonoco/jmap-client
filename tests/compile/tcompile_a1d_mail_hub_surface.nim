@@ -64,6 +64,47 @@ static:
   doAssert declared(initIdentityUpdateSet)
   doAssert declared(parseEmailSubmissionBlueprint)
 
+  # --- C12: sealed BlueprintBodyPart / BlueprintLeafPart (P15) ---
+  # Fully sealed like Credential / SessionEndpoint (A8b): the three total
+  # constructors are the only producers, and the discriminators
+  # (rawIsMultipart / rawSource) are inaccessible even on their own.
+  doAssert declared(BlueprintBodyPart)
+  doAssert declared(BlueprintLeafPart)
+  doAssert declared(inlinePart)
+  doAssert declared(blobRefPart)
+  doAssert declared(multipartPart)
+  doAssert not compiles(BlueprintBodyPart(rawIsMultipart: true))
+  doAssert not compiles(BlueprintLeafPart(rawSource: bpsInline))
+
+  # The read half of the seal has to stay reachable, or sealing would have
+  # shrunk the surface instead of narrowing it: every field the seal took
+  # private is given back by a same-named accessor, and both branch payloads
+  # are readable in place through the traversal iterators. Without these, an
+  # accessor quietly losing its export marker would pass the audit above.
+  doAssert compiles(
+    (
+      block:
+        let container = multipartPart("multipart/mixed", @[])
+        discard (
+          container.contentType, container.name, container.disposition, container.cid,
+          container.language, container.location, container.extraHeaders,
+          container.isMultipart, container.subParts, container.leaf,
+        )
+        for child in container.subParts:
+          discard child.contentType
+    )
+  )
+  doAssert compiles(
+    (
+      block:
+        let part = inlinePart(parsePartIdFromServer("1").get(), "text/plain", "x")
+        discard blobRefPart(parseBlobId("b1").get(), "application/pdf")
+        for leaf in part.leaf:
+          discard
+            (leaf.source, leaf.partId, leaf.value, leaf.blobId, leaf.size, leaf.charset)
+    )
+  )
+
   # --- Typed per-entity method builders ---
   doAssert declared(addMailboxGet)
   doAssert declared(addMailboxQuery)

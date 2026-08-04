@@ -456,16 +456,7 @@ testCase bodyValueNullFlag: # scenario 118b
 # ============= K. BlueprintBodyPart.toJson (scenarios 119–131, 125, 127a, 130a–130b) =============
 
 testCase bpInlineLeaf: # scenario 119
-  let bp = BlueprintBodyPart(
-    contentType: "text/plain",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: ""),
-    ),
-  )
+  let bp = inlinePart(parsePartIdFromServer("1").get(), "text/plain", "")
   let node = bp.toJson()
   assertJsonFieldEq node, "type", %"text/plain"
   assertJsonFieldEq node, "partId", %"1"
@@ -475,70 +466,36 @@ testCase bpInlineLeaf: # scenario 119
   doAssert node{"size"} == nil, "size should be absent on inline leaf"
 
 testCase bpBlobRefLeaf: # scenario 120
-  let bp = BlueprintBodyPart(
-    contentType: "image/png",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsBlobRef,
-      blobId: parseBlobId("abc123").get(),
-      size: Opt.some(parseUnsignedInt(5678).get()),
-      charset: Opt.some("utf-8"),
-    ),
+  let bp = blobRefPart(
+    parseBlobId("abc123").get(),
+    "image/png",
+    size = Opt.some(parseUnsignedInt(5678).get()),
+    charset = Opt.some("utf-8"),
   )
   let node = bp.toJson()
   assertJsonFieldEq node, "type", %"image/png"
   assertJsonFieldEq node, "blobId", %"abc123"
 
 testCase bpBlobRefBothPresent: # scenario 121
-  let bp = BlueprintBodyPart(
-    contentType: "image/png",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsBlobRef,
-      blobId: parseBlobId("abc").get(),
-      size: Opt.some(parseUnsignedInt(100).get()),
-      charset: Opt.some("binary"),
-    ),
+  let bp = blobRefPart(
+    parseBlobId("abc").get(),
+    "image/png",
+    size = Opt.some(parseUnsignedInt(100).get()),
+    charset = Opt.some("binary"),
   )
   let node = bp.toJson()
   doAssert node{"charset"} != nil
   doAssert node{"size"} != nil
 
 testCase bpBlobRefBothAbsent: # scenario 122
-  let bp = BlueprintBodyPart(
-    contentType: "image/png",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsBlobRef,
-      blobId: parseBlobId("abc").get(),
-      size: Opt.none(UnsignedInt),
-      charset: Opt.none(string),
-    ),
-  )
+  let bp = blobRefPart(parseBlobId("abc").get(), "image/png")
   let node = bp.toJson()
   doAssert node{"charset"} == nil, "charset should be absent"
   doAssert node{"size"} == nil, "size should be absent"
 
 testCase bpMultipart: # scenario 123
-  let child = BlueprintBodyPart(
-    contentType: "text/plain",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: ""),
-    ),
-  )
-  let bp = BlueprintBodyPart(
-    contentType: "multipart/mixed",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: true,
-    subParts: @[child],
-  )
+  let child = inlinePart(parsePartIdFromServer("1").get(), "text/plain", "")
+  let bp = multipartPart("multipart/mixed", @[child])
   let node = bp.toJson()
   assertJsonFieldEq node, "type", %"multipart/mixed"
   doAssert node{"subParts"} != nil
@@ -546,23 +503,9 @@ testCase bpMultipart: # scenario 123
   assertLen node{"subParts"}.getElems(@[]), 1
 
 testCase bpDepthLimit: # scenario 124
-  var bp = BlueprintBodyPart(
-    contentType: "text/plain",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: ""),
-    ),
-  )
+  var bp = inlinePart(parsePartIdFromServer("1").get(), "text/plain", "")
   for i in 0 ..< 200:
-    bp = BlueprintBodyPart(
-      contentType: "multipart/mixed",
-      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-      isMultipart: true,
-      subParts: @[bp],
-    )
+    bp = multipartPart("multipart/mixed", @[bp])
   let node = bp.toJson()
   doAssert node.kind == JObject
 
@@ -570,16 +513,7 @@ testCase bpNoFromJson: # scenario 125
   assertNotCompiles(BlueprintBodyPart.fromJson(%*{}))
 
 testCase bpInlineKeyAbsence: # scenario 126
-  let bp = BlueprintBodyPart(
-    contentType: "text/plain",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: ""),
-    ),
-  )
+  let bp = inlinePart(parsePartIdFromServer("1").get(), "text/plain", "")
   let node = bp.toJson()
   # Keys must be absent (not null, not present)
   doAssert "blobId" notin node
@@ -590,15 +524,8 @@ testCase bpExtraHeaders: # scenario 127
   let name = parseBlueprintBodyHeaderName("x-custom").get()
   var headers = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
   headers[name] = textSingle("custom value")
-  let bp = BlueprintBodyPart(
-    contentType: "text/plain",
-    extraHeaders: headers,
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: ""),
-    ),
+  let bp = inlinePart(
+    parsePartIdFromServer("1").get(), "text/plain", "", extraHeaders = headers
   )
   let node = bp.toJson()
   doAssert node{"header:x-custom:asText"} != nil
@@ -609,15 +536,8 @@ testCase bpExtraHeadersHfRaw: # scenario 127a
   let name = parseBlueprintBodyHeaderName("x-custom").get()
   var headers = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
   headers[name] = rawSingle("raw value")
-  let bp = BlueprintBodyPart(
-    contentType: "text/plain",
-    extraHeaders: headers,
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: ""),
-    ),
+  let bp = inlinePart(
+    parsePartIdFromServer("1").get(), "text/plain", "", extraHeaders = headers
   )
   let node = bp.toJson()
   # Key should be "header:x-custom" (no ":asRaw" — hfRaw suppressed).
@@ -625,55 +545,22 @@ testCase bpExtraHeadersHfRaw: # scenario 127a
   assertEq node{"header:x-custom"}, %"raw value"
 
 testCase bpEmptyExtraHeaders: # scenario 128
-  let bp = BlueprintBodyPart(
-    contentType: "text/plain",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: ""),
-    ),
-  )
+  let bp = inlinePart(parsePartIdFromServer("1").get(), "text/plain", "")
   let node = bp.toJson()
   # Only standard keys should be present
   for key, _ in node.pairs:
     doAssert key.startsWith("header:") == false, "no header properties expected"
 
 testCase bpMultipartEmptySubParts: # scenario 129
-  let bp = BlueprintBodyPart(
-    contentType: "multipart/mixed",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: true,
-    subParts: @[],
-  )
+  let bp = multipartPart("multipart/mixed", @[])
   let node = bp.toJson()
   doAssert node{"subParts"} != nil
   assertLen node{"subParts"}.getElems(@[]), 0
 
 testCase bpNestedMultipart: # scenario 130
-  let leaf = BlueprintBodyPart(
-    contentType: "text/plain",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: ""),
-    ),
-  )
-  let inner = BlueprintBodyPart(
-    contentType: "multipart/alternative",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: true,
-    subParts: @[leaf],
-  )
-  let outer = BlueprintBodyPart(
-    contentType: "multipart/mixed",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: true,
-    subParts: @[inner],
-  )
+  let leaf = inlinePart(parsePartIdFromServer("1").get(), "text/plain", "")
+  let inner = multipartPart("multipart/alternative", @[leaf])
+  let outer = multipartPart("multipart/mixed", @[inner])
   let node = outer.toJson()
   let innerNode = node{"subParts"}{0}
   doAssert innerNode != nil
@@ -683,33 +570,9 @@ testCase bpNestedMultipart: # scenario 130
   assertJsonFieldEq leafNode, "type", %"text/plain"
 
 testCase bpMixedChildren: # scenario 130a
-  let inline = BlueprintBodyPart(
-    contentType: "text/plain",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: ""),
-    ),
-  )
-  let blobRef = BlueprintBodyPart(
-    contentType: "image/png",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsBlobRef,
-      blobId: parseBlobId("abc").get(),
-      size: Opt.none(UnsignedInt),
-      charset: Opt.none(string),
-    ),
-  )
-  let mp = BlueprintBodyPart(
-    contentType: "multipart/mixed",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: true,
-    subParts: @[inline, blobRef],
-  )
+  let inline = inlinePart(parsePartIdFromServer("1").get(), "text/plain", "")
+  let blobRef = blobRefPart(parseBlobId("abc").get(), "image/png")
+  let mp = multipartPart("multipart/mixed", @[inline, blobRef])
   let node = mp.toJson()
   assertLen node{"subParts"}.getElems(@[]), 2
   # First child: inline with partId
@@ -718,17 +581,7 @@ testCase bpMixedChildren: # scenario 130a
   doAssert node{"subParts"}{1}{"blobId"} != nil
 
 testCase bpBlobRefBothOptAbsent: # scenario 131
-  let bp = BlueprintBodyPart(
-    contentType: "image/png",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsBlobRef,
-      blobId: parseBlobId("abc").get(),
-      size: Opt.none(UnsignedInt),
-      charset: Opt.none(string),
-    ),
-  )
+  let bp = blobRefPart(parseBlobId("abc").get(), "image/png")
   let node = bp.toJson()
   doAssert "charset" notin node
   doAssert "size" notin node
