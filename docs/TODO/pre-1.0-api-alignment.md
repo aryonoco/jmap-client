@@ -69,15 +69,17 @@ consistency check) will be the freeze-time gate that mechanically
 catches dashboard drift; until it lands, the counts are maintained by
 hand.
 
-Last reconciled 2026-08-04 against `main` at 3a04b66 (the PR #17 merge,
-which closed C12 and is the base of the current work). One delta is
-folded into the counts below and is not yet on `main`: D10 flipped to
-✅ DONE on 2026-08-04 on branch `api/l5-ffi-design`.
+Last reconciled 2026-08-04 against `main` at 4185bb9 (the PR #18
+merge, which landed D10 and is the base of the current work). Four
+deltas are folded into the counts below and are not yet on `main`, all
+from branch `api/c15-easy-path-one-shots`: C15, C17, and C21 flipped
+to ✅ DONE, and C23 was opened and closed as the sync one-shot D10's
+§8 named as a prerequisite.
 
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 78 | Implemented and verified against source / tests. |
-| ⬜ TODO | 35 | Not yet implemented. |
+| ✅ DONE | 82 | Implemented and verified against source / tests. |
+| ⬜ TODO | 32 | Not yet implemented. |
 | 🟦 DEFERRED | 5 | Post-1.0, or deferred by user decision (E1; D1, D1.5, D9, D18). |
 | ❌ MOOT | 5 | Premise dissolved by later work (C7, C9, D16, F3, H7). |
 | 🟡 PARTIAL | 4 | Some parts implemented; gaps named in the item body. |
@@ -2981,16 +2983,68 @@ reader siblings — `htmlBodies()` / `allBodies()` — plus the matching
 completions of the same read-side family. No inline AUDIT anchor.
 Future *additive* pass.
 
-### C15. Email/set WRITE one-shot *(P7)* — ⬜ TODO (future additive)
+### C15. Email/set WRITE one-shot *(P7)* — ✅ DONE (2026-08-04)
 
 Residual of AUDIT `email flag:set-construction` /
 `email move:repetition`. S2 added projection iterators and S4 added
 connect/read/send one-shots, but NOT a write one-shot. The "update
-ONE email" case still pays the
+ONE email" case still paid the
 `initEmailUpdateSet → parseNonEmptyEmailUpdates → addEmailSet` triple
 seal. An `updateEmail`/`addEmailUpdate`-style one-shot (flag/move)
-plus a vacation-set equivalent would fold that chain. This is outside
-S4's connect/read/send scope. Future *additive* pass.
+plus a vacation-set equivalent would fold that chain. That was outside
+S4's connect/read/send scope, so it landed as its own additive pass.
+
+**Shipped 2026-08-04** (branch `api/c15-easy-path-one-shots`). Five
+write one-shots on `src/jmap_client/internal/one_shot.nim`, all on the
+same `JmapResult` easy-path contract as S4's read/send one-shots:
+`markEmailsRead`, `markEmailsUnread`, `moveEmails`, `destroyEmails`,
+and `setVacationResponse` — the vacation-set equivalent this body
+names, included by user decision so the item closes exactly as it was
+written. A private `runSet` helper holds the shared Email/set body
+(seal one update across every id, dispatch, collapse the method
+outcome), so the three update procs are one line each and cannot drift
+into three transcriptions of the same wire shape.
+`moveEmails` is a full `mailboxIds` replace, because "move" means the
+email is in the destination and nowhere else; additive membership
+stays on the builder path's `addToMailbox`.
+
+The rail split is the promise: whole-method failure rides `JmapError`
+fail-fast, while per-id `SetError`s stay data on the returned
+`SetResponse`, so one rejected email never hides its siblings'
+results. The update rail rejects empty and duplicate id lists at the
+seal, before any network traffic; `destroyEmails` deliberately does
+not, because an empty `destroy` array is legal wire that destroys
+nothing.
+
+Adopting the one-shots in the P29 bench also exposed a container leak
+in the six public `SetResponse` projection iterators
+(`src/jmap_client/internal/protocol/methods.nim`): being generic,
+their `for id, res in r.updateResults` resolved `pairs` at the
+INSTANTIATION site, so a hub-only consumer had to add
+`import std/tables` of its own and got the mismatch reported from
+inside `methods.nim`, nowhere near its call site. Worse, Nim caches
+one instantiation per type argument, so whether a module needed the
+import depended on which sibling compiled first. Module-qualifying the
+calls as `tables.pairs(...)` moves resolution to the definition scope;
+no signature, yield type, or docstring changed. Every
+`examples/jmap-cli/commands/` module and `tests/unit/tone_shot.nim`
+dropped its `std/tables` import in the same commit, and `UnusedImport`
+is a hard error here, so those drops are load-bearing proof the leak
+is gone. Same container-leak class S3's `bodyValue` reader closed for
+`Email.bodyValues`, except it leaked through a generic body rather
+than a field type, so no signature review could have found it.
+
+**Verification gate.** `tests/wire_contract/public-api.txt` gained the
+five procs (`H16`/`lint-public-api`); no new public type accompanies
+them, so `tests/wire_contract/type-shapes.txt` is unchanged for this
+item (`H17`/`lint-type-shapes`), and the iterator qualification is a
+no-op in both snapshots by construction — that is what makes it safe.
+Thirteen new cases in `tests/unit/tone_shot.nim`
+(`oneShotMarkEmailsRead*`, `oneShotMarkEmailsUnreadEmitsRemoval`,
+`oneShotMoveEmailsReplacesMembership`, `oneShotDestroyEmails*`,
+`oneShotSetVacationResponse*`) pin the emitted patch shape, the
+per-id `SetError`-stays-data rule, both seal rejections, the legal
+empty destroy, and the method-error rail for each family.
 
 ### C16. Query-then-snippets one-shot *(P7)* — ⬜ TODO (future additive)
 
@@ -3001,15 +3055,42 @@ quarantine, but no `queryEmailsWithSnippets`-style one-shot exists
 (parallel to `queryEmails`); the search-highlight path still hand-wires
 `getBoth(chain)`. Future *additive* pass.
 
-### C17. Email/changes `/updated` back-reference combinator *(P7)* — ⬜ TODO (future additive)
+### C17. Email/changes `/updated` back-reference combinator *(P7)* — ✅ DONE (2026-08-04)
 
 AUDIT `email sync:changes-to-get-created-only` (**medium**).
 `addEmailChangesToGet` (and siblings;
-`src/jmap_client/internal/mail/combinators.nim`) back-references ONLY
+`src/jmap_client/internal/mail/combinators.nim`) back-referenced ONLY
 the `/created` path, yet incremental mail sync overwhelmingly needs
 `/updated` (read/flag/move changes). A combinator — or a path
 parameter on the existing one — that back-references `/updated` would
-cover the common case. Future *additive* pass.
+cover the common case.
+
+**Shipped 2026-08-04** (branch `api/c15-easy-path-one-shots`).
+`addEmailChangesToGetAll` emits three invocations —
+`Email/changes` plus one `Email/get` per back-referenced path,
+`/created` and `/updated` — with `ChangesGetAllHandles[T]` /
+`ChangesGetAllResults[T]` and a `getAll` extractor as the three-handle
+analogues of the existing pair types and `getBoth`. Of the two shapes
+this body offered, the new combinator is the one that ships: a path
+parameter on `addEmailChangesToGet` would have edited a signature the
+A26 public-API snapshot has frozen, so the existing combinator is
+untouched and its two-invocation chain remains the right call for a
+created-only fetch.
+The handle and result types are generic in `T`, so the Mailbox /
+Thread / Identity / EmailSubmission siblings are a later purely
+additive step rather than a redesign. `syncEmails` (C23) is the
+one-shot built on this combinator.
+
+**Verification gate.** `tests/wire_contract/public-api.txt` gained
+`addEmailChangesToGetAll` and `getAll`, and
+`tests/wire_contract/type-shapes.txt` gained both generic records
+(`H16`/`lint-public-api`, `H17`/`lint-type-shapes`).
+`tests/protocol/tconvenience.nim` adds
+`addEmailChangesToGetAllEmitsThreeInvocations` (three calls, in
+dispatch order, with handles `c0`/`c1`/`c2`) and
+`addEmailChangesToGetAllWiresBothReferences`, which asserts the second
+get's `#ids` names `Email/changes` at path `/updated` — the exact
+argument the old chain could not express.
 
 ### C18. Unify the sealed-seq projection on `asSeq` *(P9, DRY)* — ✅ DONE (this triage)
 
@@ -3036,14 +3117,34 @@ fields, so a two-field filter needs `Opt.some` on each; `sort` is
 filter/sort builder DSL would remove the per-field `Opt.some`
 ceremony. Future *additive* pass.
 
-### C21. Per-type current-state accessor *(P7)* — ⬜ TODO (future additive)
+### C21. Per-type current-state accessor *(P7)* — ✅ DONE (2026-08-04)
 
 AUDIT `email sync:state-acquisition`. `Email/changes` diffs against
-the object state (`GetResponse.state`), but no command surfaces the
-current per-type state, so a sync bootstrap must issue an empty-ids
+the object state (`GetResponse.state`), but no command surfaced the
+current per-type state, so a sync bootstrap had to issue an empty-ids
 `Email/get` purely to read `resp.state` as the initial cursor. A
 session- or get-level "current state per type" accessor would remove
-that round-trip. Future *additive* pass.
+that round-trip.
+
+**Shipped 2026-08-04** (branch `api/c15-easy-path-one-shots`).
+`getEmailState(client, accountId): JmapResult[JmapState]`
+(`src/jmap_client/internal/one_shot.nim`) names the cursor the API
+previously left implicit. The session-level variant is not available
+to build: RFC 8620 §2 gives the Session object no per-type object
+state, so the state can only come from a `/get` response. What the
+accessor removes is therefore the *knowledge*, not the round-trip —
+the empty-ids `Email/get` is now the library's payload-free internal
+bootstrap instead of a trick the consumer has to know. The
+`Opt.some(direct(newSeq[Id]()))` argument is deliberate and pinned:
+a permissive `Opt.none` would fetch the whole account's Email list to
+read one state string.
+
+**Verification gate.** `tests/wire_contract/public-api.txt` gained
+`getEmailState` (`H16`/`lint-public-api`).
+`tests/unit/tone_shot.nim` adds `oneShotGetEmailStateSuccess`,
+`oneShotGetEmailStateRequestShape` — which asserts the emitted
+`Email/get` carries an explicit empty `ids` array, the payload-free
+promise — and `oneShotGetEmailStateMethodError` for the rail.
 
 ### C22. Type the VacationResponse singleton id *(P15)* — ⬜ TODO (future additive)
 
@@ -3052,6 +3153,62 @@ AUDIT `vacation:singleton-id`. `VacationResponseSingletonId` is a raw
 in `updateResults` (`Table[Id, _]`) needs `parseId(...).get()` first —
 a newtype leak on the one place the id matters. A typed `Id` constant
 (or a typed accessor) closes the leak. Future *additive* pass.
+
+### C23. Email/changes sync one-shot *(P7)* — ✅ DONE (2026-08-04)
+
+Opened and closed by the same PR (branch
+`api/c15-easy-path-one-shots`), as `docs/design/17-L5-FFI-Principles.md`
+§8 prescribed: the L5 C ABI wraps one-shots only, so `jmap_sync_emails`
+needs a Nim `syncEmails` to wrap, and no ledger item covered it. C17
+(the `/updated` back-reference) and C21 (the per-type state accessor)
+are its *components*, not the one-shot itself — folding the work onto
+either would have made both items dishonest, so this item records the
+composition instead.
+
+**Shipped 2026-08-04.** `syncEmails(client, accountId, sinceState,
+maxChanges, bodyFetchOptions): JmapResult[EmailSync]`
+(`src/jmap_client/internal/one_shot.nim`) returns the whole fetchable
+delta from one round-trip: `EmailSync` carries `changes`, `created`,
+and `updated`, every method outcome already collapsed onto the rail.
+The bootstrap cursor comes from `getEmailState` (C21); the three
+invocations come from `addEmailChangesToGetAll` (C17). Destroyed ids
+stay on `changes` — there is nothing left to fetch for them, so no
+third get exists. The docstring states the two obligations RFC 8620
+§5.2 puts on the caller and the type cannot: persist `changes.newState`
+as the next cursor, and loop while `changes.hasMoreChanges`; a record
+both created and updated since `sinceState` may appear in both lists,
+so a consumer merging them dedupes by id. Failure is fail-fast — the
+changes call erroring is the root cause, so it is what the rail
+reports.
+
+Landing this forced one vendored-dependency fix. `nim-results`'
+`raiseResultDefect` probed `when compiles($v)`, which proves only that
+`$v` typechecks; the enclosing `func` is `noSideEffect`, so it also
+needs `$v` proven pure, and std's derived `$` for `Email`'s
+self-referentially recursive MIME body-part tree defeats Nim's generic
+effect-inference fixed point. `.error` was therefore uncompilable for
+any `Result` whose success type embeds `Email` — exactly what
+`EmailSync` is, so its tests hit the failure the moment they tried to
+render an error, and there was no way to route around it from calling
+code.
+The probe now wraps the render in a `noSideEffect` closure and lets
+`compiles()` judge that instead, so a genuinely pure `$` keeps the
+rich `"msg: value"` defect text and anything Nim cannot close on falls
+back to the message-only defect, exactly as an absent `$` already did.
+An in-file marker above the overload names the divergence so a
+re-vendor does not silently drop it.
+
+**Verification gate.** `tests/wire_contract/public-api.txt` gained
+`syncEmails` and the `EmailSync` type, and
+`tests/wire_contract/type-shapes.txt` gained `EmailSync`'s three
+fields (`H16`/`lint-public-api`, `H17`/`lint-type-shapes`).
+`tests/unit/tone_shot.nim` adds `oneShotSyncEmailsSuccess` — whose two
+canned `Email/get` legs carry deliberately distinct `notFound` shapes,
+so a transposition of the `created` and `updated` handles fails the
+test rather than passing unnoticed, and which incidentally pins the
+RFC 8620 §5.2 case where a record updated then destroyed since
+`sinceState` surfaces as `notFound` on the `/updated` fetch — and
+`oneShotSyncEmailsChangesErrorFailsFast` for the fail-fast rail.
 
 ## Section D — Process / policy artefacts
 
@@ -3365,8 +3522,10 @@ that makes the diagnostic accessor total, whichever surface it takes.
 - **v1 scope has a Nim prerequisite.** The C ABI wraps one-shots only,
   so the missing write and sync one-shots land first: ledger **C15**
   (Email/set write one-shot) plus a new item for the Email/changes
-  sync one-shot, which has no ledger entry today (C17 and C21 are its
-  components, not the one-shot itself). See doc 17 §8.
+  sync one-shot, since C17 and C21 are its components, not the
+  one-shot itself. See doc 17 §8. The prerequisite PR has since
+  shipped: C15, C17, and C21 are ✅ DONE and the missing item was
+  opened and closed as **C23**.
 
 ### D11. Scope and non-goals policy *(P4)* — ⬜ TODO
 

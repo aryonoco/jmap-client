@@ -15,8 +15,11 @@ symbol — or a deliberate "won't-fix by Sn decision"); `[affirmed]` (a
 positive finding, a win not friction, optionally "strengthened by Sn");
 `[accepted-as-trade-off: <reason>]` (a conscious, documented cost);
 `[filed-as-Cn: <gap>]` (a genuine residual gap, tracked as a new Section C
-item). A finding may carry a PRIMARY tag plus a RESIDUAL pointer when its
-common case is resolved but a deeper gap remains.
+item); `[resolved-Cn: <symbol>]` (a `filed-as-Cn` line whose Section C item
+has since shipped — the tag flips when that item flips to ✅ DONE in
+`docs/TODO/pre-1.0-api-alignment.md`, and names the shipped symbol just as
+`resolved-Sn` does). A finding may carry a PRIMARY tag plus a RESIDUAL
+pointer when its common case is resolved but a deeper gap remains.
 
 **Format.** `- <command>:<call-site>: <description> [disposition]`
 
