@@ -155,6 +155,42 @@ proc getEmailState*(
   ok(resp.state)
 
 # =============================================================================
+# syncEmails — incremental sync one-shot (RFC 8620 §5.2, RFC 8621 §4.3/§4.2)
+# =============================================================================
+
+type EmailSync* = object
+  ## The full fetchable delta since a cursor. ``destroyed`` ids live on
+  ## ``changes`` — there is nothing left to fetch for them. A record both
+  ## created and updated since ``sinceState`` may legitimately appear in
+  ## both ``changes.created`` and ``changes.updated`` (RFC 8620 §5.2), so
+  ## a consumer merging ``created``/``updated`` should dedupe by id.
+  changes*: ChangesResponse[Email]
+  created*: GetResponse[Email]
+  updated*: GetResponse[Email]
+
+proc syncEmails*(
+    client: JmapClient,
+    accountId: AccountId,
+    sinceState: JmapState,
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
+    bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
+): Result[EmailSync, JmapError] =
+  ## Incremental sync in one round-trip: ``Email/changes`` plus both
+  ## back-referenced fetches. Persist ``changes.newState`` as the next
+  ## cursor; when ``changes.hasMoreChanges`` is true, call again from
+  ## that cursor. Fail-fast: the changes call erroring is the root
+  ## cause, so it is what the rail reports.
+  let (b, handles) = client.newBuilder().addEmailChangesToGetAll(
+      accountId, sinceState, maxChanges, bodyFetchOptions
+    )
+  let dr = ?client.send(b.freeze())
+  let results = ?dr.getAll(handles)
+  let changes = ?results.changes.fulfil(mnEmailChanges)
+  let created = ?results.created.fulfil(mnEmailGet)
+  let updated = ?results.updated.fulfil(mnEmailGet)
+  ok(EmailSync(changes: changes, created: created, updated: updated))
+
+# =============================================================================
 # Query-then-get one-shots (RFC 8620 §3.7 back-reference chains)
 # =============================================================================
 

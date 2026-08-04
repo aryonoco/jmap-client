@@ -906,6 +906,7 @@ enumfield vruSetToDate
 func wireName (p: VacationResponseGetProperty): string
 
 ## jmap_client/internal/one_shot
+type EmailSync
 type PlainTextMessage
 type QueryThenGet [T]
 type SendMailboxes
@@ -928,6 +929,7 @@ proc queryEmails (client: JmapClient, accountId: AccountId, filter: Opt[Filter[E
 proc queryMailboxes (client: JmapClient, accountId: AccountId, filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]), sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]), queryParams: QueryParams = QueryParams(), sortAsTree: bool = false, filterAsTree: bool = false): Result[QueryThenGet[Mailbox], JmapError]
 proc sendPlainText (client: JmapClient, accountId: AccountId, identityId: Id, mailboxes: SendMailboxes, message: PlainTextMessage): Result[SentEmail, JmapError]
 proc setVacationResponse (client: JmapClient, accountId: AccountId, updates: openArray[VacationResponseUpdate]): Result[SetResponse[NoCreate, PartialVacationResponse], JmapError]
+proc syncEmails (client: JmapClient, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges), bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): Result[EmailSync, JmapError]
 
 ## jmap_client/internal/protocol/builder
 type BuiltRequest

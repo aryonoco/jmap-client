@@ -617,6 +617,11 @@
 ## EmailSubmissionUpdateVariantKind [jmap_client/internal/mail/email_submission]
   esuSetUndoStatusToCanceled
 
+## EmailSync [jmap_client/internal/one_shot]
+  changes*: ChangesResponse[Email]
+  created*: GetResponse[Email]
+  updated*: GetResponse[Email]
+
 ## EmailUpdate [jmap_client/internal/mail/email_update]
   case kind*: EmailUpdateVariantKind
   of euAddKeyword, euRemoveKeyword:

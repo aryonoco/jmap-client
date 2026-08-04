@@ -705,3 +705,71 @@ testCase oneShotSetVacationResponseMethodError:
     "a server error invocation collapses onto jeMethod"
   doAssert res.error.methodFault.error.kind == metServerFail,
     "the method-error kind must survive onto the rail"
+
+# -----------------------------------------------------------------------------
+# syncEmails
+# -----------------------------------------------------------------------------
+
+testCase oneShotSyncEmailsSuccess:
+  ## One round-trip yields the full fetchable delta: the changes triple
+  ## plus both back-referenced gets, every outcome already collapsed
+  ## onto the rail. Canned gets return empty lists — the wiring, not
+  ## Email decoding, is under test (bare-get coverage owns decoding).
+  let responseJson = envelope(
+    %*[
+      [
+        "Email/changes",
+        {
+          "accountId": "acct-1",
+          "oldState": "s1",
+          "newState": "s2",
+          "hasMoreChanges": false,
+          "created": ["em-new"],
+          "updated": ["em-upd"],
+          "destroyed": ["em-gone"],
+        },
+        "c0",
+      ],
+      [
+        "Email/get",
+        {"accountId": "acct-1", "state": "s2", "list": [], "notFound": []},
+        "c1",
+      ],
+      [
+        "Email/get",
+        {"accountId": "acct-1", "state": "s2", "list": [], "notFound": []},
+        "c2",
+      ],
+    ]
+  )
+  let client = cannedClient(responseJson)
+  let res = client.syncEmails(makeAccountId("acct-1"), makeState("s1"))
+  assertOk(res)
+  let sync = res.value
+  assertEq($sync.changes.newState, "s2")
+  doAssert not sync.changes.hasMoreChanges,
+    "the canned response reports no further changes"
+  assertLen(sync.changes.created, 1)
+  assertLen(sync.changes.updated, 1)
+  assertLen(sync.changes.destroyed, 1)
+  assertLen(sync.created.list, 0)
+  assertLen(sync.updated.list, 0)
+
+testCase oneShotSyncEmailsChangesErrorFailsFast:
+  ## cannotCalculateChanges on the changes call collapses onto jeMethod
+  ## even though the dependent gets also errored — fail-fast reports the
+  ## root cause, not the cascade.
+  let responseJson = envelope(
+    %*[
+      ["error", {"type": "cannotCalculateChanges"}, "c0"],
+      ["error", {"type": "invalidResultReference"}, "c1"],
+      ["error", {"type": "invalidResultReference"}, "c2"],
+    ]
+  )
+  let client = cannedClient(responseJson)
+  let res = client.syncEmails(makeAccountId("acct-1"), makeState("s1"))
+  doAssert res.isErr, "expected a rail error for a method-level failure"
+  doAssert res.error.kind == jeMethod,
+    "a server error invocation collapses onto jeMethod"
+  doAssert res.error.methodFault.error.kind == metCannotCalculateChanges,
+    "the root-cause changes error must survive onto the rail, not the cascade"
