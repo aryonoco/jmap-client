@@ -385,12 +385,20 @@ C code (verified from compiler source `ccgthreadvars.nim`). Uses
 compiler-native TLS, works on foreign C threads under ARC without Nim
 thread registration.
 
-**Project prescription:** the mechanism is sound, but this library does
-not use it. Thread-local last-error state is forbidden here -- it is
-OpenSSL's `ERR_get_error`, the anti-pattern P14 names, and the settled
-model is per-handle: `jmap_status` return codes, diagnostics recorded on
-the handle, static `jmap_strerror` (`docs/design/17-L5-FFI-Principles.md`
-sections 1 and 13; `.claude/rules/nim-ffi-boundary.md` rules 3, 7, 8).
-Handles are confined to one thread at a time (P24), so the error slot
-needs no TLS. Kept here as spec reference for reading generated C, not as
-a pattern to reach for.
+**How this library uses it:** it does not. The mechanism is sound, but
+thread-local last-error state is forbidden here -- it is OpenSSL's
+`ERR_get_error`, whose cross-thread contamination and forgotten-clear
+bugs are documented across every binding ecosystem that consumed it. The
+error model is per-handle instead: `jmap_status` return codes,
+diagnostics recorded on the handle the call was made on, static
+`jmap_strerror` text for a code. A handle is confined to one thread while
+in use, so its error slot needs no TLS and no lock. This section is
+retained as spec reference for reading generated C, not as a pattern to
+reach for.
+
+
+## Further Reading
+
+- `docs/design/17-L5-FFI-Principles.md` -- the C ABI binding design
+- `docs/design/14-Nim-API-Principles.md` -- library-wide API principles
+- `docs/background/nim-c-abi-guide.md` -- general Nim C ABI guide

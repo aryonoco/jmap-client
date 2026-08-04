@@ -6,43 +6,48 @@ user-invocable: false
 
 # Nim C ABI / FFI Boundary Reference
 
-This skill provides C ABI patterns for `src/jmap_client.nim`, the only
-module with `{.exportc.}` procs. The binding design is
-`docs/design/17-L5-FFI-Principles.md` (D10) -- it is authoritative over
-this skill wherever the two disagree, and it supersedes
-`docs/design/00-architecture.md` §5.1-5.4 (handle naming and inventory,
-enum exposure, error model). `docs/background/nim-c-abi-guide.md` is the
-general Nim C ABI reference; its thread-local last-error pattern is
-forbidden here.
+C ABI patterns for `src/jmap_client.nim`, the only module in this library
+that carries `{.exportc.}` procs. Everything a C consumer can touch --
+opaque handles, status codes, borrowed strings, callbacks -- is declared
+and implemented there, behind a hand-curated `include/jmap_client.h`.
 
-## Error Model (Settled)
+## Error Model
 
-Errors travel through return values; diagnostics live on the handle the
-call was made on; nothing lives in thread-local or global state
-(design doc 17 sections 1 and 3; `.claude/rules/nim-ffi-boundary.md`
-rules 3, 7, 8):
+Errors travel through return values; the diagnostic lives on the handle
+the call was made on; nothing lives in thread-local or global state.
 
-- Every fallible exported proc returns `jmap_status`; outputs travel
-  through out-parameters. Never NULL-as-error, never a fetchable side
-  channel.
+- Every fallible exported proc returns `jmap_status`, and its outputs
+  travel through out-parameters. Never NULL-as-error, never a negative
+  sentinel folded into an answer, never a side channel the caller has to
+  fetch separately.
 - `recordError(handle, err)` stores the `JmapError` kind and its bounded
   `message()` in the handle's error slot and returns the projected
   `jmap_status`. There is no `clearLastError` / `setLastError` pair.
 - `jmap_errmsg(handle)` returns a `const char*` borrowed from that
-  handle's storage (`sqlite3_errmsg` semantics); `jmap_strerror(code)`
-  is static, stateless text for a status code.
-- `{.threadvar.}` error state is the OpenSSL `ERR_get_error`
-  anti-pattern P14 forbids by name. Handle confinement (P24) is what
-  makes per-handle state race-free.
+  handle's own storage, describing the most recent failure on that handle
+  (`sqlite3_errmsg` semantics). `jmap_strerror(code)` is static, stateless
+  text for a status code, callable before any handle exists.
+- Thread-local error state (`{.threadvar.}`, a `jmap_last_error()`
+  fetcher, an error queue) is forbidden: that is the OpenSSL
+  `ERR_get_error` pattern, whose cross-thread contamination and
+  forgotten-clear bugs are documented across every binding ecosystem that
+  consumed it. A handle is confined to one thread while in use, so the
+  writer and the reader of its error slot are the same thread by
+  construction -- per-handle state is race-free without TLS and without a
+  lock.
 
-## References
+## Skill Files
 
-- [Nim FFI language reference](nim-ffi-reference.md) -- authoritative spec text extracted from the Nim manual, destructors doc, memory management doc, backends doc, and nimbase.h
-- [Export pragmas, type mapping, error codes](export-and-types.md) -- patterns for declaring the C interface
-- [Memory, lifecycle, strings, handles](memory-and-lifecycle.md) -- patterns for implementing exported proc bodies
-- `docs/design/17-L5-FFI-Principles.md` -- the binding C ABI design (error model, handles, ownership, header gates)
-- `docs/background/nim-c-abi-guide.md` -- general Nim C ABI guide (compiler flags, full examples); its Pattern 2 (thread-local error state) is forbidden here
-- `docs/design/00-architecture.md` sections 5.1-5.4 -- Layer 5 architecture decisions, **superseded by doc 17** on handle naming/inventory, enum exposure and the error model (dated amendments are in that file); only §5.1 (lossy projection) and §5.3A (per-object free functions) still apply as written
+- [Export pragmas, type mapping, error codes](export-and-types.md) --
+  declaring the C interface: pragmas and bundling, Nim-to-C type mapping,
+  enum projection, status codes, the handle error slot, the C header
+- [Memory, lifecycle, strings, handles](memory-and-lifecycle.md) --
+  implementing exported proc bodies: string ownership, `create`/`dealloc`,
+  handle new/accessor/free, collection accessors, initialisation,
+  callbacks, thread safety, Defects, pre-ship checklist
+- [Nim FFI language reference](nim-ffi-reference.md) -- specification text
+  quoted from the Nim manual, destructors doc, memory-management doc,
+  backends doc and `nimbase.h`; consult to verify any FFI claim
 
 ## Decision Tree
 
@@ -63,4 +68,12 @@ rules 3, 7, 8):
 | What about Defects and `--panics:on`? | See Defects in [memory-and-lifecycle.md](memory-and-lifecycle.md) |
 | Pre-ship review checklist? | See Pre-Ship Checklist in [memory-and-lifecycle.md](memory-and-lifecycle.md) |
 | Need to verify an FFI claim against the Nim spec? | See [nim-ffi-reference.md](nim-ffi-reference.md) |
-| Need full compiler flags or build recipe? | See `docs/background/nim-c-abi-guide.md` |
+
+## Further Reading
+
+- `docs/design/17-L5-FFI-Principles.md` -- the C ABI binding design
+  (error model, handles, ownership, header gates)
+- `docs/design/14-Nim-API-Principles.md` -- library-wide API principles
+  the C ABI inherits
+- `docs/background/nim-c-abi-guide.md` -- general Nim C ABI guide,
+  including compiler flags and full build recipes

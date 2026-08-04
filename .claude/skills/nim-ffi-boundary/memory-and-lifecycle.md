@@ -25,8 +25,8 @@ compile time.
 The C caller provides a buffer and the Nim proc copies into it. Reserved
 for bulk payloads a caller genuinely wants in its own memory; the default
 for every read accessor is Pattern B. Whatever the payload, the operation
-reports the required size and never truncates silently (design doc 17
-section 13).
+reports the required size and never truncates silently -- a silently
+truncated buffer is a data-loss bug the caller cannot detect.
 
 ```nim
 proc jmapEmailBodyCopy*(email: pointer, buf: cstring, bufLen: csize_t,
@@ -47,9 +47,9 @@ proc jmapEmailBodyCopy*(email: pointer, buf: cstring, bufLen: csize_t,
 
 The owning object keeps the Nim `string` alive; the returned `cstring`
 borrows from it. Nothing a read accessor returns is ever freed by the
-caller (design doc 17 section 3). The header documents the invalidation
-window on every accessor whose window is narrower than the owning
-handle's lifetime.
+caller, so there is one ownership rule to remember rather than one per
+accessor. The header documents the invalidation window on every accessor
+whose window is narrower than the owning handle's lifetime.
 
 ```nim
 type ErrorSlot = object
@@ -59,8 +59,7 @@ type ErrorSlot = object
 type JmapClientHandle = object
   ## L5-owned wrapper: what a C `jmap_client*` points at. It holds the
   ## L4 `JmapClient` ref (whose object type is private to
-  ## internal/client.nim) plus this handle's error slot -- design doc 17
-  ## section 2.
+  ## internal/client.nim) plus this handle's error slot.
   client: JmapClient
   err: ErrorSlot ## most recent failure on THIS handle -- never a threadvar
 
@@ -76,10 +75,11 @@ proc jmapErrmsg*(client: pointer): cstring
   c[].err.message.cstring
 ```
 
-**Never `{.threadvar.}` storage.** Process- and thread-wide last-error
-state is forbidden (P14; design doc 17 sections 1 and 13). A borrow is
-anchored to an object the caller holds, so its validity window is
-something the caller can reason about; a TLS slot's is not.
+**Never `{.threadvar.}` storage.** A borrow anchored to an object the
+caller holds has a validity window the caller can reason about and control
+by holding the object; a TLS slot's window depends on which thread ran
+which unrelated call, which is exactly how OpenSSL-style last-error state
+produces cross-thread contamination bugs.
 
 
 ## Memory Ownership (ARC)
@@ -92,13 +92,16 @@ untracked by ARC, no `RefHeader`, no reference count.
 
 **`new(T)`** returns `ref T` with an ARC `RefHeader` (reference count
 field). ARC tracks and frees it when the refcount drops to zero.
-Unsuitable for opaque handles that must outlive Nim scope boundaries.
+Unsuitable for opaque handles: the only reference lives in C, where ARC
+cannot see it, so the object would be freed while the caller still holds
+the pointer.
 
 **Rule: whoever allocates, frees.** Provide `_new`/`_free` pairs.
 
 The `T` is always an L5-owned wrapper object, never an L4 type: the L4
-handles (`JmapClient`, `Transport`) are `ref`s over private objects, so
-`create` cannot reach them from `src/jmap_client.nim`.
+handles (`JmapClient`, `Transport`) are `ref`s over objects private to
+their defining modules, so `create` cannot name them from
+`src/jmap_client.nim`.
 
 ```nim
 let p = create(JmapClientHandle)   # alloc0, zeroed, unmanaged ptr T
@@ -119,13 +122,15 @@ shared heap). For cross-thread handle transfer, use
 
 ## Opaque Handle Lifecycle
 
-C consumers never see Nim type internals; handles are per-object
-`_new`/`_free` pairs, not an arena (design doc 17 sections 2 and 3).
+C consumers never see Nim type internals. Every handle is a per-object
+`_new`/`_free` pair rather than an arena or a session-wide allocator, so a
+consumer frees exactly what it created, in any order.
 
 ### New
 
 Fallible construction returns a status and writes the handle through an
-out-parameter -- never NULL-as-error (P13).
+out-parameter -- never NULL-as-error, which cannot distinguish "bad
+argument" from "network down".
 
 ```nim
 proc jmapClientNew*(sessionUrl, username, password: cstring,
@@ -135,8 +140,8 @@ proc jmapClientNew*(sessionUrl, username, password: cstring,
       outClient.isNil:
     return cint(ord(jsMisuse))
   # NULL transport selects the built-in one -- C has no default
-  # arguments, so the two Nim `connect` overloads become one C entry
-  # point with an explicit selector (design doc 17 section 2).
+  # arguments, so the two Nim `connect` overloads collapse into one C
+  # entry point with an explicit selector.
   let connected =
     if transport.isNil:
       connect($sessionUrl, $username, $password)
@@ -155,7 +160,8 @@ proc jmapClientNew*(sessionUrl, username, password: cstring,
 
 Per-field getters are total and infallible, so they return the value
 directly: a `cstring` borrowing from the object that owns the view,
-valid until that object is freed (design doc 17 sections 3 and 4).
+valid until that object is freed. There is no status to report and
+nothing for the caller to free.
 
 ```nim
 proc jmapMailboxName*(view: pointer): cstring
@@ -185,8 +191,9 @@ proc jmapClientFree*(handle: pointer)
 Nim `seq`/`string` are managed types (internal layout: `len` + `ptr payload`).
 Never expose directly. Use count + indexed borrow, then per-field
 getters on the borrowed view -- **never a JSON string**: `char *json`
-parameters and return values are forbidden (P19; design doc 17
-sections 4 and 13).
+parameters and return values are forbidden, because they move the schema
+out of the type system into text no compiler checks and force every
+consumer to link a JSON parser to read a field.
 
 ```nim
 proc jmapMailboxesCount*(res: pointer): csize_t
@@ -234,12 +241,15 @@ No `clearLastError()` prologue: `recordError` overwrites the slot
 unconditionally, so the slot always describes the most recent failing
 call on that handle (`sqlite3_errmsg` semantics), and a success leaves a
 stale message that the status code already tells the caller to ignore.
+This is deliberate -- a clear-then-call protocol is one the caller can
+forget, and forgetting it is how a stale diagnostic gets attributed to an
+unrelated call.
 
 Failure *before* a handle exists (`jmap_client_new` rejecting its
 arguments) reports through the status code alone -- `jmap_strerror`
 supplies the text. That is the one place diagnostics are code-granular
-rather than message-granular; it is the accepted trade of the per-handle
-model (design doc 17 section 1).
+rather than message-granular, and it is the price of holding all state on
+handles rather than in a global.
 
 `JmapStatus`, `statusOf`, `recordError`, `jmap_errmsg`, and
 `jmap_strerror` are in [export-and-types.md](export-and-types.md).
@@ -275,9 +285,9 @@ the `__attribute__((constructor))` NimMain call Nim would otherwise emit
 for a POSIX shared library -- that is why `jmap_init` exists at all.
 Call it exactly once from the main thread before any other exported
 function; call `jmap_cleanup()` once after all handles are freed. The
-one process-wide latch that lets a skipped `jmap_init` be answered with
+process-wide latch that lets a skipped `jmap_init` be answered with
 `jsMisuse` instead of undefined behaviour is the *only* module-level
-state the library holds (design doc 17 sections 2 and 7).
+state the library holds.
 
 
 ## Callbacks
@@ -296,22 +306,24 @@ proc instead of forcing `{.raises: [].}` on all callback types.
 
 ## Thread Safety
 
-- **Handle confinement is the contract (P24):** a handle is used by one
-  thread at a time; hand it to another thread by ceasing to use it on the
-  old one. Concurrent calls from different threads are safe provided each
-  thread uses its own handles.
+- **Handle confinement is the contract:** a handle is used by one thread
+  at a time; hand it to another thread by ceasing to use it on the old
+  one. Concurrent calls from different threads are safe provided each
+  thread uses its own handles. A library that claims blanket thread safety
+  and cannot deliver it is worse than one that states a confinement rule
+  the consumer can honour.
 - Per-handle error state rides that contract: the writer (`recordError`)
   and the reader (`jmap_errmsg`) are on the same thread by construction,
   so the slot needs no TLS and no lock.
 - `{.threadvar.}` compiles to `NIM_THREADVAR` (compiler-native TLS) and
   does work on foreign C threads under ARC without Nim thread
   registration -- but it is **forbidden for error state** here, and
-  nothing else in this library needs it (P10, P14; design doc 17
-  sections 1, 7 and 13).
+  nothing else in this library needs it, because the library keeps no
+  ambient configuration and no global callbacks.
 - The library holds no cross-handle caches and no module-level mutable
-  state beyond the single write-once `jmap_init` latch (design doc 17
-  section 7): two `jmap_client` handles in one process never observe
-  each other. Domain core (Layers 1-3) is pure by pragma.
+  state beyond the single write-once `jmap_init` latch: two `jmap_client`
+  handles in one process never observe each other. The domain core
+  (Layers 1-3) is pure by pragma.
 
 
 ## Defects and `--panics:on`
@@ -366,3 +378,10 @@ proc jmapResponseGetItem*(resp: pointer, idx: cint, outItem: ptr cint): cint
 - [ ] `--app:lib` in build command
 - [ ] C header has `extern "C"` guards for C++ consumers
 - [ ] `jmap_init()` documented as required before any other call
+
+
+## Further Reading
+
+- `docs/design/17-L5-FFI-Principles.md` -- the C ABI binding design
+- `docs/design/14-Nim-API-Principles.md` -- library-wide API principles
+- `docs/background/nim-c-abi-guide.md` -- general Nim C ABI guide
