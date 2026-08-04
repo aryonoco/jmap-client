@@ -27,6 +27,7 @@
 {.push raises: [].}
 {.experimental: "strictCaseObjects".}
 
+import std/sugar
 import std/tables
 
 import ./client
@@ -246,9 +247,9 @@ proc runSet(
   ## and the projection iterators) — the rail carries only whole-method
   ## failure, so one rejected email never hides its siblings' results.
   let updateSet = ?initEmailUpdateSet(@[update]).lift
-  var items = newSeqOfCap[(Id, EmailUpdateSet)](ids.len)
-  for id in ids:
-    items.add((id, updateSet))
+  let items = collect(newSeqOfCap(ids.len)):
+    for id in ids:
+      (id, updateSet)
   let updates = ?parseNonEmptyEmailUpdates(items).lift
   let (b, handle) =
     client.newBuilder().addEmailSet(accountId, update = Opt.some(updates))

@@ -519,6 +519,8 @@ testCase oneShotMarkEmailsReadSetErrorIsData:
   for id, error in res.value.updateFailures:
     failureCount.inc
     assertEq($id, "em-9")
+    doAssert error.kind == setNotFound,
+      "the notUpdated SetError's type must survive as data, unmodified"
   assertEq(failureCount, 1)
 
 testCase oneShotMarkEmailsReadEmptyIdsIsValidation:
@@ -526,13 +528,27 @@ testCase oneShotMarkEmailsReadEmptyIdsIsValidation:
   ## own validation rides the rail; nothing is sent.
   let client = cannedClient(envelope(%*[]))
   let res = client.markEmailsRead(makeAccountId("acct-1"), newSeq[Id]())
-  doAssert res.isErr
-  doAssert res.error.kind == jeValidation
+  doAssert res.isErr, "an empty ids list must reject at the seal, not the wire"
+  doAssert res.error.kind == jeValidation,
+    "an empty ids list is a validation failure, not a transport one"
+
+testCase oneShotMarkEmailsReadDuplicateIdsIsValidation:
+  ## Duplicate ids cannot form a NonEmptyEmailUpdates (one entry per
+  ## id) — the seal's own validation rides the rail; nothing is sent.
+  let client = cannedClient(envelope(%*[]))
+  let res =
+    client.markEmailsRead(makeAccountId("acct-1"), @[makeId("em-1"), makeId("em-1")])
+  doAssert res.isErr, "duplicate ids must reject at the seal, not the wire"
+  doAssert res.error.kind == jeValidation,
+    "duplicate ids are a validation failure, not a transport one"
 
 testCase oneShotMarkEmailsReadMethodError:
   ## A whole-method error collapses fail-fast onto jeMethod.
   let responseJson = envelope(%*[["error", {"type": "serverFail"}, "c0"]])
   let client = cannedClient(responseJson)
   let res = client.markEmailsRead(makeAccountId("acct-1"), @[makeId("em-1")])
-  doAssert res.isErr
-  doAssert res.error.kind == jeMethod
+  doAssert res.isErr, "expected a rail error for a method-level failure"
+  doAssert res.error.kind == jeMethod,
+    "a server error invocation collapses onto jeMethod"
+  doAssert res.error.methodFault.error.kind == metServerFail,
+    "the method-error kind must survive onto the rail"
