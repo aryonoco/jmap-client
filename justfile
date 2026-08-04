@@ -474,8 +474,8 @@ freeze-api: _api-oracle
     @echo "Snapshot regenerated. Review the diff before committing."
 
 # H16 public-API snapshot lock lint. Backs A26/F6 (P1, P5, P2). The symbols
-# reachable through `import jmap_client` / `import jmap_client/convenience`
-# must match tests/wire_contract/public-api.txt exactly.
+# reachable through `import jmap_client` must match
+# tests/wire_contract/public-api.txt exactly.
 lint-public-api: _api-oracle
     @echo "Running H16 public-API snapshot lint..."
     @API_ORACLE_MODE=api /tmp/jmap_api_oracle check --mm:arc --threads:on --panics:on \
