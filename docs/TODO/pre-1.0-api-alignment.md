@@ -26,9 +26,10 @@ flagged as such. The three permissible gate types:
   are existence gates. (D15 is dropped; A10c covers the push /
   websocket stubs.)
 
-The pre-1.0 freeze checklist that tracks gate status per item lives
-at `docs/TODO/pre-1.0-freeze-checklist.md` (D18). The 1.0 release
-build fails if any gate row is unchecked.
+A separate pre-1.0 freeze checklist tracking gate status per item
+(D18, at `docs/TODO/pre-1.0-freeze-checklist.md`) is deferred by user
+decision 2026-08-04. Until it lands, the per-item markers below carry
+that status.
 
 The principle of this section: **alignment is upheld by policy + CI,
 not by accident.** A new contributor opening a PR cannot violate a
@@ -45,8 +46,11 @@ a living artefact — markers and bodies update as items land.
 - **🟡 PARTIAL** — partly implemented; the item body names what
   is done and what remains.
 - **⬜ TODO** — not yet implemented.
-- **🟦 DEFERRED** — explicitly deferred to a post-1.0 release.
+- **🟦 DEFERRED** — explicitly deferred to a post-1.0 release, or
+  deferred by an explicit dated user decision.
 - **❌ DROPPED** — superseded or rejected; the body explains why.
+- **❌ MOOT** — the item's premise was dissolved by later work, so
+  there is nothing left to do; the body explains what dissolved it.
 - **RESOLVED** — a design-decision item rather than an
   implementation task; the body records the decision reached.
 - **(FREEZE-BLOCKING)** — appended where the gap blocks the 1.0
@@ -65,24 +69,40 @@ consistency check) will be the freeze-time gate that mechanically
 catches dashboard drift; until it lands, the counts are maintained by
 hand.
 
+Last reconciled 2026-08-04 against `main` 7651250.
+
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 67 | Implemented and verified against source / tests. |
+| ✅ DONE | 76 | Implemented and verified against source / tests. |
+| ⬜ TODO | 37 | Not yet implemented. |
+| 🟦 DEFERRED | 5 | Post-1.0, or deferred by user decision (E1; D1, D1.5, D9, D18). |
+| ❌ MOOT | 5 | Premise dissolved by later work (C7, C9, D16, F3, H7). |
 | 🟡 PARTIAL | 4 | Some parts implemented; gaps named in the item body. |
-| ⬜ TODO | 43 | Not yet implemented. |
-| 🟦 DEFERRED | 1 | Explicitly deferred to a post-1.0 release (E1). |
 | ❌ DROPPED | 2 | Superseded or rejected (D15, B11). |
-| **RESOLVED** | 1 | Design decision made (A3.5). |
+| **RESOLVED** | 2 | Design decision made (A3.5, C4). |
 
-**Freeze-blocking gaps** (must close before 1.0 tag): C1 and C1.1 — the
-items carrying the literal `(FREEZE-BLOCKING)` heading tag, the remaining
-⬜ TODO surface that changes observable behaviour. The re-export-hub
-snapshot gate (A26), the type-shape gate (A25/A25b), and their CI wiring
-(F6) have landed — `lint-public-api` (H16) and `lint-type-shapes` (H17)
-are wired into `check` and `ci`. The outstanding lint backstops (H2–H9
-plus H14) can ship in the same window or shortly after; H1, H10–H13, H15,
-H16, and H17 are already in place. The freeze checklist (D18) tracks
-per-item gate status.
+**Freeze-blocking gaps**: no item carries the (FREEZE-BLOCKING) tag, and
+C1 (sample CLI consumer) with its scaffold C1.1 (`examples/jmap-cli/`)
+are both ✅ DONE. Two items nonetheless have to close before the 1.0 tag,
+because neither can ride a 1.x additive window: C12 (privatise the raw
+`BlueprintLeafPart` / `BlueprintBodyPart` constructors — a decided
+non-additive removal, shipping as its own code PR), and the B6/P18
+ship-or-affirm question on the public `bool` parameter family (affirming
+it as a documented exception is free; retyping it is a breaking
+parameter change). The re-export-hub snapshot
+gate (A26), the type-shape gate (A25/A25b), and their CI wiring (F6) have
+landed — `lint-public-api` (H16) and `lint-type-shapes` (H17) are wired
+into the local `check` and `ci` recipes, alongside `lint-error-messages`
+(H15). Wiring those snapshot lints into hosted CI is F2's remaining scope.
+The outstanding lint backstops (H2–H6, H8, H9, H14) can ship in the same
+window or shortly after; H1, H1b, H10–H13, and H15–H17 are already in
+place.
+
+**Deferred by user decision (2026-08-04)**: D18 (the pre-1.0 freeze
+checklist tracker), D1 and D1.5 (the SemVer / deprecation policy), and D9
+(the long-form guide). No freeze-checklist file exists; until D18 lands,
+this dashboard plus the per-item markers below are the single view of
+gate status.
 
 ## Documented exceptions to the principles
 
@@ -154,13 +174,18 @@ paths) cannot be retracted in 1.x without a major bump.
 ### A1. Headline public layer; alternatives stay internal *(P5, P7)* — ✅ DONE
 
 L3 builder + dispatch is the headline API. The closed public-path
-set is exactly two paths: root (`import jmap_client`) and
-`jmap_client/convenience` (P6 quarantine; opt-in, NOT re-exported
-by the root). All other modules — types, serialisation, protocol,
-transport, client, mail entities, `PushChannel` /
-`WebSocketChannel` reservation types — live under
-`jmap_client/internal/` and reach consumers exclusively through
-the root re-export. A10 locks this layout; H13 (A10b) enforces it.
+set is exactly one path: the root (`import jmap_client`). S4
+dissolved the P6 convenience quarantine — `convenience.nim` is
+deleted, its pipeline combinators now live in
+`src/jmap_client/internal/mail/combinators.nim` and the one-shots in
+`src/jmap_client/internal/one_shot.nim`, both first-class on the
+always-on hub rather than behind an opt-in import. All modules —
+types, serialisation, protocol, transport, client, mail entities,
+combinators, one-shots, `PushChannel` / `WebSocketChannel`
+reservation types — live under `jmap_client/internal/` and reach
+consumers exclusively through the root re-export. A10 locks this
+layout (`tests/wire_contract/module-paths.txt` holds the single row
+`jmap_client`); H13 (A10b) enforces it.
 
 The per-hub per-symbol audits are tracked separately: A1b
 (protocol hub), A1c (serialisation hub) and A1d (mail hub) are
@@ -227,8 +252,8 @@ Nim's symbol-resolution outcome at qualified call sites such as
   Hub-private (`*` retained for cross-internal callers —
   `mail_builders.nim`, `identity_builders.nim`,
   `submission_builders.nim`, `mail_methods.nim`,
-  `convenience.nim`, `client.nim`, and tests under H10's
-  allowlist — filtered via `except`):
+  `combinators.nim`, `one_shot.nim`, `client.nim`, and tests under
+  H10's allowlist — filtered via `except`):
   `addInvocation` (the typed-invocation chokepoint; surfaces would
   re-introduce the P19 stringly-typed escape hatch),
   `initRequestBuilder` (factories live behind
@@ -442,7 +467,8 @@ symbol an application developer has no call site for stay off the
    builder with no base equivalent — `addSearchSnippetGetByRef`, whose
    base builder takes a literal cons-cell and has no `Referencable`
    path — takes `Referencable[seq[Id]]`. Common chains are expressed
-   through the per-entity wrappers in `convenience.nim` and the
+   through the per-entity wrappers in `internal/mail/combinators.nim`
+   (and the one-shots in `internal/one_shot.nim` above them) and the
    per-entity compound builders; no generic `mixin`-based reference
    helper is public.
 
@@ -589,7 +615,8 @@ JsonNode)]` parameter. Locked structure:
   single-type-parameter templates, and the two-parameter
   `addChanges[T, RespT]` are hub-private. They retain `*` in
   `src/jmap_client/internal/protocol/builder.nim` so in-tree
-  per-entity wrappers and `convenience.nim` reach them via direct
+  per-entity wrappers, `internal/mail/combinators.nim` and
+  `internal/one_shot.nim` reach them via direct
   internal import, but are filtered from `protocol.nim`'s
   `export builder except …` clause — `import jmap_client` does not
   see them.
@@ -668,8 +695,8 @@ JsonNode)]` parameter. Locked structure:
 
 **Mechanical gate.** H11 typed-builder JsonNode lint
 (`tests/lint/h11_typed_builder_no_jsonnode.nim`) walks
-`src/jmap_client/internal/{protocol,mail}/`, `src/jmap_client.nim`,
-and `src/jmap_client/convenience.nim`; CI fails on any exported
+`src/jmap_client/internal/{protocol,mail}/` and `src/jmap_client.nim`;
+CI fails on any exported
 `add<Entity><Method>*` declaration whose parameter list contains
 `JsonNode`. Allowlist: `addEcho`, `addCapabilityInvocation`,
 `addInvocation` (the latter is hub-private; the lint exempts it so
@@ -966,9 +993,10 @@ shapes. Zero violations.
 Module paths are part of the contract: every importable path under
 `jmap_client/...` is a public commitment the moment 1.0 ships. The
 closed set is the SQLite/libcurl minimum-surface model: one headline
-entry plus one explicit P6 quarantine.
+entry, nothing beside it.
 
-**Closed set of public module paths.** Two paths total. The
+**Closed set of public module paths.** One path total, since S4
+dissolved the P6 quarantine and deleted `jmap_client/convenience`. The
 filesystem-derived snapshot at
 `tests/wire_contract/module-paths.txt` is the contract; the H13
 lint (A10b) verifies snapshot vs filesystem bidirectionally on
@@ -976,7 +1004,6 @@ every CI run.
 
 ```
 jmap_client                  — the headline API (everything)
-jmap_client/convenience      — opt-in convenience (P6 quarantine)
 ```
 
 **Reservation types named, not module paths.** RFC 8620 §7 Push
@@ -1550,39 +1577,43 @@ change regenerates via `just freeze-type-shapes` and carries the
 mechanical generator is A25b.
 
 **Pointers.**
-- `scripts/api_surface.nim` — `typeShapeLines()` (shared by generator
-  and lint so the two cannot drift).
-- `scripts/freeze_type_shapes.nim` — generator (`just freeze-type-shapes`).
+- `scripts/api_oracle.nim` (`API_ORACLE_MODE=type-shapes`) — the
+  compiler-as-library oracle, invoked identically by generator and lint
+  so the two cannot drift.
+- `scripts/api_probe.nim` — the in-repo compile target the oracle reads,
+  so the surface is computed under the project's own `config.nims` flags.
+- `justfile` — `_api-oracle` (builds it), `freeze-type-shapes` (generator).
 - `tests/lint/h17_type_shape_snapshot.nim` — H17 lint.
 - `tests/wire_contract/type-shapes.txt` — frozen snapshot.
 
 ### A26. Re-export hub snapshot *(P1)* — ✅ DONE
 
-The set of symbols reachable through `import jmap_client` and
-`import jmap_client/convenience` (A10) is a public commitment once 1.0
-ships: adding or removing a re-exported symbol changes the import graph
+The set of symbols reachable through `import jmap_client` — the single
+public entry point (A1, A10) — is a public commitment once 1.0 ships:
+adding or removing a re-exported symbol changes the import graph
 consumers observe.
 
 **Implementation.** `tests/wire_contract/public-api.txt` snapshots that
 surface — one `<kind> <name> <signature>` line per `*`-exported
-declaration, grouped by owning module. The surface is resolved from the
-`export` / `export … except …` graph of the two public entry points
-(`src/jmap_client.nim` and `src/jmap_client/convenience.nim`), scraping
-each reachable module's `*`-exported declarations minus the symbols its
-parents filter out with `except`. The resolver is text-based: `nim
-jsondoc` of the hub yields zero entries (it does not follow re-exports),
-`jsondoc --project` over-captures and is fragile, and the compiler AST is
-unavailable — so resolving the export graph from source is the only
-faithful enumeration (and it is toolchain-stable, with no inferred-pragma
-churn). The H16 lint recomputes the surface and fails CI bidirectionally
-on any add or remove; a deliberate change regenerates via `just
-freeze-api` and carries the `[API-CHANGE]` PR label. F6 is the CI-wiring
-side of the same gate.
+declaration, grouped by owning module. The surface is enumerated by a
+compiler-as-library oracle (`scripts/api_oracle.nim`) that reads the
+post-sem interface table of `scripts/api_probe.nim`, an in-repo module
+whose sole content is `import jmap_client` / `export jmap_client`. That
+table is the compiler's own answer to "what does `import jmap_client`
+expose", so own symbols, re-exports and `except` filters need no
+re-derivation; compiling in-repo also means the project's `config.nims`
+flags apply, and no text scraper has to model Nim's export rules. The
+earlier `nim jsondoc` routes were rejected first: over the hub it yields
+zero entries (it does not follow re-exports), and `--project`
+over-captures. The H16 lint recomputes the surface and fails CI
+bidirectionally on any add or remove; a deliberate change regenerates via
+`just freeze-api` and carries the `[API-CHANGE]` PR label. F6 is the
+CI-wiring side of the same gate.
 
 **Pointers.**
-- `scripts/api_surface.nim` — export-graph resolver (`reachableSurface`,
-  `snapshotLines`).
-- `scripts/freeze_public_api.nim` — generator (`just freeze-api`).
+- `scripts/api_oracle.nim` (`API_ORACLE_MODE=api`) — the oracle.
+- `scripts/api_probe.nim` — the compile target it enumerates.
+- `justfile` — `_api-oracle` (builds it), `freeze-api` (generator).
 - `tests/lint/h16_public_api_snapshot.nim` — H16 lint.
 - `tests/wire_contract/public-api.txt` — frozen snapshot.
 
@@ -2020,22 +2051,22 @@ A25 specifies the snapshot file (`tests/wire_contract/type-shapes.txt`)
 but a hand-maintained file rots fast, so the producer is mechanical and
 shared with the lint.
 
-**Implementation.** `just freeze-type-shapes` runs
-`scripts/freeze_type_shapes.nim`, which emits the snapshot from
-`api_surface.typeShapeLines()` — the same function the H17 lint
-recomputes, so the two cannot drift. Output format: one
+**Implementation.** `just freeze-type-shapes` runs the API oracle in
+`API_ORACLE_MODE=type-shapes`; `just lint-type-shapes` (H17) runs the
+same binary in the same mode and diffs its output against the committed
+file, so generator and lint cannot drift. Output format: one
 `## <Type> [<module>]` section per public type, alphabetical by name,
 each public field on its own line with its typed annotation and case
-arms preserved at their relative indentation. The producer reuses the
-A26 export-graph resolver to enumerate the public types (rather than
-`nim doc --project`, which over-captures private fields and is fragile);
-it then scrapes each type's body from source, keeping only `*`-public
-members. CI (H17) fails if the regenerated file disagrees with the
-committed copy and the PR is not labelled `[TYPE-SHAPE-CHANGE]`.
+arms preserved at their relative indentation. Shapes are rendered from
+the compiler's post-sem type AST rather than scraped from source, so
+private fields are excluded by construction and no text parser has to
+model Nim's visibility rules. CI (H17) fails if the recomputed shapes
+disagree with the committed copy and the PR is not labelled
+`[TYPE-SHAPE-CHANGE]`.
 
 **Pointers.**
-- `scripts/api_surface.nim` — `typeShapeLines()` / `typeShapeBody()`.
-- `scripts/freeze_type_shapes.nim` — generator.
+- `scripts/api_oracle.nim` (`API_ORACLE_MODE=type-shapes`) — the oracle.
+- `justfile` — `_api-oracle`, `freeze-type-shapes`, `lint-type-shapes`.
 
 ### A28b. Wire-byte determinism for `BuiltRequest.toJson` *(P1)* — ✅ DONE
 
@@ -2344,11 +2375,59 @@ locally where their builders live. The template docstring records this.
 `tcompile_a1b_protocol_hub_surface.nim` asserts `declared(registerExtractableEntity)`;
 the `entity.nim` entity-module checklist docstring gains the new step.
 
-### B6. Other illegal-state findings (lower severity) — ⬜ TODO
+### B6. Other illegal-state findings (lower severity) *(P16, P18)* — ⬜ TODO
 
 The Account read-only/write-implying-capability illegal state is
-addressed under B12 (smart-constructor silent-drop). Reserved for
-future low-severity findings; none currently outstanding.
+addressed under B12 (smart-constructor silent-drop).
+
+**Open, surfaced by the 2026-08-04 audit: the public `bool` parameter
+family (P18).** A family of public builder / combinator / one-shot
+parameters is typed `bool` because it mirrors an RFC 8621 wire boolean
+one-for-one. Under a strict P18 reading each is flag soup and should be
+a two- or three-state enum; under Postel's law and "code reads like the
+spec" each is the RFC field itself, and an enum would rename a wire
+concept the consumer already knows by name. Every member is a
+*parameter*, not a stored field — and every public one carries a
+default; only the hub-private `assembleQueryChangesArgs` takes its
+`calculateTotal` positionally. So none of them makes an illegal state
+representable, which is why this sits at B6's severity, not
+B1/B2/B7/B8's.
+
+The family, re-derived at audit time against
+`tests/wire_contract/public-api.txt` (twelve public procs, plus two
+hub-private helpers beneath them):
+
+- `sortAsTree` / `filterAsTree` (RFC 8621 §2.3 `Mailbox/query`) —
+  `addMailboxQuery` (`internal/mail/mail_builders.nim`),
+  `addMailboxQueryThenGet` (`internal/mail/combinators.nim`),
+  `queryMailboxes` (`internal/one_shot.nim`).
+- `collapseThreads` (RFC 8621 §4.4 `Email/query`, semantics in §4.4.3)
+  — `addEmailQuery`, `addEmailQueryChanges` and
+  `addEmailQueryWithThreads` (default `true` on the last) in
+  `mail_builders.nim`, `addEmailQueryWithSnippets`
+  (`internal/mail/mail_methods.nim`), `addEmailQueryThenGet`
+  (`combinators.nim`), `queryEmails` (`one_shot.nim`).
+- `calculateTotal` (RFC 8620 §5.6 `/queryChanges`) — the per-entity
+  `addMailboxQueryChanges` / `addEmailQueryChanges` (`mail_builders.nim`)
+  and `addEmailSubmissionQueryChanges`
+  (`internal/mail/submission_builders.nim`),
+  and, hub-private beneath them, the generic `addQueryChanges`
+  (`internal/protocol/builder.nim`) and `assembleQueryChangesArgs`
+  (`internal/protocol/methods.nim`).
+- `onDestroyRemoveEmails` (RFC 8621 §2.5 `Mailbox/set`) —
+  `addMailboxSet` (`mail_builders.nim`).
+
+**Needs decision (ship-or-affirm), NOT decided here.** Either affirm the
+family as a documented P18 exception in the "Documented exceptions"
+section above — on the same footing as `MailboxRights`' nine ACL flags,
+whose carve-out already rests on "the RFC defines it as an independent
+boolean" — or retype the members as enums, which is a breaking parameter
+change and therefore must land before the 1.0 freeze. Affirming is the
+cheaper answer and is the one the existing `MailboxRights` precedent
+points at; deciding is out of scope for the 2026-08-04 documentation
+reconciliation that surfaced it.
+
+Otherwise reserved for future low-severity findings.
 
 ### B7. `mail_filters.nim` Opt[bool] → three-state enums *(P18)* — ✅ DONE
 
@@ -2783,8 +2862,12 @@ A generic record bundling two already-typed handles is honest — it
 is not the libdbus failure, which is a generic *function* needing
 call-site scaffolding.
 
-**Verification gate.** `grep -n "internal" src/jmap_client/convenience.nim`
-returns zero matches.
+**Verification gate.** The original grep is dissolved with the
+quarantine; what locks the invariant today is `just lint-module-paths`
+(H13) — `tests/wire_contract/module-paths.txt` holds the single row
+`jmap_client`, so no second public path can reappear — plus `just
+lint-internal-boundary` (H10), which fails CI on any
+`import jmap_client/internal/...` from outside the package tree.
 
 ### C11. Read-side `EmailLeaf` view type for `leafTextParts` *(P16)* — ⬜ TODO (future additive)
 
@@ -2798,7 +2881,7 @@ the consumer to match the case. This needs a NEW type, which is
 outside S3's "no new types" scope. Future *additive* pass; not
 freeze-blocking.
 
-### C12. Raw `Blueprint*` part constructors made private *(P15)* — ⬜ TODO (future additive)
+### C12. Raw `Blueprint*` part constructors made private *(P15)* — ⬜ TODO
 
 Residual of AUDIT `email send:raw-case-literals` /
 `email send:parsePartIdFromServer`. S3/S4
@@ -2806,8 +2889,13 @@ Residual of AUDIT `email send:raw-case-literals` /
 parts, but `BlueprintLeafPart` and `BlueprintBodyPart`
 (`src/jmap_client/internal/mail/body.nim`) remain public raw
 case-object constructors — counter to "smart constructors only; raw
-constructors private". A P15 tightening makes them private. That is a
-non-additive removal, so it is deferred rather than shipped.
+constructors private". A P15 tightening makes them private.
+
+**DECIDED 2026-08-04 (user).** The privatisation ships as its own small
+code PR, before the Layer-5 C ABI work starts. It is a non-additive
+removal, so it must land pre-freeze rather than wait for a 1.x additive
+window — which is precisely why it cannot ride along inside a larger
+change. The item stays open until that PR merges.
 
 ### C13. D5 — broad `toJson` null-for-none serde-fidelity audit *(RFC 8620 §5.3)* — ⬜ TODO (future)
 
@@ -2902,7 +2990,11 @@ a newtype leak on the one place the id matters. A typed `Id` constant
 
 ## Section D — Process / policy artefacts
 
-### D1. SemVer + deprecation + wire-byte contract policy *(P1, P2, P3, P10, P11, P25)* — ⬜ TODO
+### D1. SemVer + deprecation + wire-byte contract policy *(P1, P2, P3, P10, P11, P25)* — 🟦 DEFERRED (2026-08-04, user decision)
+
+Deferred by user decision 2026-08-04, together with its companion
+D1.5; the rules below stand as the working policy until the file is
+written.
 
 Write `docs/policy/01-semver-and-deprecation.md`. Adopt strict SemVer:
 
@@ -2942,13 +3034,25 @@ Write `docs/policy/01-semver-and-deprecation.md`. Adopt strict SemVer:
   Vendored artifacts may carry their upstream license. The library's
   effective license never changes after 1.0.
 
-### D2. `public-api.txt` snapshot diffed in CI *(P1, P2)* — ⬜ TODO
+### D2. `public-api.txt` snapshot diffed in CI *(P1, P2)* — ✅ DONE
 
-P2 is "stability bought with tests"; no current test asserts the
-exported symbol list. Add `just freeze-api` that regenerates a
-`public-api.txt` from `nim doc --project` output (or a custom scraper
-over `*` patterns). CI diffs the file; any new `*` symbol requires
-explicit acknowledgement in the PR description.
+Reconciled 2026-08-04: the deliverable exists and gates. `just
+freeze-api` regenerates `tests/wire_contract/public-api.txt` from the
+compiler-as-library oracle (`scripts/api_oracle.nim` over
+`scripts/api_probe.nim`), and `just lint-public-api` (H16,
+`tests/lint/h16_public_api_snapshot.nim`) recomputes the same surface
+through the same oracle and compares bidirectionally — a new `*` symbol
+and a removed one both fail, with the `[API-CHANGE]` PR label as the
+acknowledgement path. The recipe is wired into `just check` and `just
+ci`. A26 names the snapshot and F6 is the CI-wiring side of the same
+gate; A25/A25b/H17 cover the companion type-shape snapshot.
+
+The residual — running the gate on hosted CI rather than only in the
+local `just ci` — is the whole of F2's remaining scope, so it is tracked
+there and not duplicated here.
+
+P2 is "stability bought with tests"; before this landed, no test
+asserted the exported symbol list.
 
 ### D3. Wire-byte fixture contract elevation *(P2)* — 🟡 PARTIAL
 
@@ -3026,6 +3130,29 @@ Backed by lint H5.
 
 ### D8. Threading invariants — class-wide rule *(P24)* — 🟡 PARTIAL
 
+Reconciled 2026-08-04: the lifecycle half landed, the class-wide
+sweep did not. `Session`, `RequestBuilder`, `BuiltRequest` and
+`DispatchedResponse` gained the threading footer, joining the L1 value
+types, `Credential`, `SessionEndpoint`, `Transport` and `JmapClient`.
+That discharges Decision 5 of `docs/design/14-Nim-API-Principles.md`
+("state the threading invariant for `Session`, `Client`, request
+builders; document in the docstring") — the types a consumer's
+lifetime questions actually land on now answer them in the docstring.
+
+**Residual.** Roughly fifteen types carry the footer against the 272
+`type` rows in `tests/wire_contract/public-api.txt`. Still unstated:
+`ResponseHandle`, `NameBoundHandle` and `CompoundHandles`
+(`internal/protocol/dispatch.nim`); the L1–L3 value types as a class
+(`validation`, `primitives`, `identifiers`, `collation`, `envelope`,
+`framework`, `errors`, `methods_enum`; `protocol/{entity, methods,
+jmap_error, call_meta, preflight}`); and every `internal/mail/` entity
+(`Email`, `Mailbox`, `Thread`, the blueprints and filters).
+`PushChannel` / `WebSocketChannel` are deferred to whichever
+implementation lands them. The Coverage-trace P24 row stays 🟡 until
+that sweep runs.
+
+The original scope, retained for the record:
+
 `src/jmap_client/internal/client.nim` documents "not thread-safe"
 for `JmapClient`. Six L1 types carry the explicit threading footer
 already (`Account`, `CoreCapabilities`, `MailAccountCapabilities`,
@@ -3057,7 +3184,10 @@ Apply to every remaining public type via a one-line docstring
 footer (or the type's full docstring if longer). One mass edit, not
 25 individual decisions.
 
-### D9. Long-form guide *(P28)* — ⬜ TODO
+### D9. Long-form guide *(P28)* — 🟦 DEFERRED (2026-08-04, user decision)
+
+Deferred by user decision 2026-08-04; the outline below stands as the
+brief for whenever it is picked up.
 
 Draft `docs/guide/everything-jmap.md` — a narrative companion to the
 generated reference docs. Outline (14 chapters; libcurl's *Everything
@@ -3089,6 +3219,23 @@ Need not be complete pre-1.0; needs to exist and reflect the locked
 API.
 
 ### D10. L5 FFI design note *(P9, P14, future-FFI)* — ⬜ TODO
+
+**Known contradiction, to be resolved when this note is authored.**
+`.claude/rules/nim-ffi-boundary.md` mandates the opposite of what this
+item requires: its rule 7 hands exported procs a `setLastError` /
+`clearLastError` pair, and its rule 8 makes thread-local error state via
+`{.threadvar.}` a *mandatory* rule. That is the pattern P14 ("no
+thread-local error queues; no last-error globals",
+`docs/design/14-Nim-API-Principles.md` §Errors) forbids by name, that
+the same document's anti-pattern list forbids again ("Last-error
+thread-locals at the FFI boundary … errors travel through return values,
+not through `int jmap_last_error()`"), and that its Decision 9 tells this
+note to write down. The rules file and the skill content it drives are
+therefore steering the future L5 implementation into the OpenSSL
+anti-pattern. User decision 2026-08-04: resolve the contradiction inside
+the Layer-5 C ABI design phase — the phase that authors this very note —
+rather than patching the rules file ahead of it, so that one decision
+settles the rules file, the skill content, and the design note together.
 
 Write `docs/design/16-L5-FFI-Principles.md` mapping each principle to
 its C-ABI manifestation:
@@ -3158,21 +3305,34 @@ Add a CI lint that rejects new `import std/smtp`, `import std/imap`,
 library import) under `src/`. Backs D11 with mechanical enforcement.
 Same hook as H4.
 
-### D13. RFC extension policy *(P20)* — ⬜ TODO
+### D13. RFC extension policy *(P20)* — ✅ DONE
 
-Write `docs/policy/03-rfc-extension-policy.md`. For each
-unimplemented RFC, write the planned shape so the names are reserved
-(but not the implementations):
+Reconciled 2026-08-04: `docs/policy/03-rfc-extension-policy.md` is
+committed (landed in 78a1d5a) and carries every reservation enumerated
+below as a table with the rule stated explicitly — "post-1.0,
+implementing any reserved feature means landing the named type at the
+named path with the named capability variant; deviating is a 2.0 break".
+It also reserves the async surface (`sendAsync`, `DispatchedRequest`) by
+policy, which is A7e's deliverable. D13.5 is the file-commit twin of
+this item; A7e cites the same file as landed. Two section numbers in
+the list below were wrong and are corrected here against the RFC text:
+Push is RFC 8620 §7 (the policy file already had this right), and blob
+upload/download is §6.1–6.3 — §6.5 does not exist, §6 stops at 6.3
+`Blob/copy`.
+
+The reservations, as written up in the policy file: for each
+unimplemented RFC, the planned shape, so the names are reserved but
+not the implementations.
 
 - **RFC 8887 — JMAP over WebSocket.** `CapabilityKind`: `ckWebsocket`
   (already exists). Type: `WebSocketChannel` (A24). Path:
   `jmap_client/websocket`.
-- **RFC 8620 §6 — Push.** `CapabilityKind`: future `ckPush`. Type:
+- **RFC 8620 §7 — Push.** `CapabilityKind`: future `ckPush`. Type:
   `PushChannel` (A23). Path: `jmap_client/push`.
-- **RFC 8620 §6.5 — Blob upload/download.** Will extend `JmapClient`
-  with `uploadBlob`/`downloadBlob` methods (additive on the existing
-  handle, *not* a separate context type). Document the rationale
-  before 1.0.
+- **RFC 8620 §6.1–6.3 — Blob upload/download.** Will extend
+  `JmapClient` with `uploadBlob`/`downloadBlob` methods (additive on
+  the existing handle, *not* a separate context type). Document the
+  rationale before 1.0.
 - **RFC 9007 — JMAP MDN.** New entity module
   `src/jmap_client/mdn/` mirroring `mail/`'s shape. `CapabilityKind`:
   `ckMdn` (already exists).
@@ -3213,7 +3373,15 @@ sites: type docstrings on `RequestBuilder` / `BuiltRequest` /
 → get`). A standalone design doc would duplicate those without adding
 constraint information.
 
-### D16. Convenience module design note *(P27)* — ⬜ TODO
+### D16. Convenience module design note *(P27)* — ❌ MOOT (S4)
+
+Campaign reconciliation (2026-08-04): moot for the same reason as C7
+and C9 — S4 dissolved the P6 quarantine and `convenience.nim` no longer
+exists. A design note whose subject is "what this quarantined module is
+and is not for" has no subject; the combinators are first-class on the
+always-on hub in `src/jmap_client/internal/mail/combinators.nim`, and
+the hub's own module docstring in `src/jmap_client.nim` states their
+status.
 
 Verify `convenience.nim` has a design note (in `docs/design/` or as a
 comprehensive module docstring at minimum). If not, write one, citing
@@ -3221,7 +3389,9 @@ P6 as the constraint. The doc covers what the module is for (pipeline
 combinators), what it explicitly is NOT for (semantic convenience —
 see C7 charter), and how new helpers are vetted.
 
-### D1.5. Commit `docs/policy/01-semver-and-deprecation.md` *(P1, P2, P25, P26)* — ⬜ TODO
+### D1.5. Commit `docs/policy/01-semver-and-deprecation.md` *(P1, P2, P25, P26)* — 🟦 DEFERRED (2026-08-04, user decision)
+
+Deferred by user decision 2026-08-04, with D1 whose rules it commits.
 
 D1 enumerates the SemVer rules but they live as bullet points in
 this TODO, not as a tracked policy file. Until the file exists at
@@ -3259,8 +3429,7 @@ bullets, expanded into prose):
 8. **Closed set of public module paths** — mirrors the
    filesystem-derived snapshot at
    `tests/wire_contract/module-paths.txt` (A10a; H13 lint
-   verifies). Currently two paths: `jmap_client` (root) and
-   `jmap_client/convenience` (P6 quarantine). Adding a new
+   verifies). Currently one path: `jmap_client` (root). Adding a new
    public path is a minor bump per P20; removing or renaming
    an existing one is a 2.0 break per P1. Implementation lives
    under `src/jmap_client/internal/`; H10 forbids external
@@ -3286,19 +3455,24 @@ exist before 1.0 tag. The file contains:
   feature must cite this doc and provide written justification.
 - **Lint reference**: H4 forbids new non-JMAP imports.
 
-### D13.5. Commit `docs/policy/03-rfc-extension-policy.md` *(P20)* — ⬜ TODO
+### D13.5. Commit `docs/policy/03-rfc-extension-policy.md` *(P20)* — ✅ DONE
 
-D13 enumerates the RFC reservations; this item commits them as a
+Reconciled 2026-08-04: the file exists at the canonical path, committed
+in 78a1d5a. The existence gate is met.
+
+D13 enumerates the RFC reservations; this item committed them as a
 tracked file.
 
-**Action.** Write the policy file. Existence-gate: the file must
-exist before 1.0 tag. The file contains the per-RFC table from
-D13 (RFC 8887 WebSocket, RFC 8620 §6 Push, §6.5 Blob, RFC 9007
-MDN, RFC 8624 Contacts, future Calendars). Each row names:
-capability variant, reserved type name, reserved module path,
-implementation status (deferred). The lock is: post-1.0,
+**Delivered.** `docs/policy/03-rfc-extension-policy.md` carries the
+per-RFC table from D13 (RFC 8887 WebSocket, RFC 8620 §7 Push, §6 Blob,
+RFC 9007 MDN, RFC 8624 Contacts, future Calendars). Each row
+names: capability variant, reserved type name, reserved module path,
+implementation status (deferred). The lock is stated: post-1.0,
 implementing any of these requires landing the table-row's named
-type at the table-row's named path; deviation is a 2.0 break.
+type at the table-row's named path; deviation is a 2.0 break. The
+file additionally carries A7e's async-surface reservation
+(`sendAsync`, `DispatchedRequest` — reserved by policy, not by type
+stub) and the P23 rationale for keeping Push and WebSocket distinct.
 
 ### D17. Codify reviewer workflow: CONTRIBUTING.md + PR template *(P1, all)* — ⬜ TODO
 
@@ -3336,7 +3510,11 @@ contains only `workflows/`.
    - Confirm Coverage-trace section updated if a TODO item ticked
      (F7 verifies).
 
-### D18. Pre-1.0 freeze checklist tracker *(P1)* — ⬜ TODO
+### D18. Pre-1.0 freeze checklist tracker *(P1)* — 🟦 DEFERRED (2026-08-04, user decision)
+
+Deferred by user decision 2026-08-04; no checklist file exists, and
+this file's status dashboard plus the per-item markers carry gate
+status until one does.
 
 The 1.0 release tag must fail if any freeze gate is unmet. Today
 the gate list is dispersed across this TODO; nobody can answer
@@ -3389,6 +3567,42 @@ get-property surface, which is in place; it is recorded here as the
 freeze-gate that locks that surface against regression, to be
 implemented as part of the H-lint sweep.
 
+### D20. Layer design docs still describe the pre-S1/S4 architecture *(P27)* — ⬜ TODO
+
+`docs/design/00-architecture.md` opens by declaring that it describes
+the library as implemented and that the source tree is the source of
+truth it mirrors. Four layer docs no longer hold to that, because the
+S1 and S4 refactors landed in `src/` without a matching pass over
+`docs/design/`:
+
+- **The retired error rail (S1).** `01-layer-1-design.md` §8.5/§8.6 and
+  `03-layer-3-design.md` still teach `ClientError` and `GetError` as
+  live types with live constructors. The one consumer rail is the
+  eight-arm `JmapError` in
+  `src/jmap_client/internal/protocol/jmap_error.nim`
+  (`JmapResult[T] = Result[T, JmapError]`); `jeTransport` / `jeRequest`
+  absorbed `ClientError`, `jeMisuse` / `jeProtocol` absorbed `GetError`.
+  `15-error-surface.md` was corrected in place on 2026-08-04 (§1–§5
+  now describe the `JmapError` rail) and needs no further uplift.
+- **The dissolved P6 quarantine (S4).** `03-layer-3-design.md` §13,
+  `04-layer-4-design.md` (decision row D4.14), `00-architecture.md` and
+  `05-mail-architecture.md` still present `convenience.nim` as a live
+  opt-in module reached by `import jmap_client/convenience`. It was
+  deleted; the combinators live in
+  `src/jmap_client/internal/mail/combinators.nim`, the one-shots in
+  `src/jmap_client/internal/one_shot.nim`, both on the always-on hub,
+  and `tests/wire_contract/module-paths.txt` holds one row.
+
+The 2026-08-04 reconciliation put a dated currency banner at the head
+of each affected doc rather than half-correct them in a documentation
+PR, since an uplift wants the same file-by-file verification against
+`src/` that A1–A30 got. This item owns that uplift and the removal of
+the banners.
+
+**Action.** Re-derive each layer doc's affected sections from `src/` at
+HEAD, then delete the banner. Existence-gate: no
+`docs/design/*.md` carries a currency banner at the 1.0 tag.
+
 ## Section E — Defer to 1.x
 
 Additive items that compose forward and do not block 1.0.
@@ -3430,11 +3644,50 @@ The list at audit time spans (non-exhaustive):
   `MailboxFilterCondition`, `EmailFilterCondition`,
   `SubmissionFilterCondition`, all body / header types
 
-### F2. Public-symbol audit walk *(P5)* — ⬜ TODO
+### F2. Wire the freeze gates into hosted CI *(P5, P1, P2)* — ⬜ TODO
 
-High-export files to scrutinise (count of `*`-exported
-`type`/`proc`/`func`/`template`/`iterator` declarations; rough
-order; re-derive at audit time with `grep -cE '^\s*(proc|func|template|type|iterator)\s+\w+\*'`):
+**Rescoped 2026-08-04 (user decision).** The audit walk this item was
+originally written for is finished: A1b, A1c and A1d walked the three
+hubs symbol by symbol and demoted everything not load-bearing, and H16
+(`tests/wire_contract/public-api.txt`, D2) now locks the resulting
+surface mechanically, so "walk the exports by hand" no longer describes
+work that remains. What remains is that the gates run only on a
+developer's machine.
+
+`just ci` runs the full gate set locally: `reuse`, `fmt-check`, `lint`,
+`lint-isolated`, `lint-style`, `lint-internal-boundary` (H10),
+`lint-typed-builder-jsonnode` (H11), `lint-sealed-distinct` (H1),
+`lint-fallible-ctor-public-arm` (H1b), `lint-h12-no-test-backdoors`
+(H12), `lint-module-paths` (H13), `lint-error-messages` (H15),
+`lint-public-api` (H16), `lint-type-shapes` (H17), `analyse`, `test`.
+`.github/workflows/ci.yml` runs a strict subset: a REUSE job, then
+`fmt-check`, `lint`, `lint-isolated`, `lint-style`, `analyse`, `test`.
+
+**Action.** Bring hosted CI up to the local gate set.
+
+1. Add the nine unwired lint recipes as workflow steps — H1, H1b, H10,
+   H11, H12, H13, H15, H16, H17. The three snapshot lints (H15, H16,
+   H17) are the load-bearing ones: they are what makes an unreviewed
+   change to the error-message, public-API, or type-shape contract fail
+   for someone other than its author.
+2. Run the server-independent suites that `just test` skips via
+   `tests/testament_skip.txt` — by rule, so the list cannot rot: every
+   entry in that file bar `tests/integration/live/*`, which is the
+   property files, the serde files, the stress files, the non-joinable
+   compliance files, `tests/protocol/tmail_builders.nim` and
+   `tests/unit/tclient.nim`. They are skipped locally for
+   wall-clock cost, which is the wrong trade-off on hosted runners: they
+   need no live server, and they are the property-test half of the P2
+   wire contract (F1). A `just test-full` step, or a matrix job pinned
+   to the skip-list minus `tests/integration/live/`, covers them.
+
+Live integration tests stay out of scope here — those need `just
+jmap-up` and are F4's problem.
+
+**Retained for the record — the original audit-walk targets** (count of
+`*`-exported `type`/`proc`/`func`/`template`/`iterator` declarations;
+rough order; re-derive with `grep -cE
+'^\s*(proc|func|template|type|iterator)\s+\w+\*'`):
 
 - `src/jmap_client/internal/mail/email_submission.nim` — ~50
 - `src/jmap_client/internal/types/errors.nim` — ~42
@@ -3453,32 +3706,36 @@ order; re-derive at audit time with `grep -cE '^\s*(proc|func|template|type|iter
   `CloseProc`, `Transport`, `newTransport`, `newHttpTransport`,
   `send`)
 
-For each, ask "load-bearing public commitment?". Default to private
-for anything not justified. The walk measures the headline surface
-A1 locked. The numbers above do not include re-exports the public
-hub filters out — they are raw module-level export counts and
-overstate the public surface accordingly. A1c demonstrates the
-effect: the L2 modules export their `fromJson` / `toJson` overloads
-liberally but only the four envelope `toJson` overloads reach the
-public surface through `protocol.nim`.
+The numbers above do not include re-exports the public hub filters out
+— they are raw module-level export counts and overstate the public
+surface accordingly. A1c demonstrates the effect: the L2 modules export
+their `fromJson` / `toJson` overloads liberally but only the four
+envelope `toJson` overloads reach the public surface through
+`protocol.nim`.
 
-### F3. Convenience-leak check — bidirectional *(P6)* — ⬜ TODO
+### F3. Convenience-leak check — bidirectional *(P6)* — ❌ MOOT (S4)
 
-**Forward (existing).** `grep -rn "import.*convenience"` from L3
-modules under `src/jmap_client/internal/protocol/` and
-`src/jmap_client/internal/mail/`. Must return only test/external
-— no L3 module imports `convenience.nim`. (Already documented in
-the `convenience.nim` top docstring.)
+Campaign reconciliation (2026-08-04): moot for the same reason as C7
+and C9 — S4 dissolved the P6 quarantine and `convenience.nim` no longer
+exists. There is no separate layer left to leak in either direction:
+the combinators live in `src/jmap_client/internal/mail/combinators.nim`
+on the always-on hub, so L1–L3 docstrings naming one are describing the
+public surface, not reaching across a quarantine boundary. H10's
+internal-boundary lint covers what is left — nothing outside the tree
+may import the module directly.
 
-**Reverse (new).** `grep -rn
-"convenience\|QueryThenGet\|ChangesToGet\|getBoth"
-src/jmap_client/internal/` — must return only forward references
-inside `convenience.nim` itself. Any docstring in L1–L3
-mentioning a convenience helper is a leak (CI fail). P6 says
-"Documentation for the core does not assume the convenience
-layer."
+The original scope, retained for the record: a two-way grep pair over
+the quarantine boundary. Forward — no L3 module under
+`internal/protocol/` or `internal/mail/` may import
+`convenience.nim`. Reverse — no L1–L3 docstring may name a
+convenience helper, on P6-as-first-written's rule that "documentation
+for the core does not assume the convenience layer".
 
-### F4. Sample CLI smoke test against three servers — CI-wired — ⬜ TODO (blocked by C1)
+### F4. Sample CLI smoke test against three servers — CI-wired *(P29)* — ⬜ TODO
+
+Unblocked: C1 and C1.1 are ✅ DONE — `examples/jmap-cli/` and its
+`AUDIT.md` exist and the audit findings are triaged. The CI wiring is
+the only part outstanding.
 
 Run the C1 CLI end-to-end against Stalwart, Apache James, and
 Cyrus IMAP via the existing `just jmap-up` infrastructure. Each
@@ -3516,23 +3773,24 @@ A26 names the snapshot; F6 is the CI step that makes it a gate.
 
 **Implementation.** Rather than regenerate-then-`git diff` (which
 relies on the committer having regenerated), the gate is a self-checking
-lint: `just lint-public-api` runs `tests/lint/h16_public_api_snapshot.nim`,
-which recomputes the surface in-memory via `api_surface.snapshotLines()`
-and compares it against the committed `tests/wire_contract/public-api.txt`
+lint: `just lint-public-api` runs the API oracle over
+`scripts/api_probe.nim` and hands the live surface to
+`tests/lint/h16_public_api_snapshot.nim`, which compares it against the
+committed `tests/wire_contract/public-api.txt`
 bidirectionally — a removed symbol and an added symbol both fail. On a
 mismatch the lint prints the exact `+`/`-` symbol diff and the fix-it
 (`just freeze-api`; `[API-CHANGE]` PR label), then exits non-zero. Wired
 into both `check` and `ci`. The companion `lint-type-shapes` (H17) gates
 A25 the same way; D3 wire fixtures gate with `[WIRE-CHANGE]`.
 
-Because the generator (`scripts/freeze_public_api.nim`) and the lint share
-`snapshotLines()`, a contributor cannot regenerate a snapshot the lint
+Because `freeze-api` and `lint-public-api` invoke the same oracle binary
+in the same mode, a contributor cannot regenerate a snapshot the lint
 would then reject — the two are the same computation.
 
 **Pointers.**
 - `tests/lint/h16_public_api_snapshot.nim` — H16 lint (the gate).
-- `justfile` — `lint-public-api` / `freeze-api` recipes; both wired into
-  `check` and `ci`.
+- `justfile` — `_api-oracle`, `lint-public-api` / `freeze-api` recipes;
+  the two lints wired into `check` and `ci`.
 
 ### F7. Coverage-trace consistency check *(P1, P2)* — ⬜ TODO
 
@@ -3555,8 +3813,9 @@ The same lint also enforces:
 
 - Every principle P1–P29 appears in at least one item.
 - Every item has at least one principle annotation.
-- Every freeze-gate item appears in `pre-1.0-freeze-checklist.md`
-  (D18).
+- Conditional on D18 (deferred 2026-08-04): once
+  `pre-1.0-freeze-checklist.md` exists, every freeze-gate item appears
+  in it. Until then this check is unwritable and F7 ships without it.
 
 ## Section H — CI assertions and lints
 
@@ -3678,23 +3937,27 @@ the freeze gate; `reuse lint` runs continuously. The freeze gate
 fails if `LICENSES/` contains entries unreferenced by any
 `SPDX-License-Identifier` header in `src/`, `tests/`, or `docs/`.
 
-### H7. Convenience charter lint *(P6, P9)* — backs C7, C9, F3 — ⬜ TODO
+### H7. Convenience charter lint *(P6, P9)* — backs C7, C9, F3 — ❌ MOOT (S4)
 
-`convenience.nim` may export only procs returning core types and
-must not introduce new public types (C9). L1–L3 docstrings must
-not mention convenience helpers (F3 reverse leak check).
+Campaign reconciliation (2026-08-04): moot with the three items it
+backs. S4 dissolved the P6 quarantine and `convenience.nim` no longer
+exists, so both of the lint's checks target a deleted file. The
+combinators are first-class hub surface in
+`src/jmap_client/internal/mail/combinators.nim`. The type-allowlist
+check is superseded by H16's public-API snapshot, which locks their
+signatures — not their docstrings — against un-frozen drift; the
+docstring-leak check has nothing left to police, since with no
+quarantine an L1–L3 docstring naming a combinator is describing the
+same public surface it belongs to.
 
-**Implementation path.** `tests/lint/h7_convenience_charter.nim`.
-Wired to `just lint`. Two checks:
-
-1. `grep "^type \w\+\* =" src/jmap_client/convenience.nim` returns
-   only the allowlisted paired handle/result bundle types — the
-   six `*GetHandles` / `*GetResults` types (C9).
-2. `grep -rn "convenience\|QueryThenGet\|ChangesToGet"
-   src/jmap_client/internal/` returns nothing — no L1–L3 module
-   references a convenience combinator (the F3 reverse-leak check).
-
-Either check failing fails CI.
+The original scope, retained for the record: a
+`tests/lint/h7_convenience_charter.nim` wired to `just lint`, failing
+CI on either of two checks — (1) a `type … * =` declaration in
+`convenience.nim` outside the six allowlisted `*GetHandles` /
+`*GetResults` bundle types, holding C9's "only procs returning core
+types" charter; (2) any mention of a combinator in a module under
+`src/jmap_client/internal/`, holding F3's reverse-leak check that
+L1–L3 docstrings never name a convenience helper.
 
 ### H8. `.get()` invariant comment lint — locks existing project rule — ⬜ TODO
 
@@ -3758,10 +4021,10 @@ structurally JSON-typed — A22) and `addCapabilityInvocation` (RFC
 typed wrappers can route through it internally.
 
 **Implementation path.** `tests/lint/h11_typed_builder_no_jsonnode.nim`
-walks `src/jmap_client/internal/{protocol,mail}/`,
-`src/jmap_client.nim`, and `src/jmap_client/convenience.nim`. Wired
-to `just check`, `just ci`, and the standalone
-`just lint-typed-builder-jsonnode` recipe.
+walks `src/jmap_client/internal/{protocol,mail}/` and
+`src/jmap_client.nim` (the `mail/` sweep now covers the relocated
+pipeline combinators). Wired to `just check`, `just ci`, and the
+standalone `just lint-typed-builder-jsonnode` recipe.
 
 **Current-state assertion.** Zero violations.
 
@@ -3809,7 +4072,7 @@ external `import jmap_client/internal/...`. H10 + H13 together
 make the public/internal boundary symmetric.
 
 **Current-state assertion.** Zero violations; snapshot lists
-exactly two paths (`jmap_client`, `jmap_client/convenience`).
+exactly one path (`jmap_client`).
 
 ### H14. Wire-enum invariant lint *(P1, P19, P20)* — backs A11 — ⬜ TODO
 
@@ -3900,15 +4163,15 @@ Status legend:
 
 | Principle | Items | Gate | Status |
 |---|---|---|---|
-| P1 (lock contract) | A1, A1b, A2, A2b, A4, A6, A10, A11, A12, A13, A16, A25, A25b, A26, D1, D1.5, D4, D5, D17, D18, F6, F7, H14, H15 | API snapshot diff (F6); freeze checklist (D18); H13 lint (A10b); module-paths.txt snapshot (A10a); H15 lint (A12); error-messages.txt snapshot (A12) | 🟡 |
+| P1 (lock contract) | A1, A1b, A2, A2b, A4, A6, A10, A11, A12, A13, A16, A25, A25b, A26, D1, D1.5, D2, D4, D5, D17, D18, F6, F7, H14, H15 | API snapshot diff (F6/H16, D2); H13 lint (A10b); module-paths.txt snapshot (A10a); H15 lint (A12); error-messages.txt snapshot (A12); freeze checklist (D18) deferred 2026-08-04 | 🟡 |
 | P2 (tests) | A25, A28b, D2, D3, F1, F5 | Property tests (F1); wire-byte fixtures (D3) | 🟡 |
 | P3 (overloads not `_v2`) | C2, C3, D1.5 (no-suffix rule) | H5 lint; review | 🟡 |
 | P4 (scope) | D11, D11.5, D12, H4 | H4 non-JMAP-import lint | 🟡 |
 | P5 (single layer) | A1, A1b, A1c, A1d, A6, A9, A10, A12, A14, A16, A19, A30, F2, F6 | H5; H10; H12; F6 snapshot; H13 lint (A10b); module-paths.txt snapshot (A10a); A1c + A1d compile audits | 🟡 |
-| P6 (convenience quarantine) | A10, C7, C9, C10, F3, D16, H7 | H7 charter lint; H13 lint (A10b); module-paths.txt snapshot (A10a) | 🟡 |
+| P6 (easy path first-class; core stands without it) | A10, C7, C9, C10, F3, D16, H7 | H13 lint (A10b); module-paths.txt snapshot (A10a); H10 internal-boundary lint (the charter lint H7 is moot — S4 dissolved the quarantine) | 🟢 |
 | P7 (wrap rate) | A12, A16, A31, B5, C1, C1.1, C2–C5, C8, F4 | F4 CLI smoke test | 🟡 |
 | P8 (opaque handles) | A6, A6.5, A6.6, A7b, A9, A13, A16, A19, A27, A28, A28b, A30 | F2 audit; H1; H12 | 🟡 |
-| P9 (two contexts max) | A6.5, A6.6, A7, A7b, B9, C9, D10 | H7; B9 resolution | 🔴 (B9 open) |
+| P9 (two contexts max) | A6.5, A6.6, A7, A7b, B9, C9, D10 | B9 resolution (H7 moot — S4 dissolved the convenience layer) | 🟡 (B9 resolved; D10 open) |
 | P10 (no globals) | D1.5 (no-globals rule), H2 | H2 lint | 🟡 |
 | P11 (no global callbacks) | A19 (closure-vtable per-handle), A31 (per-handle debug callback), D1.5 (no-callbacks rule), D10 | review; future L5 callback lint | 🟡 |
 | P12 (memory ownership in types) | A13, A19, B10 | review | 🟡 |
@@ -3917,7 +4180,7 @@ Status legend:
 | P15 (smart constructors) | A8 (sealed Pattern-A objects across every public value-carrying type + `IdOrCreationRef` + 3 internal), A12 (library-internal error constructors filtered off the hub), A15 (sealed `SerializedSort` / `SerializedFilter`; no JsonNode-keyed argument-construction shims on the public surface; `directIds` is the sole helper), A19 (`newTransport`, `newHttpTransport` Result-returning), A30 (Pattern-A `Request` and `Response` with `initX` / `parseX` smart constructors), A30b (whole envelope surface demoted off the hub; `Referencable`, `SubmissionParam` + `NotifySet`, and `NonEmptyRcptList` sealed; closed-A8 enumeration), H1, H1b | testament reject tests `treject_a8_sealed_external_construction.nim` + `treject_submissionparam_notify_construction.nim`; A12 compile audits; A1b compile audit `doAssert not declared(initCreates)` lock; A30 envelope-demotion compile audits; H1 + H1b lints (regression prevention) | 🟢 |
 | P16 (preconditions in types) | A6, A6.5, A6.6, A7b, A7c, A7d, A29, B3, B4, B6, B12 | H9; A7c testament `action: reject` test; B11 dropped (premise invalid — RFC 8621 §4.2 makes `bodyValues` the default, so the phantom split it proposed is unsound) | 🟡 (only B6 lower-severity findings open) |
 | P17 (one config surface) | A14, A19 (HTTP config on `newHttpTransport` only), A20, A21 | review; F6 snapshot; sealed `SessionEndpoint`/`Credential` (A20/A21); `treject_a20`/`treject_a21` reject audits | 🟡 |
-| P18 (sum types over flag soup) | A6, A12, B1, B2, B7, B8, H9 | H9 catch-all lint; A12 exhaustive `case` in `SetError.message` / `TransportError.message` / mail extractors | 🟡 |
+| P18 (sum types over flag soup) | A6, A12, B1, B2, B6, B7, B8, H9 | H9 catch-all lint; A12 exhaustive `case` in `SetError.message` / `TransportError.message` / mail extractors | 🟡 |
 | P19 (schema-driven types) | A2, A2b, A3, A3.5, A4, A5, A14, A15, A16, A17, A18, A21, A22, A22b, A28, A28b, A30, H14 | H11 typed-builder lint (A5); A22b inline docstrings; F1; A1b compile audit (A30 negative for raw construction) | 🟡 |
 | P20 (additive variants) | A10, A11, A12, A23, A24, D7, D13, D13.5, H5, H14 | H5 lint; H13 lint (A10b); module-paths.txt snapshot (A10a); H15 lint (A12); error-messages.txt snapshot (A12) | 🟡 |
 | P21 (lifecycle types) | A6, A6.5, A6.6, A7, A7b, A7c, A7d, A23, A24, A27, A28 | type-shape snapshot (A25); A7c testament `action: reject` test | 🟡 |
@@ -3926,8 +4189,8 @@ Status legend:
 | P24 (threading invariant) | A6, A13, A19 (closure-vtable threading invariant in `Transport` and `JmapClient` docstrings), D8 | D8 docstring footer; review | 🟡 |
 | P25 (license) | D1.5, H6 | `reuse lint`; H6 freeze gate | 🟡 |
 | P26 (build) | current `mise.toml`/`justfile`/`.nimble`; D1.5 documents the single `when defined(ssl)` concession in `internal/client.nim` | review | 🟡 |
-| P27 (architecture docs) | D7, D9, D16 | existence gates | 🟡 |
-| P28 (long-form docs) | A12, D9, D10, D14 | existence gates | 🟡 |
+| P27 (architecture docs) | D7, D9, D16 | existence gates (D9 deferred 2026-08-04; D16 moot — S4) | 🟡 (D7 open) |
+| P28 (long-form docs) | A12, D9, D10, D14 | existence gates (D9 deferred 2026-08-04) | 🟡 |
 | P29 (sample consumer) | C1, C1.1, F4 | F4 CI smoke + AUDIT.md | 🟡 |
 
 ### Anti-pattern lockout matrix
@@ -3942,9 +4205,9 @@ must fail CI, not depend on reviewer attention.
 | Global mutable state | D1.5 (no-globals rule), H2 | H2 lint |
 | Global callbacks | D1.5 (no-callbacks rule), D10 | future L5 callback lint |
 | Two-channel configuration | A14, A20, A21 | F6 snapshot diff (catches future drift); sealed `SessionEndpoint`/`Credential`; `treject_a20`/`treject_a21` |
-| Stringly-typed APIs | A2, A2b, A3, A3.5, A4, A5, A8 (closes the disguise by sealing the underlying `rawValue` field), A14, A15, A17, A18, A20, A21, A22b | H11 typed-builder lint; H7 (convenience charter); A8 testament reject test; reviewer grep on `JsonNode` outside Documented exceptions |
+| Stringly-typed APIs | A2, A2b, A3, A3.5, A4, A5, A8 (closes the disguise by sealing the underlying `rawValue` field), A14, A15, A17, A18, A20, A21, A22b | H11 typed-builder lint; A8 testament reject test; reviewer grep on `JsonNode` outside Documented exceptions |
 | Multiple coexisting public layers | A1, A1b, A1c, A1d, A9, A10, A16, A30 | H13 lint (A10b); module-paths.txt snapshot (A10a); F6 snapshot (A26); A1c + A1d compile audits |
-| Convenience layer leaking | C7, C9, C10, F3, H7 | H7 lint |
+| Easy path leaking into the core | C10, D16 (moot — S4 dissolved the quarantine) | H10 internal-boundary lint; H16 public-API snapshot |
 | Catch-all `else` on finite enums | A11, A12, H9 | H9 lint; A12 exhaustive `case` in `SetError.message` / `TransportError.message` / 5 `mail_errors.nim` extractors |
 | Wire-enum catch-all + raw missing | A11, H14 | named-list compile-time test (A11); AST lint (H14) |
 | `.get()` without invariant | (rule) + H8 | H8 lint |
@@ -3957,8 +4220,9 @@ must fail CI, not depend on reviewer attention.
 
 The principles doc's "Concrete decisions to make before 1.0" list
 contains 10 items. Each must be either delivered by a TODO item
-**and** have a verification gate. The 1.0 release tag fails (D18)
-if any row is unticked.
+**and** have a verification gate. Row status is carried by the
+per-item markers above until D18's freeze-checklist file lands, at
+which point the 1.0 release tag fails on any unticked row.
 
 | # | Decision | Item | Gate |
 |---|---|---|---|
@@ -3971,4 +4235,4 @@ if any row is unticked.
 | 7 | Long-form guide | D9 | existence gate |
 | 8 | License confirmation | H6 | `reuse lint`; freeze audit |
 | 9 | L5 FFI design note | D10 | existence gate |
-| 10 | Convenience module quarantine | C7, C9, C10, F3, D16, H7 | H7 lint + grep audit |
+| 10 | Easy-path charter | C10 | H10 internal-boundary lint; H16 public-API snapshot; module-paths.txt (A10a) |

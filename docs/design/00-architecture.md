@@ -1,5 +1,15 @@
 # Architecture
 
+> **Currency banner — 2026-08-04.** Passages describing the opt-in
+> `convenience.nim` module (§3.13 and the module-layout tables) predate
+> the S4 refactor and no longer hold. `convenience.nim` was deleted: the
+> pipeline combinators live in
+> `src/jmap_client/internal/mail/combinators.nim`, the one-shots in
+> `src/jmap_client/internal/one_shot.nim`, both re-exported by the hub,
+> and `import jmap_client` is the single public module path. Ledger item
+> D20 in `docs/TODO/pre-1.0-api-alignment.md` owns the uplift; until it
+> lands, read `src/` for these areas.
+
 Cross-platform JMAP (RFC 8620 Core, RFC 8621 Mail) client library in Nim
 with a planned C ABI surface.
 

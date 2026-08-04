@@ -61,6 +61,17 @@ type RequestBuilder* = object
   ##
   ## Async dispatch (post-1.0) returns ``DispatchedRequest`` from ``sendAsync``;
   ## see ``docs/policy/03-rfc-extension-policy.md``.
+  ##
+  ## **Threading.** Movable, never shared. ``=copy`` and ``=dup`` are
+  ## ``{.error.}``, so a second alias is a compile error rather than a
+  ## race — exactly one owner exists at any instant, and each ``add*``
+  ## / ``freeze`` moves that ownership on. The owner may be any thread;
+  ## the builder crosses a thread boundary by move, never by sharing.
+  ## The escape hatches (``addEcho``, ``addCapabilityInvocation``) store
+  ## the caller's ``JsonNode`` as given, so that argument stays aliased
+  ## by whoever supplied it — treat it as handed over, because any use
+  ## of the alias once the builder has crossed threads races on the
+  ## non-atomic ``--mm:arc`` reference counts.
   id: BuilderId ## per-builder dispatch brand
   nextCallId: int ## monotonic counter for "c0", "c1", ...
   invocations: seq[Invocation] ## accumulated method calls
@@ -78,6 +89,11 @@ type BuiltRequest* = object
   ## Async dispatch (post-1.0) consumes a ``BuiltRequest`` via ``sendAsync``,
   ## yielding ``DispatchedRequest``; see
   ## ``docs/policy/03-rfc-extension-policy.md``.
+  ##
+  ## **Threading.** Movable, never shared — the same uncopyable contract
+  ## as ``RequestBuilder``. ``send`` consumes the value, so two threads
+  ## cannot hold, let alone dispatch, the same request: the second
+  ## dispatch does not compile.
   rawRequest: Request
   rawBuilderId: BuilderId
   rawCallLimits: seq[CallLimitMeta]

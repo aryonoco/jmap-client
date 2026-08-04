@@ -3,14 +3,18 @@
 
 ## `jmap-cli mailbox list` — fetch all mailboxes (Mailbox/get with no id
 ## filter) and print id, role, unread/total counts, a hand-rolled rights
-## summary (MailboxRights has no roll-up helper yet — tracker C4), and name.
+## summary, and name. The library deliberately ships no rights roll-up
+## (nine independent `may*` booleans are the permanent public surface —
+## see the type), so this CLI hand-rolls its own compact descriptor below.
 
 import jmap_client
 import ./cli_session
 
 func rightsSummary(r: MailboxRights): string =
-  ## The library exposes no roll-up over the nine RFC 8621 ACL flags (C4),
-  ## so the CLI derives a compact "rwas" descriptor from the bool fields.
+  ## A blessed roll-up (canRead/canWrite/…) would bake one library's
+  ## opinion of which RFC 8621 §2 `may*` flags compose each verb into
+  ## the API, so the nine booleans stay orthogonal and this CLI derives
+  ## its own compact "rwas" descriptor from them instead.
   let read = if r.mayReadItems: "r" else: "-"
   let write =
     if r.mayAddItems and r.mayRemoveItems and r.maySetSeen and r.maySetKeywords:

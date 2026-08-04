@@ -220,6 +220,17 @@ type Session* {.ruleOff: "objects".} = object
   ## Tier-C: per-template required-variable rules relating the three
   ## UriTemplate fields are parseSession-enforced; raw construction is
   ## out-of-contract.
+  ##
+  ## **Threading.** Value type: assignment copies, and no accessor
+  ## mutates one — the accessors are L1-pure (``{.push raises: [],
+  ## noSideEffect.}``). Copies are not independent, though: each
+  ## aliases the raw ``JsonNode`` payload of any forward-compat
+  ## capability arm (the ``ServerCapability`` values in ``additional``,
+  ## the ``AccountCapabilityEntry`` values inside ``accounts``), and
+  ## under ``--mm:arc`` reference counts are not atomic, so even
+  ## read-side use of aliasing copies from two threads is a race. A
+  ## Session moves between threads; it is never shared. Hold one per
+  ## thread — moved in, or parsed independently.
   core*: CoreCapabilities
   additional*: seq[ServerCapability]
   accounts*: Table[AccountId, Account]
