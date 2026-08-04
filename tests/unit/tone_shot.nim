@@ -16,7 +16,6 @@
 
 import std/json
 import std/strutils
-import std/tables
 
 import jmap_client
 

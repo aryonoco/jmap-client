@@ -280,7 +280,7 @@ type SetResponse*[T, U] = object
 iterator created*[T, U](r: SetResponse[T, U]): tuple[id: CreationId, value: T] =
   ## Successful creates (CreationId -> created entity). The typed
   ## ``createResults`` table remains for callers needing the SetError rail.
-  for cid, res in r.createResults:
+  for cid, res in tables.pairs(r.createResults):
     case res.isOk
     of true:
       yield (cid, res.unsafeValue)
@@ -291,7 +291,7 @@ iterator createFailures*[T, U](
     r: SetResponse[T, U]
 ): tuple[id: CreationId, error: SetError] =
   ## Per-creation SetErrors (RFC 8620 §5.3 notCreated).
-  for cid, res in r.createResults:
+  for cid, res in tables.pairs(r.createResults):
     case res.isOk
     of false:
       yield (cid, res.unsafeError)
@@ -302,7 +302,7 @@ iterator updated*[T, U](r: SetResponse[T, U]): tuple[id: Id, serverEcho: Opt[U]]
   ## Successful updates (Id -> the RFC 8620 §5.3 server-changed-property echo,
   ## ``Opt.none`` when the server echoed nothing). The common "isOk, ignore the
   ## echo" path is one ``for``; the typed table remains for echo-consuming callers.
-  for id, res in r.updateResults:
+  for id, res in tables.pairs(r.updateResults):
     case res.isOk
     of true:
       yield (id, res.unsafeValue)
@@ -311,7 +311,7 @@ iterator updated*[T, U](r: SetResponse[T, U]): tuple[id: Id, serverEcho: Opt[U]]
 
 iterator updateFailures*[T, U](r: SetResponse[T, U]): tuple[id: Id, error: SetError] =
   ## Per-update SetErrors (RFC 8620 §5.3 notUpdated).
-  for id, res in r.updateResults:
+  for id, res in tables.pairs(r.updateResults):
     case res.isOk
     of false:
       yield (id, res.unsafeError)
@@ -320,7 +320,7 @@ iterator updateFailures*[T, U](r: SetResponse[T, U]): tuple[id: Id, error: SetEr
 
 iterator destroyed*[T, U](r: SetResponse[T, U]): Id =
   ## Successfully destroyed ids (RFC 8620 §5.3 destroyed).
-  for id, res in r.destroyResults:
+  for id, res in tables.pairs(r.destroyResults):
     case res.isOk
     of true:
       yield id
@@ -329,7 +329,7 @@ iterator destroyed*[T, U](r: SetResponse[T, U]): Id =
 
 iterator destroyFailures*[T, U](r: SetResponse[T, U]): tuple[id: Id, error: SetError] =
   ## Per-destroy SetErrors (RFC 8620 §5.3 notDestroyed).
-  for id, res in r.destroyResults:
+  for id, res in tables.pairs(r.destroyResults):
     case res.isOk
     of false:
       yield (id, res.unsafeError)

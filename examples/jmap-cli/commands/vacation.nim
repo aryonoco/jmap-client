@@ -9,9 +9,6 @@
 ## site and the singleton id stays the library's concern.
 
 import jmap_client
-# The projection iterators resolve their Table `pairs` at the instantiation
-# site, so reading a /set response still needs std/tables in scope here.
-from std/tables import pairs
 import ./cli_session
 
 proc doGet(ctx: CliContext): JmapResult[int] =

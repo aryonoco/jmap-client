@@ -9,12 +9,6 @@
 ## call site left to repeat.
 
 import jmap_client
-# No `from std/tables import pairs` here, unlike email_flag — and that asymmetry
-# is itself the finding. The projection iterators resolve their Table `pairs` at
-# the instantiation site, but Nim caches an instantiation per type argument, so
-# email_flag's identical `SetResponse[EmailCreatedItem, PartialEmail]` walk
-# already bound it. Compiled alone this module needs the import back; compiled
-# after its sibling it must not have it (UnusedImport is an error here).
 import ./cli_session
 
 proc moveEmail(emailIdArg, mailboxIdArg: string): JmapResult[int] =

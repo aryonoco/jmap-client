@@ -11,14 +11,10 @@
 ## The per-item `Table[Id, Result[Opt[PartialEmail], SetError]]` update results
 ## stay data on the ok branch, and the hand-written `isOk` walk over them is
 ## gone: the `updated` / `updateFailures` projection iterators read each rail
-## directly. The `std/tables` dependency survives that swap, though — see the
-## import comment below.
+## directly, and they no longer leak their container either — reading a /set
+## response needs no `std/tables` import at all.
 
 import jmap_client
-# Residual container leak: the projection iterators are generic, so Nim resolves
-# their Table `pairs` at THIS instantiation site — a hub-only consumer still
-# needs std/tables in scope to read any /set response.
-from std/tables import pairs
 import ./cli_session
 
 proc flagEmail(emailIdArg: string): JmapResult[int] =
