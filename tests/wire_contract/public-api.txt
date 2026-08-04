@@ -73,6 +73,8 @@ func subParts (part: BlueprintBodyPart): seq[BlueprintBodyPart]
 func value (leaf: BlueprintLeafPart): Opt[BlueprintBodyValue]
 
 ## jmap_client/internal/mail/combinators
+type ChangesGetAllHandles [T]
+type ChangesGetAllResults [T]
 type ChangesGetHandles [T]
 type ChangesGetResults [T]
 type MailboxChangesGetHandles
@@ -80,6 +82,7 @@ type MailboxChangesGetResults
 type QueryGetHandles [T]
 type QueryGetResults [T]
 func addEmailChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges), bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): (RequestBuilder, ChangesGetHandles[Email])
+func addEmailChangesToGetAll (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges), bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): (RequestBuilder, ChangesGetAllHandles[Email])
 func addEmailQueryThenGet (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]), sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]), queryParams: QueryParams = QueryParams(), collapseThreads: bool = false, bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): (RequestBuilder, QueryGetHandles[Email])
 func addEmailSubmissionChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, ChangesGetHandles[AnyEmailSubmission])
 func addEmailSubmissionQueryThenGet (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[EmailSubmissionFilterCondition]] = Opt.none(Filter[EmailSubmissionFilterCondition]), sort: Opt[seq[EmailSubmissionComparator]] = Opt.none(seq[EmailSubmissionComparator]), queryParams: QueryParams = QueryParams()): (RequestBuilder, QueryGetHandles[AnyEmailSubmission])
@@ -87,6 +90,7 @@ func addIdentityChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinc
 func addMailboxChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, MailboxChangesGetHandles)
 func addMailboxQueryThenGet (b: sink RequestBuilder, accountId: AccountId, filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]), sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]), queryParams: QueryParams = QueryParams(), sortAsTree: bool = false, filterAsTree: bool = false): (RequestBuilder, QueryGetHandles[Mailbox])
 func addThreadChangesToGet (b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)): (RequestBuilder, ChangesGetHandles[Thread])
+func getAll [T](dr: DispatchedResponse, handles: ChangesGetAllHandles[T]): Result[ChangesGetAllResults[T], JmapError]
 func getBoth (dr: DispatchedResponse, handles: MailboxChangesGetHandles): Result[MailboxChangesGetResults, JmapError]
 func getBoth [T](dr: DispatchedResponse, handles: ChangesGetHandles[T]): Result[ChangesGetResults[T], JmapError]
 func getBoth [T](dr: DispatchedResponse, handles: QueryGetHandles[T]): Result[QueryGetResults[T], JmapError]
