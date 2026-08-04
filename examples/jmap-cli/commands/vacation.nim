@@ -2,12 +2,13 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## `jmap-cli vacation get` / `vacation set <bodyText>` — read or enable the
-## singleton VacationResponse. The /set response carries a NoCreate phantom
-## in its create slot (no create rail). Note the asymmetry: the /set builder
-## takes its update set BY VALUE, whereas Email/set takes Opt[...].
+## singleton VacationResponse. The /set response still carries a NoCreate
+## phantom in its create slot (no create rail), but the builder's by-value
+## update set — the asymmetry against Email/set's Opt[...] — is now folded
+## inside `setVacationResponse`, so neither convention surfaces at the call
+## site and the singleton id stays the library's concern.
 
 import jmap_client
-import std/tables
 import ./cli_session
 
 proc doGet(ctx: CliContext): JmapResult[int] =
@@ -27,30 +28,24 @@ proc doGet(ctx: CliContext): JmapResult[int] =
   ok(0)
 
 proc doSet(ctx: CliContext, body: string): JmapResult[int] =
-  # The accumulating update-set constructor `.lift`s onto the one rail.
-  let updSet = ?initVacationResponseUpdateSet(
+  # setVacationResponse takes the update DSL ops directly: the accumulating
+  # update-set seal, the singleton id and the set lifecycle all fold into the
+  # one call, so a method error arrives through `?`.
+  let resp = ?ctx.client.setVacationResponse(
+    ctx.mailAccount,
     @[
       setIsEnabled(true),
       setSubject(Opt.some("Out of office")),
       setTextBody(Opt.some(body)),
-    ]
-  ).lift
-  # update is passed BY VALUE here, unlike addEmailSet's Opt[...] update.
-  let (b, handle) =
-    ctx.client.newBuilder().addVacationResponseSet(ctx.mailAccount, updSet)
-  let dr = ?ctx.client.send(b.freeze())
-  let outcome = ?dr.get(handle)
-  case outcome.kind
-  of mokMethodError:
-    stderr.writeLine "VacationResponse/set: " & outcome.error.message
-    ok(1)
-  of mokValue:
-    for id, res in outcome.value.updateResults: # NoCreate create slot; single update
-      if res.isOk:
-        echo "vacation response enabled"
-      else:
-        stderr.writeLine "vacation set failed for " & $id & ": " & res.error.message
-    ok(0)
+    ],
+  )
+  # One singleton, so at most one of these loops yields — the update rails read
+  # through the projection iterators, not the keyed updateResults table.
+  for _, _ in resp.updated:
+    echo "vacation response enabled"
+  for id, error in resp.updateFailures:
+    stderr.writeLine "vacation set failed for " & $id & ": " & error.message
+  ok(0)
 
 proc vacationImpl(args: seq[string]): JmapResult[int] =
   let ctx = ?connect()

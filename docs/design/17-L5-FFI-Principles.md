@@ -49,12 +49,14 @@ this document.
 2. **v1 scope: lift the missing one-shots first, wrap the easy path
    only** — a prerequisite Nim PR adds the write one-shot (ledger item
    **C15**, Email/set: flag, move, destroy) and an Email/changes sync
-   one-shot (**no ledger item exists yet**; the prerequisite PR opens
-   one, and it subsumes C17's `/updated` back-reference and C21's
+   one-shot (ledger item **C23**, which that PR opened and closed, and
+   which subsumes C17's `/updated` back-reference and C21's
    current-state accessor as its components). The C ABI then wraps
    only the one-shot easy path. The RequestBuilder pipeline stays
    Nim-only in v1 and is reserved for a future additive C layer — the
-   libcurl easy→multi trajectory (P22).
+   libcurl easy→multi trajectory (P22). **Landed 2026-08-04** on
+   branch `api/c15-easy-path-one-shots`: C15, C17, C21, and C23 are
+   all ✅ DONE, so the substrate the C ABI wraps now exists.
 3. **Memory: library-owned borrows** — read accessors return
    `const char*` / opaque views owned by the library, valid until the
    owning handle is freed (or, where documented, the next mutating call
@@ -366,20 +368,28 @@ The v1 C surface is the easy path, complete for an email client:
 | Read email (bodies) | `jmap_get_emails` | `getEmails` + body readers |
 | Threads / identities / vacation | `jmap_get_threads` / … | one-shots |
 | Send plain text | `jmap_send_plain_text` | `sendPlainText` |
-| Flag / move / destroy | `jmap_mark_read` / `jmap_move_emails` / … | **C15 write one-shot (prerequisite PR)** |
-| Incremental sync | `jmap_sync_emails` | **Email/changes sync one-shot — no ledger item yet (prerequisite PR opens one)** |
+| Flag / move / destroy | `jmap_mark_read` / `jmap_move_emails` / … | `markEmailsRead` / `markEmailsUnread` / `moveEmails` / `destroyEmails` |
+| Set vacation | `jmap_set_vacation` | `setVacationResponse` |
+| Sync cursor bootstrap | `jmap_get_email_state` | `getEmailState` |
+| Incremental sync | `jmap_sync_emails` | `syncEmails` |
 
-- **Prerequisite Nim PR:** two lifts, on the same `JmapResult`
-  easy-path contract as the existing one-shots.
+- **Prerequisite Nim PR (landed 2026-08-04, branch
+  `api/c15-easy-path-one-shots`):** two lifts, on the same
+  `JmapResult` easy-path contract as the existing one-shots.
   1. **C15** (Email/set write one-shot: mark read/unread, move,
-     destroy) — the ledger item already exists and this PR closes it.
-  2. **An Email/changes sync one-shot** — *no ledger item covers
-     this*. C17 is the `/updated` back-reference combinator and C21 is
-     the per-type current-state accessor; both are components the sync
-     one-shot has to fold (bootstrap cursor from C21, then
-     changes-to-get over `/updated` from C17), neither is the one-shot
-     itself. The prerequisite PR opens the missing item rather than
-     retrofitting the work onto C17 or C21.
+     destroy — plus `setVacationResponse`, the vacation-set equivalent
+     the ledger body named) — the ledger item already existed and that
+     PR closed it.
+  2. **An Email/changes sync one-shot** — no ledger item covered this
+     when the note was written. C17 is the `/updated` back-reference
+     combinator and C21 is the per-type current-state accessor; both
+     are components the sync one-shot has to fold (bootstrap cursor
+     from C21, then changes-to-get over `/updated` from C17), neither
+     is the one-shot itself. The PR therefore opened the missing item
+     as **C23** rather than retrofitting the work onto C17 or C21, and
+     closed it in the same change: `syncEmails` returns an `EmailSync`
+     carrying the changes response plus the `/created` and `/updated`
+     fetches from one round-trip.
   The C ABI wraps one-shots only; it never re-implements protocol
   logic.
 - **Reserved, not implemented:** the builder→send→extract pipeline as

@@ -12,14 +12,16 @@
 ## emits ``<Entity>/changes`` + ``<Entity>/get``. Each wires the second
 ## invocation's ``ids`` argument to the first's response with the public
 ## ``reference`` primitive — the ``/ids`` path for the query chains, the
-## ``/created`` path for the changes chains. ``getBoth`` extracts both
-## responses from the returned handle pair, short-circuiting on the
-## first error.
+## ``/created`` path for the changes chains. ``addEmailChangesToGetAll``
+## chains a third invocation back-referencing ``/updated`` as well.
+## ``getBoth`` extracts both responses from a two-call chain,
+## short-circuiting on the first error; ``getAll`` extracts all three
+## from the changes-to-get-all chain.
 ##
 ## **Naming convention.** Combinators use the ``add*`` prefix because
 ## they thread the ``RequestBuilder`` state (the builder naming
-## convention). Paired extraction uses ``getBoth`` (always exactly two
-## handles).
+## convention). Paired extraction uses ``getBoth`` (exactly two
+## handles); the three-call chain uses ``getAll``.
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
@@ -63,6 +65,14 @@ type MailboxChangesGetHandles* = object
   changes*: ResponseHandle[MailboxChangesResponse]
   get*: ResponseHandle[GetResponse[Mailbox]]
 
+type ChangesGetAllHandles*[T] = object
+  ## Handles for a changes call plus BOTH back-referenced fetches. The
+  ## delta a sync needs is created ∪ updated; destroyed ids need no
+  ## fetch, so no third get exists.
+  changes*: ResponseHandle[ChangesResponse[T]]
+  created*: ResponseHandle[GetResponse[T]]
+  updated*: ResponseHandle[GetResponse[T]]
+
 # =============================================================================
 # Paired extraction targets
 # =============================================================================
@@ -85,6 +95,13 @@ type MailboxChangesGetResults* = object
   ## field is a ``MethodOutcome`` (see ``QueryGetResults``).
   changes*: MethodOutcome[MailboxChangesResponse]
   get*: MethodOutcome[GetResponse[Mailbox]]
+
+type ChangesGetAllResults*[T] = object
+  ## Each outcome is a ``MethodOutcome`` so one erroring method never
+  ## discards its siblings' results (RFC 8620 §3.6.2).
+  changes*: MethodOutcome[ChangesResponse[T]]
+  created*: MethodOutcome[GetResponse[T]]
+  updated*: MethodOutcome[GetResponse[T]]
 
 # =============================================================================
 # Query-then-get combinators
@@ -234,6 +251,29 @@ func addMailboxChangesToGet*(
   let (b2, gh) = addMailboxGet(b1, accountId, ids = Opt.some(idsR))
   (b2, MailboxChangesGetHandles(changes: ch, get: gh))
 
+func addEmailChangesToGetAll*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    sinceState: JmapState,
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
+    bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
+): (RequestBuilder, ChangesGetAllHandles[Email]) =
+  ## Email/changes plus two server-side back-referenced Email/get
+  ## calls (RFC 8621 §4.3 + §4.2) — ``/created`` for new mail and
+  ## ``/updated`` for flag, keyword, and mailbox changes. Incremental
+  ## sync needs both: fetching only ``/created`` leaves read/move
+  ## churn invisible until a full refetch.
+  let (b1, ch) = addEmailChanges(b, accountId, sinceState, maxChanges)
+  let createdRef = reference[seq[Id]](ch, mnEmailChanges, rpCreated)
+  let (b2, created) = addEmailGet(
+    b1, accountId, ids = Opt.some(createdRef), bodyFetchOptions = bodyFetchOptions
+  )
+  let updatedRef = reference[seq[Id]](ch, mnEmailChanges, rpUpdated)
+  let (b3, updated) = addEmailGet(
+    b2, accountId, ids = Opt.some(updatedRef), bodyFetchOptions = bodyFetchOptions
+  )
+  (b3, ChangesGetAllHandles[Email](changes: ch, created: created, updated: updated))
+
 # =============================================================================
 # getBoth — paired response extraction
 # =============================================================================
@@ -267,3 +307,12 @@ func getBoth*(
   let cr = ?dr.get(handles.changes)
   let gr = ?dr.get(handles.get)
   ok(MailboxChangesGetResults(changes: cr, get: gr))
+
+func getAll*[T](
+    dr: DispatchedResponse, handles: ChangesGetAllHandles[T]
+): Result[ChangesGetAllResults[T], JmapError] =
+  ## Extracts all three outcomes; the rail carries dispatch faults only.
+  let cr = ?dr.get(handles.changes)
+  let cdr = ?dr.get(handles.created)
+  let udr = ?dr.get(handles.updated)
+  ok(ChangesGetAllResults[T](changes: cr, created: cdr, updated: udr))

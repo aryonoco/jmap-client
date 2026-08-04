@@ -438,9 +438,15 @@ func raiseResultError[T, E](self: Result[T, E]) {.noreturn, noinline.} =
     of true:
       raise (ref ResultError[void])(msg: "Trying to access value with err")
 
+# Local patch (jmap-client): probe effect-PROVABILITY, not mere typecheckability.
+# The derived $ over a self-referential value tree (an object nesting a seq of
+# itself) typechecks yet never reaches an effect-inference fixed point, so this
+# noSideEffect func cannot call it and .error stops compiling for every Result
+# carrying such a type. The closure probe keeps the rich "msg: value" defect
+# where purity is provable and degrades to message-only where it is not.
 func raiseResultDefect(m: string, v: auto) {.noreturn, noinline.} =
   mixin `$`
-  when compiles($v):
+  when compiles((func (x: typeof(v)): string {.noSideEffect.} = $x)(v)):
     raise (ref ResultDefect)(msg: m & ": " & $v)
   else:
     raise (ref ResultDefect)(msg: m)

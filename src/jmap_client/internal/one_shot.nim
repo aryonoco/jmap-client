@@ -23,10 +23,22 @@
 ## ``GetResponse[T]`` so ``state`` and ``notFound`` survive. ``sendPlainText``
 ## encapsulates the RFC 8621 §7.5/§7.5.1 two-mailbox send: a draft created in
 ## Drafts and an EmailSubmission whose success moves the message to Sent.
+##
+## The write one-shots seal one RFC 8621 §4.6 ``Email/set`` update across every
+## id (``markEmailsRead`` / ``markEmailsUnread`` / ``moveEmails``, and
+## ``destroyEmails`` over the destroy slot); ``setVacationResponse`` does the
+## same for the §8 singleton. Only whole-method failure rides the rail — per-id
+## ``SetError``s stay data on the returned ``SetResponse``, so one rejected
+## record never hides its siblings' outcomes. ``getEmailState`` reads the
+## current ``Email`` state alone, which is the cursor a first ``syncEmails``
+## needs; ``syncEmails`` then dispatches the RFC 8620 §5.2 changes call plus
+## both §3.7 back-referenced fetches in one round-trip and fulfils all three
+## outcomes, so the caller receives a delta already off the rail.
 
 {.push raises: [].}
 {.experimental: "strictCaseObjects".}
 
+import std/sugar
 import std/tables
 
 import ./client
@@ -143,6 +155,55 @@ proc getVacationResponse*(
     client, mnVacationResponseGet, client.newBuilder().addVacationResponseGet(accountId)
   )
 
+proc getEmailState*(
+    client: JmapClient, accountId: AccountId
+): Result[JmapState, JmapError] =
+  ## Current ``Email`` object state — the ``sinceState`` cursor a first
+  ## ``syncEmails`` call needs. Issues an ``Email/get`` with an empty ids
+  ## list purely for its ``state`` field, so bootstrapping a sync cursor
+  ## costs no email payload.
+  let resp = ?client.getEmails(accountId, ids = Opt.some(direct(newSeq[Id]())))
+  ok(resp.state)
+
+# =============================================================================
+# syncEmails — incremental sync one-shot (RFC 8620 §5.2, RFC 8621 §4.3/§4.2)
+# =============================================================================
+
+type EmailSync* = object
+  ## The full fetchable delta since a cursor. ``destroyed`` ids live on
+  ## ``changes`` — there is nothing left to fetch for them. A record both
+  ## created and updated since ``sinceState`` may legitimately appear in
+  ## both ``changes.created`` and ``changes.updated`` (RFC 8620 §5.2), so
+  ## a consumer merging ``created``/``updated`` should dedupe by id.
+  changes*: ChangesResponse[Email]
+  created*: GetResponse[Email]
+  updated*: GetResponse[Email]
+
+proc syncEmails*(
+    client: JmapClient,
+    accountId: AccountId,
+    sinceState: JmapState,
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
+    bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
+): Result[EmailSync, JmapError] =
+  ## Incremental sync in one round-trip: ``Email/changes`` plus both
+  ## back-referenced fetches. Persist ``changes.newState`` as the next
+  ## cursor; when ``changes.hasMoreChanges`` is true, call again from
+  ## that cursor. Fail-fast: any of the three method outcomes can put the
+  ## whole sync on the rail, and the changes error wins when more than one
+  ## fails, because it is the root cause of the fetches it feeds. A failed
+  ## fetch therefore costs the cursor too — nothing is returned, so the
+  ## caller retries the whole sync from the same ``sinceState``.
+  let (b, handles) = client.newBuilder().addEmailChangesToGetAll(
+      accountId, sinceState, maxChanges, bodyFetchOptions
+    )
+  let dr = ?client.send(b.freeze())
+  let results = ?dr.getAll(handles)
+  let changes = ?results.changes.fulfil(mnEmailChanges)
+  let created = ?results.created.fulfil(mnEmailGet)
+  let updated = ?results.updated.fulfil(mnEmailGet)
+  ok(EmailSync(changes: changes, created: created, updated: updated))
+
 # =============================================================================
 # Query-then-get one-shots (RFC 8620 §3.7 back-reference chains)
 # =============================================================================
@@ -222,6 +283,85 @@ proc queryEmailSubmissions*(
       get: ?both.get.fulfil(mnEmailSubmissionGet),
     )
   )
+
+# =============================================================================
+# Email/set write one-shots (RFC 8621 §4.6)
+# =============================================================================
+
+proc runSet(
+    client: JmapClient, accountId: AccountId, ids: openArray[Id], update: EmailUpdate
+): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError] =
+  ## Shared body of the Email/set write one-shots: seal one ``update``
+  ## across every id, dispatch, and collapse the method outcome.
+  ## Per-id ``SetError``s stay data on the response (``updateResults``
+  ## and the projection iterators) — the rail carries only whole-method
+  ## failure, so one rejected email never hides its siblings' results.
+  let updateSet = ?initEmailUpdateSet(@[update]).lift
+  let items = collect(newSeqOfCap(ids.len)):
+    for id in ids:
+      (id, updateSet)
+  let updates = ?parseNonEmptyEmailUpdates(items).lift
+  let (b, handle) =
+    client.newBuilder().addEmailSet(accountId, update = Opt.some(updates))
+  let dr = ?client.send(b.freeze())
+  (?dr.get(handle)).fulfil(mnEmailSet)
+
+proc markEmailsRead*(
+    client: JmapClient, accountId: AccountId, ids: openArray[Id]
+): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError] =
+  ## Sets ``$seen`` on every id in one ``Email/set``. Empty or duplicate
+  ## ids reject at the seal (the update set demands distinct, non-empty
+  ## targets), so an empty call never reaches the network.
+  runSet(client, accountId, ids, markRead())
+
+proc markEmailsUnread*(
+    client: JmapClient, accountId: AccountId, ids: openArray[Id]
+): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError] =
+  ## Removes ``$seen`` from every id in one ``Email/set``. Empty or duplicate
+  ## ids reject at the seal (the update set demands distinct, non-empty
+  ## targets), so an empty call never reaches the network.
+  runSet(client, accountId, ids, markUnread())
+
+proc moveEmails*(
+    client: JmapClient, accountId: AccountId, ids: openArray[Id], mailboxId: Id
+): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError] =
+  ## Moves every id to ``mailboxId`` — a full mailbox-membership replace,
+  ## because "move" means the email is in the destination and nowhere
+  ## else. Callers wanting additive membership use the builder path's
+  ## ``addToMailbox`` update instead. Empty or duplicate ids reject at
+  ## the seal (the update set demands distinct, non-empty targets), so
+  ## an empty call never reaches the network.
+  runSet(client, accountId, ids, moveToMailbox(mailboxId))
+
+proc destroyEmails*(
+    client: JmapClient, accountId: AccountId, ids: openArray[Id]
+): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError] =
+  ## Destroys every id in one ``Email/set``. Per-id refusals stay data
+  ## (``destroyFailures``); the rail carries whole-method failure only.
+  ## Unlike its update siblings this fills the destroy slot rather than an
+  ## update set, so neither an empty ids list nor a duplicate id is rejected
+  ## here: an empty call is legal wire that destroys nothing, and a repeat
+  ## travels to the server, which answers it per id (RFC 8620 §5.3). The
+  ## call round-trips either way.
+  let (b, handle) = client.newBuilder().addEmailSet(accountId, destroy = directIds(ids))
+  let dr = ?client.send(b.freeze())
+  (?dr.get(handle)).fulfil(mnEmailSet)
+
+# =============================================================================
+# VacationResponse/set write one-shot (RFC 8621 §8)
+# =============================================================================
+
+proc setVacationResponse*(
+    client: JmapClient, accountId: AccountId, updates: openArray[VacationResponseUpdate]
+): Result[SetResponse[NoCreate, PartialVacationResponse], JmapError] =
+  ## Updates the vacation singleton in one call, folding the update-set
+  ## seal (which rejects empty batches, duplicate properties, and a
+  ## backwards window) and the dispatch ceremony. The singleton id is
+  ## the library's concern, not the caller's.
+  let updateSet = ?initVacationResponseUpdateSet(updates).lift
+  let (b, handle) = client.newBuilder().addVacationResponseSet(accountId, updateSet)
+  let dr = ?client.send(b.freeze())
+  (?dr.get(handle)).fulfil(mnVacationResponseSet)
 
 # =============================================================================
 # sendPlainText — create a draft and submit it, moving it to Sent on success

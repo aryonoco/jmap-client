@@ -142,6 +142,16 @@
 
 ## CapabilityUri [jmap_client/internal/types/capabilities]
 
+## ChangesGetAllHandles [jmap_client/internal/mail/combinators]
+  changes*: ResponseHandle[ChangesResponse[T]]
+  created*: ResponseHandle[GetResponse[T]]
+  updated*: ResponseHandle[GetResponse[T]]
+
+## ChangesGetAllResults [jmap_client/internal/mail/combinators]
+  changes*: MethodOutcome[ChangesResponse[T]]
+  created*: MethodOutcome[GetResponse[T]]
+  updated*: MethodOutcome[GetResponse[T]]
+
 ## ChangesGetHandles [jmap_client/internal/mail/combinators]
   changes*: ResponseHandle[ChangesResponse[T]]
   get*: ResponseHandle[GetResponse[T]]
@@ -606,6 +616,11 @@
 
 ## EmailSubmissionUpdateVariantKind [jmap_client/internal/mail/email_submission]
   esuSetUndoStatusToCanceled
+
+## EmailSync [jmap_client/internal/one_shot]
+  changes*: ChangesResponse[Email]
+  created*: GetResponse[Email]
+  updated*: GetResponse[Email]
 
 ## EmailUpdate [jmap_client/internal/mail/email_update]
   case kind*: EmailUpdateVariantKind

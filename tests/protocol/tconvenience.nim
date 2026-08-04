@@ -70,6 +70,55 @@ testCase addEmailChangesToGetWiresCreatedReference:
   assertEq refNode{"name"}.getStr(""), "Email/changes"
   assertEq refNode{"path"}.getStr(""), "/created"
 
+testCase addEmailChangesToGetAllEmitsThreeInvocations:
+  ## Changes plus BOTH back-referenced gets, in dispatch order.
+  let b0 = initRequestBuilder(makeBuilderId())
+  let (b1, handles) = addEmailChangesToGetAll(b0, makeAccountId("a1"), makeState("s0"))
+  let req = b1.freeze().request
+  assertLen req.methodCalls, 3
+  assertEq req.methodCalls[0].name, mnEmailChanges
+  assertEq req.methodCalls[1].name, mnEmailGet
+  assertEq req.methodCalls[2].name, mnEmailGet
+  doAssert $handles.changes == "c0",
+    "expected changes handle c0, got " & $handles.changes
+  doAssert $handles.created == "c1",
+    "expected created handle c1, got " & $handles.created
+  doAssert $handles.updated == "c2",
+    "expected updated handle c2, got " & $handles.updated
+
+testCase addEmailChangesToGetAllWiresBothReferences:
+  ## /created feeds the first get, /updated the second — sync needs
+  ## both halves of the fetchable delta.
+  let b0 = initRequestBuilder(makeBuilderId())
+  let (b1, _) = addEmailChangesToGetAll(b0, makeAccountId("a1"), makeState("s0"))
+  let req = b1.freeze().request
+  let createdRef = req.methodCalls[1].arguments{"#ids"}
+  doAssert not createdRef.isNil, "expected #ids back-reference on the created get"
+  assertEq createdRef{"name"}.getStr(""), "Email/changes"
+  assertEq createdRef{"path"}.getStr(""), "/created"
+  let updatedRef = req.methodCalls[2].arguments{"#ids"}
+  doAssert not updatedRef.isNil, "expected #ids back-reference on the updated get"
+  assertEq updatedRef{"name"}.getStr(""), "Email/changes"
+  assertEq updatedRef{"path"}.getStr(""), "/updated"
+
+testCase addEmailChangesToGetAllThreadsFetchOptionsToBothGets:
+  ## The one bodyFetchOptions argument reaches BOTH gets — a sync asking
+  ## for text bodies must not receive them on the created half alone.
+  let opts = EmailBodyFetchOptions(
+    bodyProperties: Opt.none(NonEmptySeq[EmailBodyProperty]),
+    fetchBodyValues: bvsText,
+    maxBodyValueBytes: Opt.none(UnsignedInt),
+  )
+  let b0 = initRequestBuilder(makeBuilderId())
+  let (b1, _) = addEmailChangesToGetAll(
+    b0, makeAccountId("a1"), makeState("s0"), bodyFetchOptions = opts
+  )
+  let req = b1.freeze().request
+  doAssert req.methodCalls[1].arguments{"fetchTextBodyValues"}.getBool(false),
+    "expected fetchTextBodyValues on the created get"
+  doAssert req.methodCalls[2].arguments{"fetchTextBodyValues"}.getBool(false),
+    "expected fetchTextBodyValues on the updated get"
+
 # ===========================================================================
 # C. addMailboxChangesToGet
 # ===========================================================================

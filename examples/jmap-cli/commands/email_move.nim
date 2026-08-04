@@ -2,12 +2,13 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## `jmap-cli email move <emailId> <mailboxId>` — replace an email's mailbox
-## membership via the moveToMailbox convenience EmailUpdate (full replace).
-## Same triple-sealing chain as `email flag`; the repetition is the finding.
-## Both seal steps `.lift` their accumulating violations onto the one rail.
+## membership (full replace) via Email/set. The "repetition is the finding"
+## note this command carried is RESOLVED: `moveEmails` is the sibling of
+## `email flag`'s `markEmailsRead`, so both commands are now the same
+## one-liner over a folded write and the shared triple-sealing chain has no
+## call site left to repeat.
 
 import jmap_client
-import std/tables
 import ./cli_session
 
 proc moveEmail(emailIdArg, mailboxIdArg: string): JmapResult[int] =
@@ -15,24 +16,16 @@ proc moveEmail(emailIdArg, mailboxIdArg: string): JmapResult[int] =
   let mailboxId = ?parseIdFromServer(mailboxIdArg).lift
   let ctx = ?connect()
 
-  let updSet = ?initEmailUpdateSet(@[moveToMailbox(mailboxId)]).lift
-  let updates = ?parseNonEmptyEmailUpdates(@[(emailId, updSet)]).lift
+  # Full mailbox-membership replace: "move" means the email is in the
+  # destination and nowhere else (the builder path's addToMailbox is the
+  # additive verb).
+  let resp = ?ctx.client.moveEmails(ctx.mailAccount, @[emailId], mailboxId)
 
-  let (b, handle) =
-    ctx.client.newBuilder().addEmailSet(ctx.mailAccount, update = Opt.some(updates))
-  let dr = ?ctx.client.send(b.freeze())
-  let outcome = ?dr.get(handle)
-  case outcome.kind
-  of mokMethodError:
-    stderr.writeLine "Email/set: " & outcome.error.message
-    ok(1)
-  of mokValue:
-    for id, res in outcome.value.updateResults:
-      if res.isOk:
-        echo "moved ", $id
-      else:
-        stderr.writeLine "move failed for " & $id & ": " & res.error.message
-    ok(0)
+  for id, serverEcho in resp.updated:
+    echo "moved ", $id
+  for id, error in resp.updateFailures:
+    stderr.writeLine "move failed for " & $id & ": " & error.message
+  ok(0)
 
 proc run*(args: seq[string]): int =
   if args.len < 2:

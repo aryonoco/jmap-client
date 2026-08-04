@@ -16,7 +16,11 @@ positive finding, a win not friction, optionally "strengthened by Sn");
 `[accepted-as-trade-off: <reason>]` (a conscious, documented cost);
 `[filed-as-Cn: <gap>]` (a genuine residual gap, tracked as a new Section C
 item). A finding may carry a PRIMARY tag plus a RESIDUAL pointer when its
-common case is resolved but a deeper gap remains.
+common case is resolved but a deeper gap remains. A `[filed-as-Cn]` line
+later flips to `[resolved-Cn: <symbol>]` when its Section C item ships —
+when that item flips to ✅ DONE in
+`docs/TODO/pre-1.0-api-alignment.md` — naming the shipped symbol just as
+`resolved-Sn` does.
 
 **Format.** `- <command>:<call-site>: <description> [disposition]`
 
@@ -35,26 +39,30 @@ cannot be expressed with hub-public symbols at all (highest severity).
   RFC 8620/8621 entity area is covered (see [Coverage](#coverage)),
   live-verified against Stalwart — including real alice → bob delivery and
   an incremental-sync delta.
-- **Findings: 98 ledger lines** — the build-environment, positives,
-  per-command, cross-cutting and Phase-0 lines. After **Phase 2 triage**
-  (90 inline findings carry a disposition; the other 8 `[open]` substrings
-  are prose references to the old observe-only convention), the breakdown is:
+- **Findings: 99 ledger lines** — the build-environment, positives,
+  per-command, cross-cutting and Phase-0 lines. After **Phase 2 triage** and
+  the C15 easy-path branch that acted on it (91 inline findings carry a
+  disposition; the other 8 `[open]` substrings are prose references to the old
+  observe-only convention), the breakdown is:
   **resolved-S0 7, resolved-S1 9, resolved-S2 9, resolved-S3 9,
-  resolved-S4 22, affirmed 14, accepted-as-trade-off 11, filed-as-Cn 9**.
-  Many resolutions also carry a RESIDUAL pointer (6 residual
-  accepted-as-trade-off, and residual `filed-as-C11/C12/C16`) for a
-  deeper gap left after the common case was fixed. So **56 of 90 inline
-  findings are resolved by S0–S4**, 14 were positives all along, 11 are
-  documented trade-offs, and 9 are filed to Section C — seven to fresh items
-  created this triage (C15 the Email/set write one-shot, C17 the
-  changes-combinator gap, C20 a query filter/sort builder, C21 a per-type
-  state accessor, C22 typing the vacation singleton id) and two to the existing
-  C3 (the by-ids one-shots collapse the lifecycle but not the
-  `Opt.some(direct(@[id]))` input wrapping). Each
+  resolved-S4 22, affirmed 14, accepted-as-trade-off 11, resolved-Cn 5,
+  filed-as-Cn 5**. Many resolutions also carry a RESIDUAL pointer (6 residual
+  accepted-as-trade-off, and residual `filed-as-C11/C16`; the former
+  residual `filed-as-C12` pair is now `resolved-C12`) for a deeper gap
+  left after the common case was fixed. So **56 of 91 inline
+  findings are resolved by S0–S4** and a further **5 by the C15 easy-path
+  branch** (C15 the Email/set write one-shots — including the projection
+  iterators' `std/tables` container leak that adopting them uncovered — C17 the
+  changes combinator's `/updated` gap, C21 the per-type state accessor), 14
+  were positives all along, 11 are documented trade-offs, and 5 remain filed
+  to Section C — three to fresh items created this triage (C20 a query
+  filter/sort builder, C22 typing the vacation singleton id) and two to the
+  existing C3 (the by-ids one-shots collapse the lifecycle but not the
+  `Opt.some(direct(@[id]))` input wrapping). Each still-open
   filed-as-Cn item is registered in Section C of
   `docs/TODO/pre-1.0-api-alignment.md` (alongside the residual-pointer items
-  C11/C12/C16, the no-inline-anchor items C13/C14, and the done-in-triage
-  C18/C19).
+  C11/C16, the now-resolved residual-pointer item C12, the no-inline-anchor
+  items C13/C14, and the done-in-triage C18/C19).
 - **Blocked commands (inexpressible with hub-public symbols): NONE.**
   Every command compiles and round-trips through `import jmap_client` only
   (S4 dissolved the P6 `jmap_client/convenience` quarantine, so the
@@ -188,13 +196,14 @@ These are about the *build contract*, not a specific call site.
 - email read:id-parser-choice: the command must choose between strict `parseId` and lenient `parseIdFromServer` for a CLI-supplied id with no guidance — the strict/lenient pair (a sensible internal Postel's-law split) leaks to the consumer as a decision [accepted-as-trade-off: a principled Postel strict/lenient split]
 
 ### email flag
-- email flag:set-construction: a single-email flag pays a two-layer sealing ceremony — `initEmailUpdateSet(ops).valueOr` then `parseNonEmptyEmailUpdates(@[(eid, updSet)]).valueOr` — so the "update ONE email" case still wraps the whole-container `NonEmptyEmailUpdates`; a one-shot `addEmailUpdate(acc, id, @[ops])` shorthand is missing [filed-as-C15: no Email/set write one-shot — the `initEmailUpdateSet → parseNonEmptyEmailUpdates` construction sealing chain is intact; S2's projection iterators are read-side and resolve only the separate `updateResults` read]
+- email flag:set-construction: a single-email flag pays a two-layer sealing ceremony — `initEmailUpdateSet(ops).valueOr` then `parseNonEmptyEmailUpdates(@[(eid, updSet)]).valueOr` — so the "update ONE email" case still wraps the whole-container `NonEmptyEmailUpdates`; a one-shot `addEmailUpdate(acc, id, @[ops])` shorthand is missing [resolved-C15: markEmailsRead/markEmailsUnread — the write one-shot seals the update across the ids, dispatches, and collapses the Email/set outcome onto the rail, so the "update ONE email" case is `markEmailsRead(acc, @[id])` with no `initEmailUpdateSet` → `parseNonEmptyEmailUpdates` chain at the call site]
 - email flag:accumulating-rail: both `initEmailUpdateSet` and `parseNonEmptyEmailUpdates` return `Result[_, seq[ValidationError]]` for what is conceptually one construct, forcing `error.mapIt(it.message).join("; ")` rendering instead of the single `.message` that `parseId`/`parseKeyword`/`parseAccountId` give — two error-rail shapes in one command [resolved-S1: NonEmptySeq[ValidationError] folds into jeValidation; one err.message joins every violation]
 - email flag:updateResults: the per-item success payload is `Result[Opt[PartialEmail], SetError]` — a Result-of-Opt double layer whose inner `Opt[PartialEmail]` is almost always `none` for a flag, so callers check `res.isOk` and discard the Opt; the three-layer unwrap reads awkwardly [resolved-S2: created/updated projection iterators; residual accepted-as-trade-off: the per-item Result-of-Opt read for callers needing SetError]
+- email flag:projection-iterator-tables-leak: adopting the S2 projection iterators to read a `/set` response forced the consumer to add `import std/tables` anyway — the iterators are GENERIC, so their `for id, res in r.updateResults` resolves `pairs` at the INSTANTIATION site, and a hub-only consumer got `Error: type mismatch … pairs(r.updateResults)` reported from inside `methods.nim` with no clue at its own call site. Nim caches one instantiation per type argument, so whether a given module needed the import depended on which sibling command compiled first (`email move` compiled only because `email flag` had already bound the identical `SetResponse[EmailCreatedItem, PartialEmail]` walk). Same container-leak class as `email read:bodyValues`, but leaking through a generic BODY rather than a field type, so no signature change could have revealed it [resolved-C15: the six SetResponse projection iterators now call `tables.pairs(...)` module-qualified, which moves resolution to the definition site — no signature, yield type or doc changed. Every `commands/` module DROPPED its `std/tables` import and `tests/unit/tone_shot.nim` dropped its own; since UnusedImport is a hard error here, those drops are load-bearing proof the leak is gone]
 - email flag:SetError: only `se.message`/`se.description`/`se.rawType` are flat; structured detail (invalid property names, etc.) needs a `kind` case-match or the separate `mail_errors` helpers, which are easy to miss [accepted-as-trade-off: the structured detail is available via the kind case / mail_errors helpers; the flat message/description/rawType cover the common render]
 
 ### email move
-- email move:repetition: identical triple-sealing chain to `email flag` (`initEmailUpdateSet` -> `parseNonEmptyEmailUpdates` -> `addEmailSet(update = Opt.some(...))`) — the only difference is `moveToMailbox(id)` vs `markRead()`; the recurring boilerplate is a cross-cutting wrapper trigger [filed-as-C15: no Email/set write one-shot — the same `initEmailUpdateSet → parseNonEmptyEmailUpdates → addEmailSet` construction triple-seal as email flag, intact; S2's projection iterators are read-side]
+- email move:repetition: identical triple-sealing chain to `email flag` (`initEmailUpdateSet` -> `parseNonEmptyEmailUpdates` -> `addEmailSet(update = Opt.some(...))`) — the only difference is `moveToMailbox(id)` vs `markRead()`; the recurring boilerplate is a cross-cutting wrapper trigger [resolved-C15: moveEmails — the sibling one-shot over the same folded write (`destroyEmails` completes the family), so flag and move are each a single call and the recurring `initEmailUpdateSet → parseNonEmptyEmailUpdates → addEmailSet` chain has no consumer call site left to repeat]
 - email move:Opt-vs-value: `addEmailSet.update` is `Opt[NonEmptyEmailUpdates]` (needs an explicit `Opt.some(updates)`), whereas `addVacationResponseSet.update` takes its update set BY VALUE — the two `/set` builders disagree on the Opt-vs-value convention, so the consumer cannot muscle-memory one shape [accepted-as-trade-off: principled, not arbitrary — the four collection /set builders take update by `Opt` (it co-exists with optional create/destroy) while the vacation singleton takes it by value (no `Opt.none` "no-update" case — you omit the call), so each shape encodes its entity's operation model (P16); forcing uniformity would admit a meaningless `Opt.none` singleton call]
 - email move:moveToMailbox: the DSL verb itself reads well and is total — `moveToMailbox(id)` clearly expresses full-replace mailbox membership; the friction is entirely in the sealing/dispatch envelope around it [affirmed]
 
@@ -203,8 +212,8 @@ _The longest section by design — this is the highest-friction public path. It 
 
 Blueprint / body construction:
 - email send:no-body-helper (**high**): there is NO plain-text body shorthand anywhere on the hub (no `textBody(str)`, no `plainTextBody`, no `initBlueprintLeafPart`). The single most common case — a plain string body — requires hand-building a 4-layer chain `BlueprintBodyValue -> BlueprintLeafPart{bpsInline} -> BlueprintBodyPart{text/plain} -> flatBody` before `parseEmailBlueprint`. This is the headline send-ergonomics gap [resolved-S4: sendPlainText one-shot, body via the S3 plainTextBody(text) leaf]
-- email send:parsePartIdFromServer: the ONLY hub-public `PartId` mint is `parsePartIdFromServer`, whose name and docstring say "lenient, server-provided, receive-side (Postel)", yet the SEND path MUST call it to create a client-chosen creation-time partId; the plan's `parsePartId` does not exist — a discoverability/naming trap (a send-side call named `FromServer`) [resolved-S4: plainTextBody/sendPlainText mint the partId internally; residual filed-as-C12: parsePartIdFromServer send-side naming]
-- email send:raw-case-literals: `BlueprintLeafPart` and `BlueprintBodyPart` are constructed as raw case-object literals (no smart constructor), so the caller hand-writes the discriminator literals `source: bpsInline` / `isMultipart: false` and must know which fields belong to which branch — counter to "smart constructors only / raw constructors private" [resolved-S4: plainTextBody/sendPlainText; residual filed-as-C12: still-public raw Blueprint* part constructors]
+- email send:parsePartIdFromServer: the ONLY hub-public `PartId` mint is `parsePartIdFromServer`, whose name and docstring say "lenient, server-provided, receive-side (Postel)", yet the SEND path MUST call it to create a client-chosen creation-time partId; the plan's `parsePartId` does not exist — a discoverability/naming trap (a send-side call named `FromServer`) [resolved-S4: plainTextBody/sendPlainText mint the partId internally; residual resolved-C12: parsePartIdFromServer send-side naming]
+- email send:raw-case-literals: `BlueprintLeafPart` and `BlueprintBodyPart` are constructed as raw case-object literals (no smart constructor), so the caller hand-writes the discriminator literals `source: bpsInline` / `isMultipart: false` and must know which fields belong to which branch — counter to "smart constructors only / raw constructors private" [resolved-S4: plainTextBody/sendPlainText; residual resolved-C12: still-public raw Blueprint* part constructors]
 - email send:contentType-stringly: `BlueprintBodyPart.contentType` is a bare `string`, but `parseEmailBlueprint` rejects anything != "text/plain" for a text body (`ebcTextBodyNotTextPlain`) — a stringly-typed field guarded by deferred validation, with no compile-time aid [resolved-S4: plainTextBody mints the text/plain leaf internally; no stringly contentType at the call site]
 - email send:blueprint-error-rail: `parseEmailBlueprint` returns `Result[_, EmailBlueprintErrors]` — a custom OPAQUE accumulator (not `seq[ValidationError]`), with no aggregate render-to-string helper, so the caller iterates `items`/`head` and joins `.message` itself [resolved-S1: EmailBlueprintErrors retired; parseEmailBlueprint returns NonEmptySeq[ValidationError] into jeValidation]
 - email send:recipient-double-wrap: `parseEmailBlueprint`'s `fromAddr`/`to` are `Opt[seq[EmailAddress]]`, so a single recipient is `Opt.some(@[addr])` (Opt + seq) — ceremony for the common single-recipient case [resolved-S4: sendPlainText takes fromAddr/to/cc/bcc directly; no Opt+seq blueprint wrap at the call site]
@@ -222,8 +231,8 @@ Submission + the compound two-creation wiring (the centrepiece):
 
 ### email sync
 - email sync:state-roundtrips (POSITIVE): a `JmapState` cursor round-trips through `parseJmapState` (it is even in public-api.txt), so a consumer CAN persist a sync position to disk and resume after a process restart — the state is not trapped inside a live response object. This is exactly what incremental sync needs and the API gets it right [affirmed]
-- email sync:changes-to-get-created-only (**medium**): the convenience `addEmailChangesToGet` (and its `*ChangesToGet` siblings) back-references ONLY the `/created` path into the Email/get, so the `ChangesGetResults.get.list` carries created records but NOT updated ones. A mail client doing incremental sync overwhelmingly cares about UPDATED messages (read/flag/move changes), yet to fetch their bodies it must abandon the one-call convenience and hand-compose `addEmailChanges` + `addPartialEmailGet(ids = reference[seq[Id]](ch, mnEmailChanges, rpUpdated))` — the convenience covers the rarer case and drops to manual for the common one (live-confirmed: flagging an email yielded `updated=1` with an empty `get.list`) [filed-as-C17: changes combinator covers only /created; /updated needs hand-composition]
-- email sync:state-acquisition: `Email/changes` diffs against the Email OBJECT state (`GetResponse.state`), not the query state, and no command surfaces that state by default — the CLI had to issue an empty-ids `Email/get` purely to read `resp.state` as the initial cursor; a `session`- or get-level "current state per type" accessor would remove the bootstrap round-trip [filed-as-C21: a per-type current-state accessor to remove the changes bootstrap round-trip]
+- email sync:changes-to-get-created-only (**medium**): the convenience `addEmailChangesToGet` (and its `*ChangesToGet` siblings) back-references ONLY the `/created` path into the Email/get, so the `ChangesGetResults.get.list` carries created records but NOT updated ones. A mail client doing incremental sync overwhelmingly cares about UPDATED messages (read/flag/move changes), yet to fetch their bodies it must abandon the one-call convenience and hand-compose `addEmailChanges` + `addPartialEmailGet(ids = reference[seq[Id]](ch, mnEmailChanges, rpUpdated))` — the convenience covers the rarer case and drops to manual for the common one (live-confirmed: flagging an email yielded `updated=1` with an empty `get.list`) [resolved-C17: addEmailChangesToGetAll back-references BOTH /created and /updated into their own gets, and the `syncEmails` one-shot returns all three (`changes`/`created`/`updated`), so the common case — the bodies of messages read, flagged or moved since the cursor — arrives in the same round-trip with no hand-composed `reference[seq[Id]](ch, mnEmailChanges, rpUpdated)`]
+- email sync:state-acquisition: `Email/changes` diffs against the Email OBJECT state (`GetResponse.state`), not the query state, and no command surfaces that state by default — the CLI had to issue an empty-ids `Email/get` purely to read `resp.state` as the initial cursor; a `session`- or get-level "current state per type" accessor would remove the bootstrap round-trip [resolved-C21: getEmailState — the named per-type state accessor; the empty-ids Email/get is now the library's payload-free internal bootstrap, not a trick the consumer must know to read a cursor out of a get response]
 
 ### thread
 - thread:th.id / th.emailIds: `Thread` exposes NO public fields (empty type-shape); reads go through accessor funcs `id()`/`emailIds()` (the latter returning `lent seq[Id]`), diverging from `Mailbox`/`Identity` direct-field access — inconsistent entity read ergonomics across the same library [resolved-S2: Thread.id/emailIds are direct public fields (emailIds is NonEmptyIdSeq); lent dropped]
