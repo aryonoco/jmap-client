@@ -101,6 +101,24 @@ testCase addEmailChangesToGetAllWiresBothReferences:
   assertEq updatedRef{"name"}.getStr(""), "Email/changes"
   assertEq updatedRef{"path"}.getStr(""), "/updated"
 
+testCase addEmailChangesToGetAllThreadsFetchOptionsToBothGets:
+  ## The one bodyFetchOptions argument reaches BOTH gets — a sync asking
+  ## for text bodies must not receive them on the created half alone.
+  let opts = EmailBodyFetchOptions(
+    bodyProperties: Opt.none(NonEmptySeq[EmailBodyProperty]),
+    fetchBodyValues: bvsText,
+    maxBodyValueBytes: Opt.none(UnsignedInt),
+  )
+  let b0 = initRequestBuilder(makeBuilderId())
+  let (b1, _) = addEmailChangesToGetAll(
+    b0, makeAccountId("a1"), makeState("s0"), bodyFetchOptions = opts
+  )
+  let req = b1.freeze().request
+  doAssert req.methodCalls[1].arguments{"fetchTextBodyValues"}.getBool(false),
+    "expected fetchTextBodyValues on the created get"
+  doAssert req.methodCalls[2].arguments{"fetchTextBodyValues"}.getBool(false),
+    "expected fetchTextBodyValues on the updated get"
+
 # ===========================================================================
 # C. addMailboxChangesToGet
 # ===========================================================================

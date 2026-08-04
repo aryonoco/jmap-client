@@ -41,7 +41,7 @@ proc doSet(ctx: CliContext, body: string): JmapResult[int] =
   )
   # One singleton, so at most one of these loops yields — the update rails read
   # through the projection iterators, not the keyed updateResults table.
-  for id, serverEcho in resp.updated:
+  for _, _ in resp.updated:
     echo "vacation response enabled"
   for id, error in resp.updateFailures:
     stderr.writeLine "vacation set failed for " & $id & ": " & error.message

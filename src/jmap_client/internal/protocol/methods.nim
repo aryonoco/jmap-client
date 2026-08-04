@@ -554,7 +554,7 @@ func toJson*[T, C, U](req: SetRequest[T, C, U]): JsonNode =
     node["ifInState"] = s.toJson()
   for createMap in req.create:
     var createObj = newJObject()
-    for k, v in createMap:
+    for k, v in tables.pairs(createMap):
       createObj[$k] = v.toJson()
     node["create"] = createObj
   for destroyVal in req.destroy:
@@ -585,7 +585,7 @@ func toJson*[T, CopyItem](req: CopyRequest[T, CopyItem]): JsonNode =
   for s in req.ifInState:
     node["ifInState"] = s.toJson()
   var createObj = newJObject()
-  for k, v in req.create:
+  for k, v in tables.pairs(req.create):
     createObj[$k] = v.toJson()
   node["create"] = createObj
   case req.destroyMode.kind
