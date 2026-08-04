@@ -221,6 +221,16 @@ type DispatchedResponse* {.ruleOff: "objects".} = object
   ## Modelled after SQLite's ``sqlite3_stmt*`` (compiled artifact) vs
   ## row data, and libcurl's ``CURL*`` (easy handle) vs response bytes:
   ## dispatch artifact and wire data live in separate types.
+  ##
+  ## **Threading.** Sealed value with no mutable state: both fields are
+  ## private, ``initDispatchedResponse`` is the sole construction path,
+  ## and extraction is L3-pure (``{.push raises: [], noSideEffect.}``) —
+  ## ``handle.get`` reads and decodes, it never writes back. Copies
+  ## still alias the ``JsonNode`` arguments of the underlying
+  ## ``Response``, and under ``--mm:arc`` reference counts are not
+  ## atomic, so extracting from aliasing copies on two threads is a
+  ## race. A DispatchedResponse moves to another thread; it is never
+  ## shared across threads.
   rawResponse: Response
   rawBuilderId: BuilderId
 
