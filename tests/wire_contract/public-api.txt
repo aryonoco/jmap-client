@@ -923,6 +923,7 @@ proc queryEmailSubmissions (client: JmapClient, accountId: AccountId, filter: Op
 proc queryEmails (client: JmapClient, accountId: AccountId, filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]), sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]), queryParams: QueryParams = QueryParams(), collapseThreads: bool = false, bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): Result[QueryThenGet[Email], JmapError]
 proc queryMailboxes (client: JmapClient, accountId: AccountId, filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]), sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]), queryParams: QueryParams = QueryParams(), sortAsTree: bool = false, filterAsTree: bool = false): Result[QueryThenGet[Mailbox], JmapError]
 proc sendPlainText (client: JmapClient, accountId: AccountId, identityId: Id, mailboxes: SendMailboxes, message: PlainTextMessage): Result[SentEmail, JmapError]
+proc setVacationResponse (client: JmapClient, accountId: AccountId, updates: openArray[VacationResponseUpdate]): Result[SetResponse[NoCreate, PartialVacationResponse], JmapError]
 
 ## jmap_client/internal/protocol/builder
 type BuiltRequest

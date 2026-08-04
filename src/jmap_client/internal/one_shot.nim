@@ -293,6 +293,22 @@ proc destroyEmails*(
   (?dr.get(handle)).fulfil(mnEmailSet)
 
 # =============================================================================
+# VacationResponse/set write one-shot (RFC 8621 §8)
+# =============================================================================
+
+proc setVacationResponse*(
+    client: JmapClient, accountId: AccountId, updates: openArray[VacationResponseUpdate]
+): Result[SetResponse[NoCreate, PartialVacationResponse], JmapError] =
+  ## Updates the vacation singleton in one call, folding the update-set
+  ## seal (which rejects empty batches, duplicate properties, and a
+  ## backwards window) and the dispatch ceremony. The singleton id is
+  ## the library's concern, not the caller's.
+  let updateSet = ?initVacationResponseUpdateSet(updates).lift
+  let (b, handle) = client.newBuilder().addVacationResponseSet(accountId, updateSet)
+  let dr = ?client.send(b.freeze())
+  (?dr.get(handle)).fulfil(mnVacationResponseSet)
+
+# =============================================================================
 # sendPlainText — create a draft and submit it, moving it to Sent on success
 # (RFC 8621 §7.5/§7.5.1, RFC 8620 §5.3/§5.4)
 # =============================================================================

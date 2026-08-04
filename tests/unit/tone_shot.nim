@@ -643,3 +643,51 @@ testCase oneShotDestroyEmailsMethodError:
     "a server error invocation collapses onto jeMethod"
   doAssert res.error.methodFault.error.kind == metForbidden,
     "the method-error kind must survive onto the rail"
+
+# -----------------------------------------------------------------------------
+# setVacationResponse
+# -----------------------------------------------------------------------------
+
+testCase oneShotSetVacationResponseSuccess:
+  ## Enabling the singleton folds the update-set seal and dispatch into
+  ## one call; the server confirms via updated["singleton"].
+  let responseJson = envelope(
+    %*[
+      [
+        "VacationResponse/set",
+        {
+          "accountId": "acct-1",
+          "oldState": "s1",
+          "newState": "s2",
+          "updated": {"singleton": nil},
+        },
+        "c0",
+      ]
+    ]
+  )
+  let client = cannedClient(responseJson)
+  let res = client.setVacationResponse(
+    makeAccountId("acct-1"),
+    @[
+      setIsEnabled(true),
+      setSubject(Opt.some("Out of office")),
+      setTextBody(Opt.some("Back Monday.")),
+    ],
+  )
+  assertOk(res)
+  var confirmed = 0
+  for id, serverEcho in res.value.updated:
+    confirmed.inc
+    assertEq($id, "singleton")
+  assertEq(confirmed, 1)
+
+testCase oneShotSetVacationResponseEmptyIsValidation:
+  ## An empty update batch has exactly one representation — not calling.
+  ## The seal rejects it before any network traffic.
+  let client = cannedClient(envelope(%*[]))
+  let res = client.setVacationResponse(
+    makeAccountId("acct-1"), newSeq[VacationResponseUpdate]()
+  )
+  doAssert res.isErr, "an empty update batch must reject at the seal, not the wire"
+  doAssert res.error.kind == jeValidation,
+    "an empty update batch is a validation failure, not a transport one"
