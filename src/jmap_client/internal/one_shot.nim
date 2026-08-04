@@ -234,6 +234,42 @@ proc queryEmailSubmissions*(
   )
 
 # =============================================================================
+# Email/set write one-shots (RFC 8621 §4.6)
+# =============================================================================
+
+proc runSet(
+    client: JmapClient, accountId: AccountId, ids: openArray[Id], update: EmailUpdate
+): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError] =
+  ## Shared body of the Email/set write one-shots: seal one ``update``
+  ## across every id, dispatch, and collapse the method outcome.
+  ## Per-id ``SetError``s stay data on the response (``updateResults``
+  ## and the projection iterators) — the rail carries only whole-method
+  ## failure, so one rejected email never hides its siblings' results.
+  let updateSet = ?initEmailUpdateSet(@[update]).lift
+  var items = newSeqOfCap[(Id, EmailUpdateSet)](ids.len)
+  for id in ids:
+    items.add((id, updateSet))
+  let updates = ?parseNonEmptyEmailUpdates(items).lift
+  let (b, handle) =
+    client.newBuilder().addEmailSet(accountId, update = Opt.some(updates))
+  let dr = ?client.send(b.freeze())
+  (?dr.get(handle)).fulfil(mnEmailSet)
+
+proc markEmailsRead*(
+    client: JmapClient, accountId: AccountId, ids: openArray[Id]
+): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError] =
+  ## Sets ``$seen`` on every id in one ``Email/set``. Empty or duplicate
+  ## ids reject at the seal (the update set demands distinct, non-empty
+  ## targets), so an empty call never reaches the network.
+  runSet(client, accountId, ids, markRead())
+
+proc markEmailsUnread*(
+    client: JmapClient, accountId: AccountId, ids: openArray[Id]
+): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError] =
+  ## Removes ``$seen`` from every id in one ``Email/set``.
+  runSet(client, accountId, ids, markUnread())
+
+# =============================================================================
 # sendPlainText — create a draft and submit it, moving it to Sent on success
 # (RFC 8621 §7.5/§7.5.1, RFC 8620 §5.3/§5.4)
 # =============================================================================

@@ -16,6 +16,7 @@
 
 import std/json
 import std/strutils
+import std/tables
 
 import jmap_client
 
@@ -428,3 +429,110 @@ testCase oneShotGetEmailStateMethodError:
     "a server error invocation collapses onto jeMethod"
   doAssert res.error.methodFault.error.kind == metServerFail,
     "the method-error kind must survive onto the rail"
+
+# -----------------------------------------------------------------------------
+# markEmailsRead / markEmailsUnread
+# -----------------------------------------------------------------------------
+
+proc setUpdatedNullResponse(id: string): string =
+  ## Email/set success where the server confirms the update with a null
+  ## echo — the common case for keyword patches.
+  envelope(
+    %*[
+      [
+        "Email/set",
+        {
+          "accountId": "acct-1",
+          "oldState": "s1",
+          "newState": "s2",
+          "updated": {id: nil},
+        },
+        "c0",
+      ]
+    ]
+  )
+
+testCase oneShotMarkEmailsReadSuccess:
+  ## One id marked read: the one-shot folds the triple seal and emits a
+  ## single Email/set whose update patch sets keywords/$seen; the
+  ## response surfaces through the S2 iterators.
+  let inner = newCannedTransport(
+    makeSessionJsonWithCoreCaps(realisticCoreCaps()), setUpdatedNullResponse("em-1")
+  )
+  let (transport, recorder) = newRecordingTransport(inner)
+  let client = initJmapClient(
+      directEndpoint("https://example.com/jmap").get(),
+      bearerCredential("test-token").get(),
+      transport,
+    )
+    .get()
+  let res = client.markEmailsRead(makeAccountId("acct-1"), @[makeId("em-1")])
+  assertOk(res)
+  var updatedCount = 0
+  for id, serverEcho in res.value.updated:
+    updatedCount.inc
+    assertEq($id, "em-1")
+    doAssert serverEcho.isNone
+  assertEq(updatedCount, 1)
+  for _, _ in res.value.updateFailures:
+    doAssert false
+  # The emitted request carries the $seen patch for exactly this id.
+  doAssert """"update":{"em-1":{"keywords/$seen":true}}""" in recorder.lastRequest.body
+
+testCase oneShotMarkEmailsUnreadEmitsRemoval:
+  ## markEmailsUnread patches keywords/$seen to null (removal).
+  let inner = newCannedTransport(
+    makeSessionJsonWithCoreCaps(realisticCoreCaps()), setUpdatedNullResponse("em-1")
+  )
+  let (transport, recorder) = newRecordingTransport(inner)
+  let client = initJmapClient(
+      directEndpoint("https://example.com/jmap").get(),
+      bearerCredential("test-token").get(),
+      transport,
+    )
+    .get()
+  let res = client.markEmailsUnread(makeAccountId("acct-1"), @[makeId("em-1")])
+  assertOk(res)
+  doAssert """"update":{"em-1":{"keywords/$seen":null}}""" in recorder.lastRequest.body
+
+testCase oneShotMarkEmailsReadSetErrorIsData:
+  ## A per-id notUpdated entry stays DATA on the ok branch — the rail is
+  ## reserved for whole-method failure.
+  let responseJson = envelope(
+    %*[
+      [
+        "Email/set",
+        {
+          "accountId": "acct-1",
+          "oldState": "s1",
+          "newState": "s1",
+          "notUpdated": {"em-9": {"type": "notFound"}},
+        },
+        "c0",
+      ]
+    ]
+  )
+  let client = cannedClient(responseJson)
+  let res = client.markEmailsRead(makeAccountId("acct-1"), @[makeId("em-9")])
+  assertOk(res)
+  var failureCount = 0
+  for id, error in res.value.updateFailures:
+    failureCount.inc
+    assertEq($id, "em-9")
+  assertEq(failureCount, 1)
+
+testCase oneShotMarkEmailsReadEmptyIdsIsValidation:
+  ## An empty ids list cannot form a NonEmptyEmailUpdates — the seal's
+  ## own validation rides the rail; nothing is sent.
+  let client = cannedClient(envelope(%*[]))
+  let res = client.markEmailsRead(makeAccountId("acct-1"), newSeq[Id]())
+  doAssert res.isErr
+  doAssert res.error.kind == jeValidation
+
+testCase oneShotMarkEmailsReadMethodError:
+  ## A whole-method error collapses fail-fast onto jeMethod.
+  let responseJson = envelope(%*[["error", {"type": "serverFail"}, "c0"]])
+  let client = cannedClient(responseJson)
+  let res = client.markEmailsRead(makeAccountId("acct-1"), @[makeId("em-1")])
+  doAssert res.isErr
+  doAssert res.error.kind == jeMethod
