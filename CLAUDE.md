@@ -15,7 +15,7 @@ The following 3 lines MUST be included at the end of EVERY git message body:
 
 Co-developed-by: Aryan Ameri <github@aryan.ameri.coffee>
 Signed-off-by: Aryan Ameri <github@aryan.ameri.coffee>
-Assisted-by: Claude:claude-4.8-opus
+Assisted-by: Claude:claude-5-fable
 
 No other AI/LLM attribution in any other format should appear in the git message.
 
@@ -62,12 +62,13 @@ You are running in the  devcontainer. Tooling is managed by `mise.toml` - single
 - `just fmt-check` - Verify formatting
 - `just lint` - Run lint checks
 - `just analyse` - Run nimalyzer static analysis
-- `just ci` - Run full CI pipeline (reuse + fmt-check + lint + analyse + test)
+- `just ci` - Run full CI pipeline: reuse, fmt-check, the full lint battery (`lint`, `lint-isolated`, `lint-style`, the H1/H1b/H10/H11/H12/H13 boundary lints, the H15/H16/H17 snapshot locks), analyse, `test`
 - `just stalwart-up` / `stalwart-down` / `stalwart-reset` — Stalwart only
 - `just james-up` / `james-down` / `james-reset` — Apache James only
-- `just jmap-up` / `jmap-down` / `jmap-reset` / `jmap-status` — both servers
-- `just test-integration` — Run live integration tests against every configured JMAP server (requires `just jmap-up`, or per-server variants)
-- `just capture-fixtures` — Capture wire fixtures from every configured server
+- `just cyrus-up` / `cyrus-down` / `cyrus-reset` — Cyrus IMAP only
+- `just jmap-up` / `jmap-down` / `jmap-reset` / `jmap-status` — every configured target (Stalwart, James, Cyrus)
+- `just test-integration` — Run live integration tests against every configured JMAP target (requires `just jmap-up`, or per-server variants)
+- `just capture-fixtures` — Capture wire fixtures from every configured target
 - `just clean` - Remove build artifacts
 - `just docs` - Generate HTML documentation
 
@@ -95,28 +96,30 @@ Access the Nim source code at /.nim-reference
   Consult freely to validate your understanding of what an RFC actually stipulates.
 
 - `src/jmap_client.nim` — Library entry point and sole public re-export hub (C ABI exports land here per A10)
-- `src/jmap_client/convenience.nim` — Opt-in pipeline combinators (P6 quarantine; the ONLY public module path besides root)
 - `src/jmap_client/internal/types.nim` — Re-exports all Layer 1 modules (internal hub; re-exported from `src/jmap_client.nim`)
 - L1 modules under `src/jmap_client/internal/types/` (`validation`,
-  `primitives`, `identifiers`, `collation`, `capabilities`,
-  `methods_enum`, `session`, `envelope`, `framework`, `errors`,
-  `field_echo`) — re-exported via `src/jmap_client/internal/types.nim`
-  and surfaced to consumers through `src/jmap_client.nim`. See
-  `docs/design/01-layer-1-design.md` for per-module symbol inventory.
+  `primitives`, `identifiers`, `collation`, `submission_atoms`,
+  `capabilities`, `account_capability_schemas`, `methods_enum`,
+  `session`, `envelope`, `framework`, `errors`, `field_echo`,
+  `credential`, `session_endpoint`) — re-exported via
+  `src/jmap_client/internal/types.nim` and surfaced to consumers
+  through `src/jmap_client.nim`. See `docs/design/01-layer-1-design.md`
+  for per-module symbol inventory.
 - `src/jmap_client/internal/serialisation/` — Layer 2 serde modules (no public hub; in-tree callers import leaves directly under H10)
 - `src/jmap_client/internal/protocol.nim` — Re-exports the Layer 3 protocol surface (builders, dispatch, methods, entity)
 - `src/jmap_client/internal/transport.nim` — Pluggable HTTP transport interface (Layer 4; re-exported from `src/jmap_client.nim`)
 - `src/jmap_client/internal/client.nim` — JMAP client handle (Layer 4; re-exported from `src/jmap_client.nim`)
-- `src/jmap_client/internal/mail/` — RFC 8621 JMAP Mail entities (re-exported from `src/jmap_client.nim`)
+- `src/jmap_client/internal/one_shot.nim` — Build-dispatch-extract one-shot helpers (Layer 4; re-exported from `src/jmap_client.nim`)
+- `src/jmap_client/internal/mail/` — RFC 8621 JMAP Mail entities, including `combinators.nim` (the per-entity pipeline combinators, always-on — re-exported from `src/jmap_client.nim`)
 - `src/jmap_client/internal/{push,websocket}.nim` — Type stubs for RFC 8620 §7 Push and RFC 8887 WebSocket; types re-exported from root, no separate public module paths (A10c per P5 + P23)
-- `tests/` — Test modules (categories: `unit/`, `serde/`, `property/`, `compliance/`, `stress/`)
+- `tests/` — Test modules (categories: `unit/`, `serde/`, `property/`, `compliance/`, `stress/`, `protocol/`, `integration/`, `wire_contract/`, `compile/`, `lint/`)
 
 ## Coding Conventions
 
 - Use `const` and `let` bindings; `var` only when absolutely necessary and only locally
 - Error handling via Railway-Oriented Programming (nim-results):
   - Smart constructors return `Result[T, ValidationError]` — no exceptions
-  - Transport/request failures use `Result[T, ClientError]` (`JmapResult[T]` alias)
+  - Transport/request/protocol failures use `Result[T, JmapError]` (`JmapResult[T]` alias) — `JmapError` is the flat 8-arm consumer-facing error rail
   - Method errors (`MethodError`) and set errors (`SetError`) are data within successful responses
   - All error types are plain objects carried on the Result error rail
   - The `?` operator provides early-return error propagation
@@ -151,5 +154,5 @@ Detailed Nim patterns are in `.claude/rules/`:
 
 ## Workflow
 
-- Run `just ci` before committing (runs reuse + fmt-check + lint + test)
+- Run `just ci` before committing (reuse + fmt-check + the full lint battery, incl. the H15/H16/H17 snapshot locks + analyse + the fast test suite)
 - Use nph for formatting
