@@ -1,5 +1,18 @@
 # Layer 3: Protocol Logic — Detailed Design (RFC 8620)
 
+> **Currency banner — 2026-08-04.** Two families of statement here
+> predate later refactors and no longer hold. (1) §13 and the
+> module-layout sections present `convenience.nim` as an opt-in module
+> reached by `import jmap_client/convenience`; S4 deleted it — the
+> combinators live in `src/jmap_client/internal/mail/combinators.nim`,
+> the one-shots in `src/jmap_client/internal/one_shot.nim`, both
+> re-exported by the hub, and `import jmap_client` is the single public
+> module path. (2) Mentions of `ClientError` predate S1; the single
+> consumer rail is the eight-arm `JmapError` in
+> `internal/protocol/jmap_error.nim`. Ledger item D20 in
+> `docs/TODO/pre-1.0-api-alignment.md` owns the uplift; until it lands,
+> read `src/` for these areas.
+
 ## Preface
 
 This document specifies every type definition, serialisation pair, and

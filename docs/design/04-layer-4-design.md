@@ -1,5 +1,15 @@
 # Layer 4: Transport + Session Discovery — Detailed Design (RFC 8620)
 
+> **Currency banner — 2026-08-04.** Passages describing `convenience.nim`
+> as an opt-in module not re-exported by any hub — including locked
+> decision row D4.14 — predate the S4 refactor and no longer hold.
+> `convenience.nim` was deleted: the pipeline combinators live in
+> `src/jmap_client/internal/mail/combinators.nim`, the one-shots in
+> `src/jmap_client/internal/one_shot.nim`, both re-exported by the hub,
+> and `import jmap_client` is the single public module path. Ledger item
+> D20 in `docs/TODO/pre-1.0-api-alignment.md` owns the uplift; until it
+> lands, read `src/` for these areas.
+
 ## Preface
 
 This document specifies every type definition, procedure signature, error

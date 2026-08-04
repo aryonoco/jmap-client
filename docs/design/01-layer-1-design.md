@@ -1,5 +1,16 @@
 # Layer 1: Domain Types + Errors — Detailed Design (RFC 8620)
 
+> **Currency banner — 2026-08-04.** Passages naming `ClientError` (the
+> Preface, the ROP principle, §8.5 and §8.6) predate the S1 refactor and
+> no longer hold. The single consumer-facing rail is the eight-arm
+> `JmapError` in `src/jmap_client/internal/protocol/jmap_error.nim`, and
+> `JmapResult[T]` now aliases `Result[T, JmapError]`; the `jeTransport`
+> and `jeRequest` arms absorbed `ClientError`, so no `ClientError` type
+> or `clientError` constructor exists. `TransportError`, `RequestError`,
+> `MethodError` and `SetError` are unaffected. Ledger item D20 in
+> `docs/TODO/pre-1.0-api-alignment.md` owns the uplift; until it lands,
+> read `src/` for these areas.
+
 ## Preface
 
 This document specifies every type definition, smart constructor, and validation

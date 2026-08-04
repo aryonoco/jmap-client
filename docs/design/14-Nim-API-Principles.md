@@ -204,21 +204,57 @@ both. *Application.* If both flavours are useful, expose only one as the
 documented "use this" API; the other is implementation detail.
 Reviewers reject PRs that grow parallel public surfaces.
 
-**P6. Convenience APIs are quarantined from the protocol-fidelity core.**
-*Rule.* High-level convenience methods (e.g. `client.fetchInbox()`,
-`client.archiveEmail()`) live in a separate module from the
-protocol-fidelity primitives. Documentation for the core does not
-assume the convenience layer. *Evidence.* zlib's `gz_*` family — a
-`FILE*`-bound convenience layer with a long history of edge-case bugs
-that contaminate users' image of the rest of zlib. SQLite's
-`sqlite3_exec` — a callback-based convenience that the docs explicitly
-steer serious users away from. *Nim translation.* Place convenience
-helpers under a clearly-named module (`convenience.nim` already
-exists); ensure the core L3 protocol API documents the underlying
-mechanism without referencing convenience helpers. *Application.* Audit
-`src/jmap_client/convenience.nim` — verify it does not leak abstractions
-back into the core; verify documentation for L3 protocol primitives is
-self-contained.
+**P6. The easy path is first-class; the core stands without it.**
+*Rule.* One import — `jmap_client` — reaches everything: the
+protocol-fidelity primitives (build a `RequestBuilder`, `freeze`,
+`send`, extract from the `DispatchedResponse`) and the easy path over
+them (the `connect` / bare-get / `queryEmails` / `sendPlainText`
+one-shots, and the `add<Entity>QueryThenGet` /
+`add<Entity>ChangesToGet` / `getBoth` pipeline combinators). There is
+no second public module path. What the quarantine used to buy is
+bought by charter instead: the easy path composes core primitives and
+never acquires semantics JMAP does not have (no `fetchInbox`, no
+`archiveEmail`), and the core's documentation stands alone — a reader
+learning the builder and dispatch surface is never told to "see the
+one-shot". *Evidence.* zlib's `gz_*` family — a `FILE*`-bound
+convenience layer with a long history of edge-case bugs that
+contaminate users' image of the rest of zlib. SQLite's `sqlite3_exec` —
+a callback-based convenience that the docs explicitly steer serious
+users away from. Both ship inside their library's single public header:
+what harmed users was a second layer carrying its own semantics and its
+own lower quality bar (the P5 failure), not the absence of a separate
+file. The separation that protects a consumer is which path the
+documentation blesses, not which module it lives in. *Nim
+translation.* The combinators live in
+`src/jmap_client/internal/mail/combinators.nim` (re-exported by the
+mail hub) and the one-shots in `src/jmap_client/internal/one_shot.nim`
+(re-exported by the root hub); both are internal paths that the H10
+boundary lint forbids a consumer from importing, so
+`tests/wire_contract/module-paths.txt` holds exactly one entry. The
+dependency direction is one-way — the easy path calls the public
+builders, `reference`, `getBoth` and `fulfil`; no core module imports
+it. *Application.* Keep that direction one-way and keep the
+module-path set at one. Reject any helper named for a mail workflow
+rather than for the JMAP methods it composes; reject any core docstring
+that defers to a one-shot for its explanation.
+
+*Amendment (2026-06-16).* P6 as first written prescribed the opposite —
+convenience helpers quarantined behind an opt-in
+`import jmap_client/convenience`, with the core documented as if that
+module did not exist. S4 reversed it deliberately (commit 37b5386,
+PR #12) after the `examples/jmap-cli` bench (P29) showed the
+quarantine's cost fell on every consumer: the obvious
+`Email/query`-then-`Email/get` composition was unreachable from the
+headline import, so what a consumer discovered instead was the
+hand-rolled back-reference. The locked campaign decision was one
+ergonomic core and a full dissolve — delete the public
+`jmap_client/convenience` path, relocate the combinators under
+`internal/`, make the one-shots first-class on the hub. The public
+symbol set was unchanged by that move, and the boundary came out
+stronger: one public module path where there had been two (P5).
+Recorded here rather than quietly rewritten, per this document's
+closing rule — trade a principle off when the trade-off is conscious
+and documented.
 
 **P7. Watch the wrap rate.**
 *Rule.* If the typical user pattern is "use a wrapper around
@@ -580,8 +616,8 @@ these, the right action is to redesign rather than wave it through.
   where an enum exists.
 - **Multiple coexisting public layers for the same task.** Pick one;
   the rest are private.
-- **Convenience layer leaking back into the core.** Convenience
-  helpers may call the core; the core does not import them.
+- **Easy path leaking back into the core.** The one-shots and
+  combinators may call the core; no core module imports them.
 - **Catch-all `else` on case statements over finite enums.** Already a
   project rule (`nim-functional-core.md`); restated for emphasis: new
   variants must force compile errors at every consuming site.
@@ -626,9 +662,12 @@ is the answer to "what's left between today and 1.0".
 9. **L5 FFI design note.** Even with FFI deferred, write down which
    principles bind the future FFI now (especially: no last-error
    globals, opaque handles, enum errors, no init ritual).
-10. **Convenience module quarantine.** Verify `convenience.nim` does
-    not leak into the core; verify the docs for L3 primitives are
-    self-contained.
+10. **Easy-path charter.** The module quarantine is gone (see the P6
+    amendment), so there is no `convenience.nim` to keep out of the
+    core. What stays verifiable: the public module-path set is exactly
+    `jmap_client`; the one-shots and combinators call the core and no
+    core module imports them; the docs for the L3 protocol primitives
+    are self-contained and never defer to a one-shot.
 
 ## Verification
 

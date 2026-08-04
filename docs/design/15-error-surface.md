@@ -20,9 +20,17 @@ counter-examples are OpenSSL's twenty `*_CTX` types and libdbus's
 parallel error/exception surfaces — both failures of **P5**.
 
 The decisions in this document operationalise that contract for the
-seven error types the library carries — `ValidationError`,
-`TransportError`, `RequestError`, `ClientError`, `MethodError`,
-`SetError`, `GetError` — and the gate that keeps the projection stable.
+error types the library carries and the gate that keeps the projection
+stable. One of them is the rail consumers thread: `JmapError`
+(`src/jmap_client/internal/protocol/jmap_error.nim`), an eight-arm sum
+with `JmapResult[T] = Result[T, JmapError]`. The rest are leaves it
+lifts or carries as response data — `ValidationError`,
+`TransportError`, `RequestError`, `MethodError`, `SetError` — plus the
+five rail-only payloads `SessionFault`, `Misuse`, `ProtocolFault`,
+`MethodFault` and `SetFault`. The earlier `ClientError` and `GetError`
+wrappers are gone: `jeTransport`/`jeRequest` absorbed the first,
+`jeMisuse`/`jeProtocol` the second, so `case err.kind` is one level
+deep and maps isomorphically to one C enum.
 
 Principle coverage: **P1** (lock contract before 1.0), **P2** (stability
 bought with tests), **P5** (one name per concept), **P7** (watch the
@@ -45,15 +53,15 @@ constructors private), **P18** (sum types, exhaustive `case`), **P20**
 
 Every error type names its categorical discriminator `kind`. The backing
 enum carries the `*Kind` suffix. Application developers dispatch on
-`err.kind` uniformly across the seven types — the dispatch shape is the
+`err.kind` uniformly across every type — the dispatch shape is the
 same whether the underlying object is a case object
-(`TransportError`, `ClientError`, `SetError`, `GetError`) or a flat
+(`JmapError`, `TransportError`, `SetError`, `ProtocolFault`) or a flat
 object with a derived accessor (`RequestError`, `MethodError`).
 
 ```nim
 case err.kind
-of cekTransport: …
-of cekRequest:   …
+of jeTransport: …
+of jeRequest:   …
 ```
 
 The case-vs-flat distinction is internal implementation detail. The
@@ -64,12 +72,12 @@ trap: same concept, two names, two `case` shapes, two failure paths.
 ## 3. Enum suffix convention (D12)
 
 Every classification enum carries the `*Kind` suffix:
-`TransportErrorKind`, `RequestErrorKind`, `ClientErrorKind`,
-`MethodErrorKind`, `SetErrorKind`, `GetErrorKind`. Total parser
+`JmapErrorKind`, `TransportErrorKind`, `RequestErrorKind`,
+`MethodErrorKind`, `SetErrorKind`, `ProtocolFaultKind`. Total parser
 functions follow the same suffix: `parseRequestErrorKind`,
 `parseMethodErrorKind`, `parseSetErrorKind`.
 
-Variant prefixes (`ret`, `met`, `set`, `tek`, `cek`, `gek`) stay
+Variant prefixes (`je`, `ret`, `met`, `set`, `tek`, `pf`) stay
 unchanged. `setForbidden` / `metInvalidArguments` / `retNotJson` are
 concise mnemonics; renaming each variant would churn the codebase
 without changing the API contract. The wire format is unaffected:
@@ -92,19 +100,25 @@ Filtered (hub-private):
   `setErrorBlobNotFound`, `setErrorInvalidEmail`,
   `setErrorTooManyRecipients`, `setErrorInvalidRecipients`,
   `setErrorTooLarge`
-- `clientError` (both overloads)
-- `validationToClientError`, `validationToClientErrorCtx`
-- `getErrorMethod`, `getErrorHandleMismatch`
+- the dispatch-only rail arms and their payload constructors —
+  `jmapMisuse`, `jmapProtocol`, `jmapMethod`, `jmapSet`, `misuse`,
+  `methodFault`, `setFault`, `protocolMissingCall`,
+  `protocolMalformedError`, `protocolDecode` (filtered at
+  `src/jmap_client/internal/protocol.nim`, since only dispatch is in a
+  position to observe these faults)
 
 Retained on the hub (Transport-contract producers, **A19**):
 
 - `transportError`, `httpStatusError`, `sizeLimitExceeded`
-- `classifyTransportException`, `classifyException`
+- `classifyTransportException`
 - `enforceBodySizeLimit`
 
-These last six are public because **custom `Transport` implementations
+These five are public because **custom `Transport` implementations
 MUST return a `TransportError` on failure** — the producers are part of
-the implementer contract, not the application-developer contract.
+the implementer contract, not the application-developer contract. The
+rail lifts a `Transport` implementer reaches for are public for the same
+reason: `jmapTransport`, `jmapRequest`, `jmapValidation`, `jmapSession`,
+`sessionFault`, and the `toJmapError` overloads over those leaves.
 
 The companion compile audits at
 `tests/compile/tcompile_a12_error_constructor_surface.nim` and
@@ -169,12 +183,21 @@ requestError("urn:example:vendor:custom")
 → "urn:example:vendor:custom"
 ```
 
-### 5.4 ClientError
+### 5.4 JmapError
 
-Delegates to the wrapped variant:
+Exhaustive `case err.kind`, delegating to the arm's payload so there is
+one source of truth per diagnostic. Adding an arm forces a compile error
+here (and in any FFI projection).
 
-- `cekTransport`: `err.transport.message`
-- `cekRequest`: `err.request.message`
+- `jeValidation`: every accumulated `ValidationError.message`, joined
+  with `"; "` — the "report all violations" detail is not lost
+- `jeTransport`: `err.transport.message`
+- `jeRequest`: `err.request.message`
+- `jeSession`: `err.session.message`
+- `jeMisuse`: `err.misuse.message`
+- `jeProtocol`: `err.protocol.message`
+- `jeMethod`: `err.methodFault.message`
+- `jeSet`: `err.setFault.message`
 
 ### 5.5 MethodError
 
@@ -214,15 +237,31 @@ shape:
 - with non-empty description: `rawType & ": " & description`
 - without description (or empty): `rawType`
 
-### 5.7 GetError
+### 5.7 The rail-only payloads
 
-Two arms:
+Five payload types are carried only as `JmapError` arms, so their
+projections are read through §5.4:
 
-- `gekMethod`: delegates to `ge.methodErr.message`
-- `gekHandleMismatch`: `"handle from a different builder (expected X; got Y; callId=…)"`
+- `SessionFault`: `"session does not advertise the " & uri &
+  " capability"`, falling back to the enum's symbolic name for an
+  unregistered capability
+- `Misuse`: `"handle from a different builder (expected X; got Y;
+  callId=…)"`
+- `ProtocolFault`, exhaustive on `ProtocolFaultKind`:
+  - `pfMissingCall`: `"no response for call ID <id>"`
+  - `pfMalformedError`: `"malformed error response for call ID <id>"`
+  - `pfDecode`: `"malformed response"`, the call ID when the decode
+    localises to one, then the `SerdeViolation` rendered through the
+    canonical `toValidationError(violation, "response")` translator
+- `MethodFault`: `"method " & methodName & " failed: " & error.message`
+- `SetFault`: `methodName & " create failed: " & error.message`
 
-The `gekMethod` arm intentionally delegates rather than re-formatting:
-there is one source of truth for the MethodError diagnostic.
+`MethodFault` and `SetFault` delegate rather than re-format: there is
+one source of truth for the `MethodError` and `SetError` diagnostics.
+Both arms exist only for the one-shot paths, where no sibling result
+needs protecting; the structured `get` / `getBoth` and
+`SetResponse.createResults` keep the same errors as response data
+(RFC 8620 §3.6.2, §5.3).
 
 ## 6. Redaction rule (D4)
 

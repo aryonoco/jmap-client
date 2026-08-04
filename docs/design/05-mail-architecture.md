@@ -1,5 +1,13 @@
 # RFC 8621 JMAP Mail — Cross-Cutting Architecture Design
 
+> **Currency banner — 2026-08-04.** The one statement that places
+> `QueryGetHandles[T]` in "core's `convenience.nim`" predates the S4
+> refactor. `convenience.nim` was deleted: the pipeline combinators and
+> their handle bundles live in
+> `src/jmap_client/internal/mail/combinators.nim`, re-exported by the
+> hub. Ledger item D20 in `docs/TODO/pre-1.0-api-alignment.md` owns the
+> uplift; until it lands, read `src/` for this area.
+
 This document captures the architectural decisions that affect all entity types
 in the RFC 8621 (JMAP Mail) implementation. It is the single reference for
 cross-cutting concerns; per-entity implementation details live in the
