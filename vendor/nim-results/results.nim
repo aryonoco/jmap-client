@@ -438,6 +438,9 @@ func raiseResultError[T, E](self: Result[T, E]) {.noreturn, noinline.} =
     of true:
       raise (ref ResultError[void])(msg: "Trying to access value with err")
 
+# Local patch (jmap-client): probe effect-provability, not just
+# typecheckability — the derived $ for self-referential value trees
+# typechecks but defeats effect inference; see the commit that introduced this guard.
 func raiseResultDefect(m: string, v: auto) {.noreturn, noinline.} =
   mixin `$`
   when compiles((func (x: typeof(v)): string {.noSideEffect.} = $x)(v)):

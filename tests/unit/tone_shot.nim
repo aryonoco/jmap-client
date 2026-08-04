@@ -715,6 +715,13 @@ testCase oneShotSyncEmailsSuccess:
   ## plus both back-referenced gets, every outcome already collapsed
   ## onto the rail. Canned gets return empty lists — the wiring, not
   ## Email decoding, is under test (bare-get coverage owns decoding).
+  ## The two Email/get responses are made distinguishable via
+  ## ``notFound`` (only the c2/updated leg carries one) so the
+  ## assertions below pin ``created``/``updated`` to the right handle
+  ## rather than passing on a transposed swap. This is also
+  ## RFC-faithful: a record updated then destroyed since ``sinceState``
+  ## may legitimately surface as ``notFound`` on the ``/updated`` fetch
+  ## (RFC 8620 §5.2).
   let responseJson = envelope(
     %*[
       [
@@ -737,7 +744,7 @@ testCase oneShotSyncEmailsSuccess:
       ],
       [
         "Email/get",
-        {"accountId": "acct-1", "state": "s2", "list": [], "notFound": []},
+        {"accountId": "acct-1", "state": "s2", "list": [], "notFound": ["em-gone"]},
         "c2",
       ],
     ]
@@ -754,6 +761,9 @@ testCase oneShotSyncEmailsSuccess:
   assertLen(sync.changes.destroyed, 1)
   assertLen(sync.created.list, 0)
   assertLen(sync.updated.list, 0)
+  assertLen(sync.created.notFound, 0)
+  assertLen(sync.updated.notFound, 1)
+  assertEq(sync.updated.notFound[0], makeId("em-gone"))
 
 testCase oneShotSyncEmailsChangesErrorFailsFast:
   ## cannotCalculateChanges on the changes call collapses onto jeMethod
