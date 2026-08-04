@@ -908,6 +908,7 @@ type SendMailboxes
 type SentEmail
 proc connect (url, username, password: string): Result[JmapClient, JmapError]
 proc connect (url, username, password: string, transport: Transport): Result[JmapClient, JmapError]
+proc destroyEmails (client: JmapClient, accountId: AccountId, ids: openArray[Id]): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError]
 proc getEmailState (client: JmapClient, accountId: AccountId): Result[JmapState, JmapError]
 proc getEmailSubmissions (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])): Result[GetResponse[AnyEmailSubmission], JmapError]
 proc getEmails (client: JmapClient, accountId: AccountId, ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]), bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): Result[GetResponse[Email], JmapError]
@@ -917,6 +918,7 @@ proc getThreads (client: JmapClient, accountId: AccountId, ids: Opt[Referencable
 proc getVacationResponse (client: JmapClient, accountId: AccountId): Result[GetResponse[VacationResponse], JmapError]
 proc markEmailsRead (client: JmapClient, accountId: AccountId, ids: openArray[Id]): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError]
 proc markEmailsUnread (client: JmapClient, accountId: AccountId, ids: openArray[Id]): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError]
+proc moveEmails (client: JmapClient, accountId: AccountId, ids: openArray[Id], mailboxId: Id): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError]
 proc queryEmailSubmissions (client: JmapClient, accountId: AccountId, filter: Opt[Filter[EmailSubmissionFilterCondition]] = Opt.none(Filter[EmailSubmissionFilterCondition]), sort: Opt[seq[EmailSubmissionComparator]] = Opt.none(seq[EmailSubmissionComparator]), queryParams: QueryParams = QueryParams()): Result[QueryThenGet[AnyEmailSubmission], JmapError]
 proc queryEmails (client: JmapClient, accountId: AccountId, filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]), sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]), queryParams: QueryParams = QueryParams(), collapseThreads: bool = false, bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions)): Result[QueryThenGet[Email], JmapError]
 proc queryMailboxes (client: JmapClient, accountId: AccountId, filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]), sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]), queryParams: QueryParams = QueryParams(), sortAsTree: bool = false, filterAsTree: bool = false): Result[QueryThenGet[Mailbox], JmapError]

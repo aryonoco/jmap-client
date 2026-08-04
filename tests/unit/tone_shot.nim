@@ -552,3 +552,68 @@ testCase oneShotMarkEmailsReadMethodError:
     "a server error invocation collapses onto jeMethod"
   doAssert res.error.methodFault.error.kind == metServerFail,
     "the method-error kind must survive onto the rail"
+
+# -----------------------------------------------------------------------------
+# moveEmails / destroyEmails
+# -----------------------------------------------------------------------------
+
+testCase oneShotMoveEmailsReplacesMembership:
+  ## moveEmails is a full mailboxIds replace — the emitted patch names
+  ## exactly the destination.
+  let inner = newCannedTransport(
+    makeSessionJsonWithCoreCaps(realisticCoreCaps()), setUpdatedNullResponse("em-1")
+  )
+  let (transport, recorder) = newRecordingTransport(inner)
+  let client = initJmapClient(
+      directEndpoint("https://example.com/jmap").get(),
+      bearerCredential("test-token").get(),
+      transport,
+    )
+    .get()
+  let res =
+    client.moveEmails(makeAccountId("acct-1"), @[makeId("em-1")], makeId("mb-2"))
+  assertOk(res)
+  doAssert """"mailboxIds":{"mb-2":true}""" in recorder.lastRequest.body
+
+testCase oneShotDestroyEmailsSuccess:
+  ## destroyEmails surfaces destroyed ids through the destroyed iterator;
+  ## per-id refusals stay data in destroyFailures.
+  let responseJson = envelope(
+    %*[
+      [
+        "Email/set",
+        {
+          "accountId": "acct-1",
+          "oldState": "s1",
+          "newState": "s2",
+          "destroyed": ["em-1"],
+          "notDestroyed": {"em-2": {"type": "forbidden"}},
+        },
+        "c0",
+      ]
+    ]
+  )
+  let client = cannedClient(responseJson)
+  let res =
+    client.destroyEmails(makeAccountId("acct-1"), @[makeId("em-1"), makeId("em-2")])
+  assertOk(res)
+  var destroyedIds: seq[string] = @[]
+  for id in res.value.destroyed:
+    destroyedIds.add($id)
+  assertEq(destroyedIds, @["em-1"])
+  var refusals = 0
+  for id, error in res.value.destroyFailures:
+    refusals.inc
+    assertEq($id, "em-2")
+  assertEq(refusals, 1)
+
+testCase oneShotDestroyEmailsMethodError:
+  ## A whole-method error collapses fail-fast onto jeMethod.
+  let responseJson = envelope(%*[["error", {"type": "forbidden"}, "c0"]])
+  let client = cannedClient(responseJson)
+  let res = client.destroyEmails(makeAccountId("acct-1"), @[makeId("em-1")])
+  doAssert res.isErr, "expected a rail error for a method-level failure"
+  doAssert res.error.kind == jeMethod,
+    "a server error invocation collapses onto jeMethod"
+  doAssert res.error.methodFault.error.kind == metForbidden,
+    "the method-error kind must survive onto the rail"

@@ -270,6 +270,26 @@ proc markEmailsUnread*(
   ## Removes ``$seen`` from every id in one ``Email/set``.
   runSet(client, accountId, ids, markUnread())
 
+proc moveEmails*(
+    client: JmapClient, accountId: AccountId, ids: openArray[Id], mailboxId: Id
+): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError] =
+  ## Moves every id to ``mailboxId`` — a full mailbox-membership replace,
+  ## because "move" means the email is in the destination and nowhere
+  ## else. Callers wanting additive membership use the builder path's
+  ## ``addToMailbox`` update instead.
+  runSet(client, accountId, ids, moveToMailbox(mailboxId))
+
+proc destroyEmails*(
+    client: JmapClient, accountId: AccountId, ids: openArray[Id]
+): Result[SetResponse[EmailCreatedItem, PartialEmail], JmapError] =
+  ## Destroys every id in one ``Email/set``. Per-id refusals stay data
+  ## (``destroyFailures``); the rail carries whole-method failure only.
+  ## An empty ids list is legal wire and destroys nothing — the call
+  ## still round-trips.
+  let (b, handle) = client.newBuilder().addEmailSet(accountId, destroy = directIds(ids))
+  let dr = ?client.send(b.freeze())
+  (?dr.get(handle)).fulfil(mnEmailSet)
+
 # =============================================================================
 # sendPlainText — create a draft and submit it, moving it to Sent on success
 # (RFC 8621 §7.5/§7.5.1, RFC 8620 §5.3/§5.4)
