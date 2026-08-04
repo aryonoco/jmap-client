@@ -384,3 +384,13 @@ Nim's `{.threadvar.}` pragma compiles to `NIM_THREADVAR` in the generated
 C code (verified from compiler source `ccgthreadvars.nim`). Uses
 compiler-native TLS, works on foreign C threads under ARC without Nim
 thread registration.
+
+**Project prescription:** the mechanism is sound, but this library does
+not use it. Thread-local last-error state is forbidden here -- it is
+OpenSSL's `ERR_get_error`, the anti-pattern P14 names, and the settled
+model is per-handle: `jmap_status` return codes, diagnostics recorded on
+the handle, static `jmap_strerror` (`docs/design/17-L5-FFI-Principles.md`
+sections 1 and 13; `.claude/rules/nim-ffi-boundary.md` rules 3, 7, 8).
+Handles are confined to one thread at a time (P24), so the error slot
+needs no TLS. Kept here as spec reference for reading generated C, not as
+a pattern to reach for.

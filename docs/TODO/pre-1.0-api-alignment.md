@@ -69,15 +69,15 @@ consistency check) will be the freeze-time gate that mechanically
 catches dashboard drift; until it lands, the counts are maintained by
 hand.
 
-Last reconciled 2026-08-04 against `main` at 7d442a9 (the PR #16 merge,
-which is the base of the current work). One delta is already folded into
-the counts below: C12 flipped to ✅ DONE on 2026-08-04 on branch
-`api/c12-seal-blueprint-parts`, which is not yet merged.
+Last reconciled 2026-08-04 against `main` at 3a04b66 (the PR #17 merge,
+which closed C12 and is the base of the current work). One delta is
+folded into the counts below and is not yet on `main`: D10 flipped to
+✅ DONE on 2026-08-04 on branch `api/l5-ffi-design`.
 
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 77 | Implemented and verified against source / tests. |
-| ⬜ TODO | 36 | Not yet implemented. |
+| ✅ DONE | 78 | Implemented and verified against source / tests. |
+| ⬜ TODO | 35 | Not yet implemented. |
 | 🟦 DEFERRED | 5 | Post-1.0, or deferred by user decision (E1; D1, D1.5, D9, D18). |
 | ❌ MOOT | 5 | Premise dissolved by later work (C7, C9, D16, F3, H7). |
 | 🟡 PARTIAL | 4 | Some parts implemented; gaps named in the item body. |
@@ -88,7 +88,7 @@ the counts below: C12 flipped to ✅ DONE on 2026-08-04 on branch
 C1 (sample CLI consumer) with its scaffold C1.1 (`examples/jmap-cli/`)
 are both ✅ DONE. C12 (privatise the raw `BlueprintLeafPart` /
 `BlueprintBodyPart` constructors — a decided non-additive removal) is
-closed, shipped on `api/c12-seal-blueprint-parts`. One item remains
+closed, merged to `main` as PR #17 (`3a04b66`). One item remains
 that has to close before the 1.0 tag, because it cannot ride a 1.x
 additive window: the B6/P18 ship-or-affirm question on the public
 `bool` parameter family (affirming it as a documented exception is
@@ -3283,66 +3283,90 @@ curl* is the benchmark):
 Need not be complete pre-1.0; needs to exist and reflect the locked
 API.
 
-### D10. L5 FFI design note *(P9, P14, future-FFI)* — ⬜ TODO
+### D10. L5 FFI design note *(P9, P14, future-FFI)* — ✅ DONE (2026-08-04, branch api/l5-ffi-design)
 
-**Known contradiction, to be resolved when this note is authored.**
-`.claude/rules/nim-ffi-boundary.md` mandates the opposite of what this
-item requires: its rule 7 hands exported procs a `setLastError` /
-`clearLastError` pair, and its rule 8 makes thread-local error state via
+**Known contradiction (RESOLVED 2026-08-04).**
+`.claude/rules/nim-ffi-boundary.md` mandated the opposite of what this
+item requires: its rule 7 handed exported procs a `setLastError` /
+`clearLastError` pair, and its rule 8 made thread-local error state via
 `{.threadvar.}` a *mandatory* rule. That is the pattern P14 ("no
 thread-local error queues; no last-error globals",
 `docs/design/14-Nim-API-Principles.md` §Errors) forbids by name, that
 the same document's anti-pattern list forbids again ("Last-error
 thread-locals at the FFI boundary … errors travel through return values,
 not through `int jmap_last_error()`"), and that its Decision 9 tells this
-note to write down. The rules file and the skill content it drives are
+note to write down. The rules file and the skill content it drives were
 therefore steering the future L5 implementation into the OpenSSL
 anti-pattern. User decision 2026-08-04: resolve the contradiction inside
 the Layer-5 C ABI design phase — the phase that authors this very note —
 rather than patching the rules file ahead of it, so that one decision
 settles the rules file, the skill content, and the design note together.
 
-Write `docs/design/16-L5-FFI-Principles.md` mapping each principle to
-its C-ABI manifestation:
+**Resolved 2026-08-04.** Settled per the user's decision: per-handle
+error state — the SQLite/libcurl model (`jmap_status` return codes,
+`jmap_errmsg(handle)` with `sqlite3_errmsg` semantics, static
+`jmap_strerror`) — wins outright; thread-local last-error state is
+forbidden (P14). `.claude/rules/nim-ffi-boundary.md` rules 3, 7, and 8
+and all four `nim-ffi-boundary` skill files are rewritten to the
+per-handle model in the same change that lands this note, so one
+decision settles the rules file, the skill content, and the design note
+together, with zero remaining contradiction.
 
-A12's stable `kind` discriminator and bounded diagnostic
-projection (`message()`) per error type provide the prerequisites
-for the `CURLOPT_ERRORBUFFER`-style FFI surface this doc describes.
+Written as `docs/design/17-L5-FFI-Principles.md` (the tracker's planned
+name for this note, `16-L5-FFI-Principles.md`, was taken by
+`16-api-from-the-consumers-chair.md`, hence 17), mapping each principle
+to its C-ABI manifestation. The note also supersedes
+`docs/design/00-architecture.md` §5.1–5.4 on handle naming/inventory
+and enum exposure; dated amendment pointers were added in that file.
 
+**Carried through from this item's original requirement list.** Opaque
+handles the C consumer cannot see inside (doc 17 §2); no
+`EmailGetCtx*`/`MailboxQueryCtx*` proliferation (§2, P9);
+`jmap_init()` / `jmap_cleanup()` with no thread-local setup ritual
+(§2, §7, P10); per-handle callbacks with threaded `userdata` — the
+`setDebugCallback`/A31 shape, never a `jmap_register_logger()` (§6,
+P11); bring-your-own-HTTP transport mirroring A19's closure-vtable,
+with the user's `close_fn` firing from the last drop (§6); A6's
+`BuilderId` phantom-token strategy reserved as the C-ABI cookie
+analogue for the future builder layer (§8). A12's stable `kind`
+discriminator and bounded `message()` projection are the prerequisite
+that makes the diagnostic accessor total, whichever surface it takes.
 
-- Opaque handles via `distinct pointer` types.
-- **Errors via per-handle error buffer (libcurl `CURLOPT_ERRORBUFFER`
-  model), NOT thread-local last-error globals.** Thread-local
-  `int jmap_last_error()` is forbidden — that is the OpenSSL anti-
-  pattern P14 cites by name. Update the `nim-ffi-boundary` skill
-  content to remove the `{.threadvar.}` pattern as the default; per-
-  handle is canonical.
-- One `Client*` + transient `RequestBuilder*` only — no
-  `EmailGetCtx*`/`MailboxQueryCtx*` proliferation (P9).
-- Variadic-style options via tagged `JmapOption` enum, not
-  per-method-name procs (P20 in C ABI).
-- Initialisation: `jmap_init()` / `jmap_cleanup()` with no
-  thread-local setup ritual (P10).
-- Cite A6's `BuilderId` phantom-token strategy as the C-ABI-level
-  analogue (cookie/handle); the C ABI mints opaque builder ids that
-  the library validates on use.
-- Per-handle callbacks (P11): in-tree precedent is `setDebugCallback`
-  (A31) — a closure field on `JmapClient` with a libcurl
-  `CURLOPT_DEBUGFUNCTION` shape (`nil` detaches). Future
-  logging/progress/auth-refresh callbacks land the same way: fields
-  on `JmapClient`, paired with closure environment in Nim or a
-  `pointer` userdata at the C ABI boundary that the library threads
-  back unchanged. Never a `jmap_register_logger()` top-level proc.
-  The C ABI projection of `setDebugCallback` is
-  `jmap_set_debug_callback(client, fn, userdata)`.
-- **HTTP backend via callback (libcurl model).** A19's
-  `Transport` is a per-handle closure-vtable (`SendProc` +
-  `CloseProc`); the C ABI exposes `jmap_init_transport(send_fn,
-  close_fn, userdata, ...)` mirroring this shape directly. The C
-  consumer brings its own HTTP library via callback (libcurl-style
-  integration is a first-class use case). The `=destroy` hook on
-  Nim's `TransportObj` corresponds to a C-ABI `jmap_client_free`
-  that invokes the user's `close_fn` on the last reference.
+**Where the note settled differently, and why.**
+
+- **Error surface: `sqlite3_errmsg` borrow, not `CURLOPT_ERRORBUFFER`.**
+  This item assumed a caller-supplied error buffer. The user settled on
+  a library-owned `const char *jmap_errmsg(handle)` borrow instead: no
+  buffer sizing, no truncation protocol, no caller allocation on the
+  error path, and the same per-handle (not thread-local) storage that
+  was the point of the item. The anti-pattern verdict is unchanged —
+  `int jmap_last_error()` stays forbidden (P14).
+- **Handle spelling: forward-declared opaque structs, not a
+  `distinct pointer` alias.** The C side declares
+  `typedef struct jmap_client jmap_client;` — distinct incomplete types
+  that keep `const` qualification and `jmap_client **out` meaningful,
+  which a `void*` alias cannot. The Nim side is an L5-owned wrapper
+  object reached as `ptr JmapClientHandle`, because the L4 handles are
+  `ref`s over module-private objects (§2, P8).
+- **Builder deferred; `jmap_transport` and `jmap_query` ship instead.**
+  The transient `RequestBuilder*` of the original list is reserved for
+  a future *additive* C layer — the libcurl easy→multi trajectory
+  (P22) — because v1 wraps the one-shot easy path only. The two v1
+  owning contexts are `jmap_client` and `jmap_transport`, with
+  `jmap_query` as a transient spec handle (§2, §8).
+- **Option enum scoped and renamed: `jmap_query_opt`, not an ABI-wide
+  `JmapOption`.** The easy path's only structured input is the email
+  query, so the tagged-option surface is quarantined to it rather than
+  becoming a global option namespace (§5, P20).
+- **Transport constructor is `jmap_transport_new` / `jmap_transport_free`,
+  not `jmap_init_transport`** — the `_new`/`_free` pairing puts
+  ownership in the signature (§6, P12) and keeps `init` meaning
+  process initialisation only.
+- **v1 scope has a Nim prerequisite.** The C ABI wraps one-shots only,
+  so the missing write and sync one-shots land first: ledger **C15**
+  (Email/set write one-shot) plus a new item for the Email/changes
+  sync one-shot, which has no ledger entry today (C17 and C21 are its
+  components, not the one-shot itself). See doc 17 §8.
 
 ### D11. Scope and non-goals policy *(P4)* — ⬜ TODO
 
@@ -4236,7 +4260,7 @@ Status legend:
 | P6 (easy path first-class; core stands without it) | A10, C7, C9, C10, F3, D16, H7 | H13 lint (A10b); module-paths.txt snapshot (A10a); H10 internal-boundary lint (the charter lint H7 is moot — S4 dissolved the quarantine) | 🟢 |
 | P7 (wrap rate) | A12, A16, A31, B5, C1, C1.1, C2–C5, C8, F4 | F4 CLI smoke test | 🟡 |
 | P8 (opaque handles) | A6, A6.5, A6.6, A7b, A9, A13, A16, A19, A27, A28, A28b, A30 | F2 audit; H1; H12 | 🟡 |
-| P9 (two contexts max) | A6.5, A6.6, A7, A7b, B9, C9, D10 | B9 resolution (H7 moot — S4 dissolved the convenience layer) | 🟡 (B9 resolved; D10 open) |
+| P9 (two contexts max) | A6.5, A6.6, A7, A7b, B9, C9, D10 | B9 resolution (H7 moot — S4 dissolved the convenience layer) | 🟡 (B9 resolved; D10 closed) |
 | P10 (no globals) | D1.5 (no-globals rule), H2 | H2 lint | 🟡 |
 | P11 (no global callbacks) | A19 (closure-vtable per-handle), A31 (per-handle debug callback), D1.5 (no-callbacks rule), D10 | review; future L5 callback lint | 🟡 |
 | P12 (memory ownership in types) | A13, A19, B10 | review | 🟡 |
