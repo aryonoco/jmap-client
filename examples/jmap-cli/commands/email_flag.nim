@@ -2,45 +2,41 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## `jmap-cli email flag <emailId>` — mark an email $seen via Email/set.
-## Shows the EmailUpdate DSL -> EmailUpdateSet -> NonEmptyEmailUpdates
-## triple-sealing chain. Both seal steps ride the accumulating
-## ``NonEmptySeq[ValidationError]`` rail, so each composes onto the one
-## JmapError rail with a single ``.lift`` — the former
-## ``mapIt(it.message).join`` flattening is gone. The per-item
-## ``Table[Id, Result[Opt[PartialEmail], SetError]]`` update results stay data
-## on the ok branch.
+## The EmailUpdate DSL -> EmailUpdateSet -> NonEmptyEmailUpdates triple-sealing
+## chain this command used to document is RESOLVED: `markEmailsRead` folds the
+## two seal steps, the build/dispatch lifecycle and the Email/set outcome into
+## one call, so the write reads as account + ids + verb and a method error
+## arrives through `?`.
+##
+## The per-item `Table[Id, Result[Opt[PartialEmail], SetError]]` update results
+## stay data on the ok branch, and the hand-written `isOk` walk over them is
+## gone: the `updated` / `updateFailures` projection iterators read each rail
+## directly. The `std/tables` dependency survives that swap, though — see the
+## import comment below.
 
 import jmap_client
-import std/tables
+# Residual container leak: the projection iterators are generic, so Nim resolves
+# their Table `pairs` at THIS instantiation site — a hub-only consumer still
+# needs std/tables in scope to read any /set response.
+from std/tables import pairs
 import ./cli_session
 
 proc flagEmail(emailIdArg: string): JmapResult[int] =
   let emailId = ?parseIdFromServer(emailIdArg).lift
   let ctx = ?connect()
 
-  # DSL -> per-email update set -> keyed batch. markRead() sets $seen and is
-  # total; the two seal steps each accumulate violations and `.lift` onto the rail.
-  let updSet = ?initEmailUpdateSet(@[markRead()]).lift
-  let updates = ?parseNonEmptyEmailUpdates(@[(emailId, updSet)]).lift
+  # markRead()'s $seen op, sealed across the ids, dispatched and collapsed in
+  # one call — no update set, no keyed batch, no `case outcome.kind` here.
+  let resp = ?ctx.client.markEmailsRead(ctx.mailAccount, @[emailId])
 
-  let (b, handle) =
-    ctx.client.newBuilder().addEmailSet(ctx.mailAccount, update = Opt.some(updates))
-  let dr = ?ctx.client.send(b.freeze())
-  let outcome = ?dr.get(handle)
-  case outcome.kind
-  of mokMethodError:
-    stderr.writeLine "Email/set: " & outcome.error.message
-    ok(1)
-  of mokValue:
-    # Per-item rail: Result[Opt[PartialEmail], SetError] (the inner Opt is
-    # usually none for a flag). A SetError is data within a successful method —
-    # reported, never fatal to the whole command.
-    for id, res in outcome.value.updateResults:
-      if res.isOk:
-        echo "flagged ", $id, " $seen"
-      else:
-        stderr.writeLine "flag failed for " & $id & ": " & res.error.message
-    ok(0)
+  # A SetError is data within a successful method — reported per id, never fatal
+  # to the whole command. The success arm's Opt[PartialEmail] server echo is
+  # unused for a flag, which is exactly what the iterator split makes cheap.
+  for id, serverEcho in resp.updated:
+    echo "flagged ", $id, " $seen"
+  for id, error in resp.updateFailures:
+    stderr.writeLine "flag failed for " & $id & ": " & error.message
+  ok(0)
 
 proc run*(args: seq[string]): int =
   if args.len < 1:
