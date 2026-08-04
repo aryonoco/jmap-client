@@ -276,7 +276,9 @@ proc moveEmails*(
   ## Moves every id to ``mailboxId`` — a full mailbox-membership replace,
   ## because "move" means the email is in the destination and nowhere
   ## else. Callers wanting additive membership use the builder path's
-  ## ``addToMailbox`` update instead.
+  ## ``addToMailbox`` update instead. Empty or duplicate ids reject at
+  ## the seal (the update set demands distinct, non-empty targets), so
+  ## an empty call never reaches the network.
   runSet(client, accountId, ids, moveToMailbox(mailboxId))
 
 proc destroyEmails*(

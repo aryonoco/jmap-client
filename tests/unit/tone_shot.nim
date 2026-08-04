@@ -477,7 +477,8 @@ testCase oneShotMarkEmailsReadSuccess:
   for _, _ in res.value.updateFailures:
     doAssert false
   # The emitted request carries the $seen patch for exactly this id.
-  doAssert """"update":{"em-1":{"keywords/$seen":true}}""" in recorder.lastRequest.body
+  doAssert """"update":{"em-1":{"keywords/$seen":true}}""" in recorder.lastRequest.body,
+    "the update patch must set keywords/$seen for exactly em-1"
 
 testCase oneShotMarkEmailsUnreadEmitsRemoval:
   ## markEmailsUnread patches keywords/$seen to null (removal).
@@ -493,7 +494,8 @@ testCase oneShotMarkEmailsUnreadEmitsRemoval:
     .get()
   let res = client.markEmailsUnread(makeAccountId("acct-1"), @[makeId("em-1")])
   assertOk(res)
-  doAssert """"update":{"em-1":{"keywords/$seen":null}}""" in recorder.lastRequest.body
+  doAssert """"update":{"em-1":{"keywords/$seen":null}}""" in recorder.lastRequest.body,
+    "the update patch must remove keywords/$seen (null) for exactly em-1"
 
 testCase oneShotMarkEmailsReadSetErrorIsData:
   ## A per-id notUpdated entry stays DATA on the ok branch — the rail is
@@ -573,7 +575,9 @@ testCase oneShotMoveEmailsReplacesMembership:
   let res =
     client.moveEmails(makeAccountId("acct-1"), @[makeId("em-1")], makeId("mb-2"))
   assertOk(res)
-  doAssert """"mailboxIds":{"mb-2":true}""" in recorder.lastRequest.body
+  doAssert """"update":{"em-1":{"mailboxIds":{"mb-2":true}}}""" in
+    recorder.lastRequest.body,
+    "move must replace mailboxIds wholesale, naming only the destination, for exactly em-1"
 
 testCase oneShotDestroyEmailsSuccess:
   ## destroyEmails surfaces destroyed ids through the destroyed iterator;
@@ -605,7 +609,29 @@ testCase oneShotDestroyEmailsSuccess:
   for id, error in res.value.destroyFailures:
     refusals.inc
     assertEq($id, "em-2")
+    doAssert error.kind == setForbidden,
+      "the notDestroyed SetError's type must survive as data, unmodified"
   assertEq(refusals, 1)
+
+testCase oneShotDestroyEmailsEmptyIdsRoundTrips:
+  ## An empty ids list is legal wire and destroys nothing — the call
+  ## still round-trips, unlike the update rail's seal rejection. This
+  ## pins the promise against a future seal being added to the destroy
+  ## path.
+  let responseJson = envelope(
+    %*[["Email/set", {"accountId": "acct-1", "oldState": "s1", "newState": "s1"}, "c0"]]
+  )
+  let client = cannedClient(responseJson)
+  let res = client.destroyEmails(makeAccountId("acct-1"), newSeq[Id]())
+  assertOk(res)
+  var destroyedCount = 0
+  for _ in res.value.destroyed:
+    destroyedCount.inc
+  assertEq(destroyedCount, 0)
+  var failureCount = 0
+  for _, _ in res.value.destroyFailures:
+    failureCount.inc
+  assertEq(failureCount, 0)
 
 testCase oneShotDestroyEmailsMethodError:
   ## A whole-method error collapses fail-fast onto jeMethod.
