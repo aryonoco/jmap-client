@@ -3297,6 +3297,15 @@ method that requires them, via the `capabilityUri(T)` overload during
 
 ## Layer 5: C ABI Wrapper
 
+> **Amendment 2026-08-04 (ledger D10).** §5.1–5.5 predate the Layer-5
+> binding design. `docs/design/17-L5-FFI-Principles.md` is authoritative
+> for the C ABI and supersedes this section wherever the two disagree —
+> specifically on the handle inventory and naming (§5.2), enum exposure
+> (§5.4), and the error model, which is now per-handle
+> (`jmap_status` + `jmap_errmsg`, `sqlite3_errmsg` semantics) with
+> thread-local last-error state forbidden by P14. §5.1 (lossy
+> projection) and §5.3A (per-object free functions) survive unchanged.
+
 ### 5.1 Principle
 
 The C ABI is a lossy projection of the Nim API. The Nim API has phantom
@@ -3319,6 +3328,13 @@ typedef struct JmapResponse_s* JmapResponse;
 ```
 
 Opaque pointers. C consumers never see Nim type internals.
+
+**Superseded 2026-08-04 (D10).** The names and the inventory above are
+not what v1 ships. `docs/design/17-L5-FFI-Principles.md` §2 settles
+snake_case types (`jmap_client`, `jmap_transport`, `jmap_query`, result
+objects and views), defers the request/response builder pipeline to a
+future additive layer, and forward-declares each type rather than
+typedef-ing a pointer alias. Only the opacity principle survives here.
 
 ### 5.3 Memory Ownership
 
@@ -3353,10 +3369,16 @@ changes, and new fields do not break the C interface. However, changes
 to function signatures, handle semantics, or error codes require
 recompilation.
 
-Raw Nim enums should not be exposed through the C ABI. Use `cint`
-constants or `cint`-returning accessor functions instead. Enum layout
+Raw Nim enums should not be exposed through the C ABI. Enum layout
 (size, backing type, variant ordering) is a Nim compiler implementation
 detail that may change between Nim versions.
+
+**Amended 2026-08-04 (D10).** The prohibition on exposing the *Nim*
+enum type stands. The remedy does not: `docs/design/17-L5-FFI-Principles.md`
+§1 and §4 settle hand-written C enums in the curated header
+(`jmap_status`, entity enums) whose ordinals are locked at v1 and grow
+additively, cross-checked against the Nim side by the §10 consistency
+gate — not bare `cint` constants.
 
 ### 5.5 Implementation Status
 
@@ -3379,12 +3401,17 @@ export mail           # RFC 8621 mail extension (Layer 6)
 ```
 
 No `{.exportc.}` procs, `{.dynlib.}` pragmas, opaque handles, error
-codes, or memory management pairs exist yet. The FFI contract is fully
-documented in `.claude/rules/nim-ffi-boundary.md` and
-`docs/background/nim-c-abi-guide.md`, covering type mapping, string
-handling, enum sizing, error codes, thread-local state, ARC ownership,
-and library initialisation. Implementation will follow the patterns
-described in §5.1–5.4 when the C ABI boundary is built.
+codes, or memory management pairs exist yet. The binding FFI contract
+is `docs/design/17-L5-FFI-Principles.md` (D10, 2026-08-04): error
+model, handle taxonomy and lifecycle, memory ownership, the read
+surface, options, callbacks, the curated header and its gates.
+`.claude/rules/nim-ffi-boundary.md` carries the mechanical rules
+(type mapping, string handling, enum sizing, per-handle error state,
+ARC ownership, library initialisation) and
+`docs/background/nim-c-abi-guide.md` the general Nim reference — note
+that its thread-local last-error pattern is forbidden here (P14).
+Implementation follows doc 17; §5.1–5.4 above apply only where doc 17
+is silent.
 
 Layers 1–4 plus the RFC 8621 mail extension (Layer 6) are implemented
 and tested.
