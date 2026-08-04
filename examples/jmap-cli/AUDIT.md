@@ -47,8 +47,9 @@ cannot be expressed with hub-public symbols at all (highest severity).
   **resolved-S0 7, resolved-S1 9, resolved-S2 9, resolved-S3 9,
   resolved-S4 22, affirmed 14, accepted-as-trade-off 11, resolved-Cn 5,
   filed-as-Cn 5**. Many resolutions also carry a RESIDUAL pointer (6 residual
-  accepted-as-trade-off, and residual `filed-as-C11/C12/C16`) for a
-  deeper gap left after the common case was fixed. So **56 of 91 inline
+  accepted-as-trade-off, and residual `filed-as-C11/C16`; the former
+  residual `filed-as-C12` pair is now `resolved-C12`) for a deeper gap
+  left after the common case was fixed. So **56 of 91 inline
   findings are resolved by S0–S4** and a further **5 by the C15 easy-path
   branch** (C15 the Email/set write one-shots — including the projection
   iterators' `std/tables` container leak that adopting them uncovered — C17 the
@@ -60,8 +61,8 @@ cannot be expressed with hub-public symbols at all (highest severity).
   `Opt.some(direct(@[id]))` input wrapping). Each still-open
   filed-as-Cn item is registered in Section C of
   `docs/TODO/pre-1.0-api-alignment.md` (alongside the residual-pointer items
-  C11/C12/C16, the no-inline-anchor items C13/C14, and the done-in-triage
-  C18/C19).
+  C11/C16, the now-resolved residual-pointer item C12, the no-inline-anchor
+  items C13/C14, and the done-in-triage C18/C19).
 - **Blocked commands (inexpressible with hub-public symbols): NONE.**
   Every command compiles and round-trips through `import jmap_client` only
   (S4 dissolved the P6 `jmap_client/convenience` quarantine, so the
