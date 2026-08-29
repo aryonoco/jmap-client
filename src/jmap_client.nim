@@ -596,3 +596,245 @@ proc jmapSetDebugCallback(
     setDebugCallback(client[].client, newDebugTrampoline(fn, userdata))
   clearError(client)
   asCint(jsOk)
+
+type CMailboxRole {.size: sizeof(cint).} = enum
+  crNone = 0
+  crInbox = 1
+  crDrafts = 2
+  crSent = 3
+  crTrash = 4
+  crJunk = 5
+  crArchive = 6
+  crImportant = 7
+  crAll = 8
+  crFlagged = 9
+  crUnknown = 10
+
+type CMailboxRight {.size: sizeof(cint).} = enum
+  cwReadItems = 0
+  cwAddItems = 1
+  cwRemoveItems = 2
+  cwSetSeen = 3
+  cwSetKeywords = 4
+  cwCreateChild = 5
+  cwRename = 6
+  cwDelete = 7
+  cwSubmit = 8
+
+type MailboxField = enum
+  mfParentId
+
+type MailboxItem {.ruleOff: "objects".} = object
+  ## Flat snapshot of one mailbox: every string is stored here so the C
+  ## getters return stable borrows against this view.
+  id: string
+  name: string
+  parentId: string
+  roleIdentifier: string
+  role: CMailboxRole
+  totalEmails: int64
+  unreadEmails: int64
+  subscribed: cint
+  rights: set[CMailboxRight]
+  present: set[MailboxField]
+
+type JmapMailboxesHandle {.ruleOff: "objects".} = object
+  items: seq[MailboxItem]
+
+func toCRole(identifier: string): CMailboxRole =
+  ## Falls back to crUnknown for any role JMAP defines that this
+  ## ordinal set has not yet named.
+  case identifier
+  of "inbox": crInbox
+  of "drafts": crDrafts
+  of "sent": crSent
+  of "trash": crTrash
+  of "junk": crJunk
+  of "archive": crArchive
+  of "important": crImportant
+  of "all": crAll
+  of "flagged": crFlagged
+  else: crUnknown
+
+func borrowInto[T; F: enum](
+    value: Opt[T], slot: var string, field: F, present: var set[F]
+) =
+  ## Lowers one optional wire field into the view slot a C getter borrows
+  ## from, recording its presence in the same step: the borrow and the
+  ## presence bit are one fact, and every view mapper in this section
+  ## needs it, so it is stated once here rather than at each field.
+  for v in value:
+    slot = $v
+    present.incl(field)
+
+func toCRights(rights: MailboxRights): set[CMailboxRight] =
+  ## The nine RFC 8621 §2 rights as one table walk. Each ordinal sits
+  ## beside the field it mirrors, so a tenth right is one row rather than
+  ## a tenth branch in the mapper.
+  let granted = [
+    (cwReadItems, rights.mayReadItems),
+    (cwAddItems, rights.mayAddItems),
+    (cwRemoveItems, rights.mayRemoveItems),
+    (cwSetSeen, rights.maySetSeen),
+    (cwSetKeywords, rights.maySetKeywords),
+    (cwCreateChild, rights.mayCreateChild),
+    (cwRename, rights.mayRename),
+    (cwDelete, rights.mayDelete),
+    (cwSubmit, rights.maySubmit),
+  ]
+  var held: set[CMailboxRight] = {}
+  for (right, allowed) in granted:
+    if allowed:
+      held.incl(right)
+  held
+
+func toMailboxItem(mb: Mailbox): MailboxItem =
+  ## Flattens every Opt field to its snapshot slot once, so getters
+  ## never re-derive presence from the source Mailbox.
+  var item = MailboxItem(
+    id: $mb.id,
+    name: mb.name,
+    role: crNone,
+    totalEmails: mb.totalEmails.toInt64,
+    unreadEmails: mb.unreadEmails.toInt64,
+    subscribed: cint(ord(mb.isSubscribed)),
+    rights: toCRights(mb.myRights),
+  )
+  borrowInto(mb.parentId, item.parentId, mfParentId, item.present)
+  for role in mb.role:
+    # Not a plain borrow: the identifier feeds the ordinal projection too.
+    item.roleIdentifier = identifier(role)
+    item.role = toCRole(item.roleIdentifier)
+  item
+
+proc parseAccountArg(
+    h: ptr JmapClientHandle, raw: cstring, outId: var AccountId
+): cint =
+  ## Shared boundary parse for every account_id parameter: NULL is
+  ## misuse, an invalid id is validation — both recorded on the handle.
+  ## Returns jsOk's ordinal on success.
+  if raw.isNil:
+    return recordMisuse(h, "account_id must not be NULL")
+  let parsed = parseAccountId($raw).lift
+  if parsed.isErr:
+    return recordError(h, parsed.error)
+  outId = parsed.get()
+  asCint(jsOk)
+
+proc jmapGetMailboxes(
+    client: ptr JmapClientHandle,
+    accountId: cstring,
+    outMailboxes: ptr ptr JmapMailboxesHandle,
+): cint {.exportc: "jmap_get_mailboxes", dynlib, cdecl, raises: [].} =
+  ## Fetches synchronously; the returned handle is a frozen snapshot,
+  ## unaffected by any server state change after this call returns.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if outMailboxes.isNil:
+    return recordMisuse(client, "out parameter must not be NULL")
+  var acct = default(AccountId)
+  let parsed = parseAccountArg(client, accountId, acct)
+  if parsed != asCint(jsOk):
+    return parsed
+  let resp = getMailboxes(client[].client, acct)
+  if resp.isErr:
+    return recordError(client, resp.error)
+  let p = createShared(JmapMailboxesHandle)
+  for mb in resp.get().list:
+    p[].items.add(toMailboxItem(mb))
+  clearError(client)
+  outMailboxes[] = p
+  asCint(jsOk)
+
+proc jmapMailboxesFree(
+    handle: ptr JmapMailboxesHandle
+) {.exportc: "jmap_mailboxes_free", dynlib, cdecl, raises: [].} =
+  ## Drops the last reference to the fetched snapshot.
+  if handle.isNil:
+    return
+  `=destroy`(handle[])
+  deallocShared(handle)
+
+proc jmapMailboxesCount(
+    handle: ptr JmapMailboxesHandle
+): csize_t {.exportc: "jmap_mailboxes_count", dynlib, cdecl, raises: [].} =
+  ## A NULL handle is empty, not a defect: pure reads never fail.
+  if handle.isNil:
+    return 0
+  csize_t(handle[].items.len)
+
+proc jmapMailboxesAt(
+    handle: ptr JmapMailboxesHandle, i: csize_t
+): ptr MailboxItem {.exportc: "jmap_mailboxes_at", dynlib, cdecl, raises: [].} =
+  ## Out-of-range is NULL, not a defect: pure reads never fail.
+  if handle.isNil or int(i) >= handle[].items.len:
+    return nil
+  addr handle[].items[int(i)]
+
+proc jmapMailboxId(
+    mb: ptr MailboxItem
+): cstring {.exportc: "jmap_mailbox_id", dynlib, cdecl, raises: [].} =
+  ## Always populated: JMAP mints an id for every returned mailbox.
+  if mb.isNil: nil else: mb[].id.cstring
+
+proc jmapMailboxName(
+    mb: ptr MailboxItem
+): cstring {.exportc: "jmap_mailbox_name", dynlib, cdecl, raises: [].} =
+  ## Always populated: RFC 8621 §2 requires a non-empty name.
+  if mb.isNil: nil else: mb[].name.cstring
+
+proc jmapMailboxRoleGet(
+    mb: ptr MailboxItem
+): cint {.exportc: "jmap_mailbox_role_get", dynlib, cdecl, raises: [].} =
+  ## crNone is the absent state, not a tenth well-known role.
+  if mb.isNil:
+    cint(ord(crNone))
+  else:
+    cint(ord(mb[].role))
+
+proc jmapMailboxRoleIdentifier(
+    mb: ptr MailboxItem
+): cstring {.exportc: "jmap_mailbox_role_identifier", dynlib, cdecl, raises: [].} =
+  ## NULL when the mailbox has no well-known role — distinct from an
+  ## empty string.
+  if mb.isNil: nil else: mb[].roleIdentifier.cstring
+
+proc jmapMailboxParentId(
+    mb: ptr MailboxItem
+): cstring {.exportc: "jmap_mailbox_parent_id", dynlib, cdecl, raises: [].} =
+  ## NULL marks a top-level mailbox, not an unset field.
+  if mb.isNil or mfParentId notin mb[].present:
+    return nil
+  mb[].parentId.cstring
+
+proc jmapMailboxTotalEmails(
+    mb: ptr MailboxItem
+): int64 {.exportc: "jmap_mailbox_total_emails", dynlib, cdecl, raises: [].} =
+  ## Always populated: a mailbox always carries a total count.
+  if mb.isNil: 0'i64 else: mb[].totalEmails
+
+proc jmapMailboxUnreadEmails(
+    mb: ptr MailboxItem
+): int64 {.exportc: "jmap_mailbox_unread_emails", dynlib, cdecl, raises: [].} =
+  ## Always populated: a mailbox always carries an unread count.
+  if mb.isNil: 0'i64 else: mb[].unreadEmails
+
+proc jmapMailboxIsSubscribed(
+    mb: ptr MailboxItem
+): cint {.exportc: "jmap_mailbox_is_subscribed", dynlib, cdecl, raises: [].} =
+  ## Always populated: subscription defaults false, never absent.
+  if mb.isNil: 0 else: mb[].subscribed
+
+proc jmapMailboxHasRight(
+    mb: ptr MailboxItem, right: cint
+): cint {.exportc: "jmap_mailbox_has_right", dynlib, cdecl, raises: [].} =
+  ## Ordinal-matched like jmap_strerror: an out-of-range right answers
+  ## 0, never a conversion defect.
+  if mb.isNil:
+    return 0
+  for r in CMailboxRight:
+    if cint(ord(r)) == right:
+      return cint(ord(r in mb[].rights))
+  0

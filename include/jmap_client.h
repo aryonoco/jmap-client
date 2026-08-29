@@ -193,6 +193,63 @@ jmap_status jmap_set_debug_callback(jmap_client *client,
                                     jmap_debug_fn fn,
                                     void *userdata);
 
+/* --- Mailboxes -------------------------------------------------------- */
+
+typedef struct jmap_mailboxes jmap_mailboxes;
+typedef struct jmap_mailbox jmap_mailbox; /* a borrow, never freed */
+
+/* Locked ordinals; additive only. NONE = the mailbox has no role;
+ * UNKNOWN = a role this library version does not recognise (read the
+ * raw wire string via jmap_mailbox_role_identifier). */
+typedef enum {
+  JMAP_ROLE_NONE      = 0,
+  JMAP_ROLE_INBOX     = 1,
+  JMAP_ROLE_DRAFTS    = 2,
+  JMAP_ROLE_SENT      = 3,
+  JMAP_ROLE_TRASH     = 4,
+  JMAP_ROLE_JUNK      = 5,
+  JMAP_ROLE_ARCHIVE   = 6,
+  JMAP_ROLE_IMPORTANT = 7,
+  JMAP_ROLE_ALL       = 8,
+  JMAP_ROLE_FLAGGED   = 9,
+  JMAP_ROLE_UNKNOWN   = 10
+} jmap_mailbox_role;
+
+typedef enum {
+  JMAP_RIGHT_READ_ITEMS   = 0,
+  JMAP_RIGHT_ADD_ITEMS    = 1,
+  JMAP_RIGHT_REMOVE_ITEMS = 2,
+  JMAP_RIGHT_SET_SEEN     = 3,
+  JMAP_RIGHT_SET_KEYWORDS = 4,
+  JMAP_RIGHT_CREATE_CHILD = 5,
+  JMAP_RIGHT_RENAME       = 6,
+  JMAP_RIGHT_DELETE       = 7,
+  JMAP_RIGHT_SUBMIT       = 8
+} jmap_mailbox_right;
+
+jmap_status jmap_get_mailboxes(jmap_client *client,
+                               const char *account_id,
+                               jmap_mailboxes **out);
+void jmap_mailboxes_free(jmap_mailboxes *mailboxes);
+
+size_t jmap_mailboxes_count(const jmap_mailboxes *mailboxes);
+/* NULL out of range. The borrow lives until jmap_mailboxes_free. */
+const jmap_mailbox *jmap_mailboxes_at(const jmap_mailboxes *mailboxes,
+                                      size_t i);
+
+const char *jmap_mailbox_id(const jmap_mailbox *mb);
+const char *jmap_mailbox_name(const jmap_mailbox *mb);
+jmap_mailbox_role jmap_mailbox_role_get(const jmap_mailbox *mb);
+/* The raw wire role string; "" when the mailbox has no role. */
+const char *jmap_mailbox_role_identifier(const jmap_mailbox *mb);
+/* NULL when the mailbox is top-level. */
+const char *jmap_mailbox_parent_id(const jmap_mailbox *mb);
+int64_t jmap_mailbox_total_emails(const jmap_mailbox *mb);
+int64_t jmap_mailbox_unread_emails(const jmap_mailbox *mb);
+/* 1 or 0. */
+int jmap_mailbox_is_subscribed(const jmap_mailbox *mb);
+int jmap_mailbox_has_right(const jmap_mailbox *mb, jmap_mailbox_right r);
+
 #ifdef __cplusplus
 }
 #endif
