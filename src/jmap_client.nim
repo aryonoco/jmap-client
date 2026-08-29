@@ -179,28 +179,26 @@ type JmapClientHandle {.ruleOff: "objects".} = object
   primaryFail: ErrorSlot ## jsOk when a mail primary was resolved
   stateSlot: string ## backs jmap_get_email_state's borrow
 
-proc recordError(h: ptr JmapClientHandle, err: JmapError): cint {.used.} =
+proc recordError(h: ptr JmapClientHandle, err: JmapError): cint =
   ## Renders the diagnostic at record time so the errmsg borrow needs no
-  ## later allocation. No exported proc calls this yet — jmap_client_new
-  ## fails before a handle exists, so it reports the bare status instead;
-  ## later handle-bearing operations call this, hence ``{.used.}``.
+  ## later allocation. Called by every fallible handle-bearing operation
+  ## once a handle exists to carry the JmapError rail's outcome; a
+  ## pre-handle failure (jmap_client_new) has no handle yet and reports
+  ## the bare status instead.
   let status = statusOf(err.kind)
   h[].err = ErrorSlot(status: status, message: err.message)
   asCint(status)
 
-proc recordMisuse(h: ptr JmapClientHandle, msg: string): cint {.used.} =
-  ## Misuse detected in L5 code, not on the JmapError rail, so the
-  ## message is authored here rather than carried from L4. Unused until
-  ## a later handle-bearing operation can detect misuse post-construction,
-  ## hence ``{.used.}``.
+proc recordMisuse(h: ptr JmapClientHandle, msg: string): cint =
+  ## Misuse detected in L5 code itself — a NULL out-parameter or similar
+  ## caller bug — rather than on the JmapError rail, so the message is
+  ## authored here instead of carried from L4.
   h[].err = ErrorSlot(status: jsMisuse, message: msg)
   asCint(jsMisuse)
 
-proc clearError(h: ptr JmapClientHandle) {.used.} =
+proc clearError(h: ptr JmapClientHandle) =
   ## A fallible call that succeeds resets the slot — jmap_errmsg reports
-  ## the MOST RECENT call's outcome, exactly like sqlite3_errmsg. Unused
-  ## until a later handle-bearing operation exists to succeed, hence
-  ## ``{.used.}``.
+  ## the MOST RECENT call's outcome, exactly like sqlite3_errmsg.
   h[].err = ErrorSlot(status: jsOk, message: "")
 
 type JmapHttpMethod {.size: sizeof(cint).} = enum
@@ -451,9 +449,10 @@ proc jmapErrmsg(
   client[].err.message.cstring
 
 proc ensureCaches(h: ptr JmapClientHandle): Result[void, JmapError] =
-  ## First use fetches the session and freezes the account renders the
-  ## borrows need. requireMail's failure is captured, not raised here —
-  ## account enumeration must still work on a mail-less session.
+  ## First use fetches the session and freezes the sorted account-id
+  ## render the borrow accessors read from, so later calls need no
+  ## further network IO. requireMail's failure is captured, not raised
+  ## here — account enumeration must still work on a mail-less session.
   if h[].cacheState == scsReady:
     return ok()
   let session = ?fetchSession(h[].client)
@@ -515,12 +514,17 @@ proc jmapClientAccountCount(
 proc jmapClientAccountAt(
     client: ptr JmapClientHandle, i: csize_t
 ): cstring {.exportc: "jmap_client_account_at", dynlib, cdecl, raises: [].} =
-  ## Pure read over the frozen cache: never fetches, never a defect.
-  ## No latch check: the handle came from a constructor that ran one.
+  ## Pure read over the frozen cache: never fetches, never a defect. The
+  ## out-of-range check compares ``i`` against the count while both are
+  ## still ``csize_t`` (unsigned), so a caller's ``SIZE_MAX`` underflow
+  ## (e.g. ``n - 1`` on an empty cache) answers NULL instead of narrowing
+  ## an out-of-``int64``-range value to ``int`` and raising a RangeDefect
+  ## across this ``raises: []`` boundary. No latch check: the handle came
+  ## from a constructor that ran one.
   if client.isNil:
     return nil
   if client[].cacheState != scsReady:
     return nil
-  if int(i) >= client[].accountIds.len:
+  if i >= csize_t(client[].accountIds.len):
     return nil
   client[].accountIds[int(i)].cstring
