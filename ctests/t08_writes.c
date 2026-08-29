@@ -13,8 +13,15 @@ static const char *SET_MIXED_JSON = "{\"methodResponses\":[[\"Email/set\",{\"acc
 
 int main(void) {
   assert(jmap_init() == JMAP_OK);
-  const char *bodies[] = { SESSION_JSON, SET_UPDATED_JSON, SET_MIXED_JSON };
-  canned_state st = { bodies, 3, 0, NULL, NULL, 0 };
+  /* mark_read, mark_unread and move_emails each drive one Email/set
+   * exchange whose "updated" shape SET_UPDATED_JSON already satisfies
+   * (its content does not depend on which patch produced it); destroy
+   * gets its own partial-success fixture. */
+  const char *bodies[] = {
+    SESSION_JSON, SET_UPDATED_JSON, SET_UPDATED_JSON, SET_UPDATED_JSON,
+    SET_MIXED_JSON
+  };
+  canned_state st = { bodies, 5, 0, NULL, NULL, 0 };
   jmap_transport *t = canned_make_transport(&st);
   jmap_client *c = NULL;
   assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t, &c)
@@ -33,8 +40,54 @@ int main(void) {
   /* SIZE_MAX must not narrow into range: still NULL, never a crash. */
   assert(jmap_set_result_updated_at(r, SIZE_MAX) == NULL);
   assert(jmap_set_result_failure_count(r) == 0);
-  assert(strstr(st.last_request, "keywords/$seen") != NULL);
+  assert(strstr(st.last_request, "\"keywords/$seen\":true") != NULL);
   jmap_set_result_free(r);
+
+  /* A count too large to narrow to Nim's signed int is misuse, not a
+   * RangeDefect abort: SIZE_MAX exercises parseIdArray's unsigned-domain
+   * bound on n itself, before the loop ever narrows it or touches ids —
+   * the same guard t07/t13 already pin via other callers, exercised
+   * here too so a future change to this call site cannot silently
+   * unpin it. */
+  jmap_set_result *readHuge = NULL;
+  assert(jmap_mark_read(c, acct, ids, SIZE_MAX, &readHuge) == JMAP_E_MISUSE);
+
+  /* Mark unread: same shape, opposite patch value (keyword removal). */
+  jmap_set_result *u = NULL;
+  assert(jmap_mark_unread(c, acct, ids, 1, &u) == JMAP_OK);
+  assert(jmap_set_result_updated_count(u) == 1);
+  assert(strcmp(jmap_set_result_updated_at(u, 0), "em-1") == 0);
+  assert(strstr(st.last_request, "\"keywords/$seen\":null") != NULL);
+  jmap_set_result_free(u);
+
+  jmap_set_result *unreadHuge = NULL;
+  assert(jmap_mark_unread(c, acct, ids, SIZE_MAX, &unreadHuge)
+         == JMAP_E_MISUSE);
+
+  /* Move: a full mailbox-membership replace naming only the
+   * destination, and its own mailbox_id argument has its own checks. */
+  jmap_set_result *m = NULL;
+  assert(jmap_move_emails(c, acct, ids, 1, "mb-1", &m) == JMAP_OK);
+  assert(jmap_set_result_updated_count(m) == 1);
+  assert(strstr(st.last_request, "\"mailboxIds\":{\"mb-1\":true}") != NULL);
+  jmap_set_result_free(m);
+
+  jmap_set_result *moveHuge = NULL;
+  assert(jmap_move_emails(c, acct, ids, SIZE_MAX, "mb-1", &moveHuge)
+         == JMAP_E_MISUSE);
+
+  /* A NULL mailbox_id is misuse, checked before any id parsing or
+   * network traffic. */
+  jmap_set_result *moveNoMailbox = NULL;
+  assert(jmap_move_emails(c, acct, ids, 1, NULL, &moveNoMailbox)
+         == JMAP_E_MISUSE);
+
+  /* An invalid mailbox_id (empty string fails parseIdFromServer's
+   * 1-255 octet minimum) is a validation failure, also caught before
+   * any network traffic. */
+  jmap_set_result *moveBadMailbox = NULL;
+  assert(jmap_move_emails(c, acct, ids, 1, "", &moveBadMailbox)
+         == JMAP_E_VALIDATION);
 
   /* Destroy: partition surfaces both halves as data. */
   const char *dids[] = { "em-1", "em-2" };
@@ -51,6 +104,10 @@ int main(void) {
   assert(jmap_set_result_failure_id_at(d, SIZE_MAX) == NULL);
   assert(jmap_set_result_failure_type_at(d, SIZE_MAX) == NULL);
   jmap_set_result_free(d);
+
+  jmap_set_result *destroyHuge = NULL;
+  assert(jmap_destroy_emails(c, acct, dids, SIZE_MAX, &destroyHuge)
+         == JMAP_E_MISUSE);
 
   /* Empty ids on the update rail rejects at the seal: no request. */
   jmap_set_result *e = NULL;

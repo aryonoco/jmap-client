@@ -1441,6 +1441,11 @@ proc jmapVacationTextBody(
   v[].textBody.cstring
 
 type SetFailureItem {.ruleOff: "objects".} = object
+  ## One refused id from either the update or destroy rail of a
+  ## ``SetResponse``, flattened onto a single failures list: within one
+  ## call the two rails are disjoint by construction (mark/move only
+  ## ever submit update ids, destroy only ever submits destroy ids), so
+  ## the C surface never needs to say which rail an id failed on.
   id: string
   errorType: string
 
@@ -1449,19 +1454,25 @@ type JmapSetResultHandle {.ruleOff: "objects".} = object
   destroyed: seq[string]
   failures: seq[SetFailureItem]
 
-func fillFromEmailSet(
-    handle: ptr JmapSetResultHandle, resp: SetResponse[EmailCreatedItem, PartialEmail]
-) =
-  ## Updated ids echo no server-generated fields back for this entity,
-  ## so only the id is worth keeping.
+func toSetResultContent(
+    resp: SetResponse[EmailCreatedItem, PartialEmail]
+): JmapSetResultHandle =
+  ## RFC 8620 section 5.3's ``updated`` map may carry any server-changed
+  ## property on a successful update — this view deliberately drops
+  ## that echo and keeps only the id, since none of the four write
+  ## verbs this section exports have a caller-visible use for it yet.
+  var updated: seq[string] = @[]
   for id, serverEcho in resp.updated:
-    handle[].updated.add($id)
+    updated.add($id)
+  var destroyed: seq[string] = @[]
   for id in resp.destroyed:
-    handle[].destroyed.add($id)
+    destroyed.add($id)
+  var failures: seq[SetFailureItem] = @[]
   for id, error in resp.updateFailures:
-    handle[].failures.add(SetFailureItem(id: $id, errorType: error.rawType))
+    failures.add(SetFailureItem(id: $id, errorType: error.rawType))
   for id, error in resp.destroyFailures:
-    handle[].failures.add(SetFailureItem(id: $id, errorType: error.rawType))
+    failures.add(SetFailureItem(id: $id, errorType: error.rawType))
+  JmapSetResultHandle(updated: updated, destroyed: destroyed, failures: failures)
 
 type EmailWriteOp = enum
   ewMarkRead
@@ -1503,7 +1514,7 @@ proc runEmailWrite(
   if resp.isErr:
     return recordError(client, resp.error)
   let p = createShared(JmapSetResultHandle)
-  fillFromEmailSet(p, resp.get())
+  p[] = toSetResultContent(resp.get())
   clearError(client)
   outResult[] = p
   asCint(jsOk)
@@ -1563,7 +1574,7 @@ proc jmapMoveEmails(
   if resp.isErr:
     return recordError(client, resp.error)
   let p = createShared(JmapSetResultHandle)
-  fillFromEmailSet(p, resp.get())
+  p[] = toSetResultContent(resp.get())
   clearError(client)
   outResult[] = p
   asCint(jsOk)

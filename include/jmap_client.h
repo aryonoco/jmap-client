@@ -345,8 +345,17 @@ typedef struct jmap_set_result jmap_set_result;
 /* All four take an array of n email ids. Per-id refusals are DATA on
  * the result object; the returned status reports whole-call failure
  * only. Empty or duplicate ids reject with JMAP_E_VALIDATION before
- * any network traffic on the update rail (mark/move); destroy accepts
- * an empty array (legal wire, destroys nothing). */
+ * any network traffic on the update rail (mark_read/mark_unread/
+ * move); destroy accepts both an empty array (legal wire, destroys
+ * nothing) and duplicate ids (forwarded to the server as given, which
+ * answers each occurrence independently per RFC 8620 section 5.3 —
+ * destroy has no client-side seal to reject a repeat).
+ *
+ * The updated/destroyed/failure lists on the returned jmap_set_result
+ * reflect server table order, not the order ids were submitted in,
+ * and that order is not guaranteed stable across calls. A caller
+ * correlating results against its own submitted array MUST match by
+ * id, never by index. */
 jmap_status jmap_mark_read(jmap_client *client, const char *account_id,
                            const char *const *ids, size_t n,
                            jmap_set_result **out);
@@ -365,12 +374,16 @@ jmap_status jmap_destroy_emails(jmap_client *client, const char *account_id,
 void jmap_set_result_free(jmap_set_result *result);
 
 size_t jmap_set_result_updated_count(const jmap_set_result *r);
+/* NULL out of range. The borrow lives until jmap_set_result_free. */
 const char *jmap_set_result_updated_at(const jmap_set_result *r, size_t i);
 size_t jmap_set_result_destroyed_count(const jmap_set_result *r);
+/* NULL out of range. The borrow lives until jmap_set_result_free. */
 const char *jmap_set_result_destroyed_at(const jmap_set_result *r, size_t i);
 size_t jmap_set_result_failure_count(const jmap_set_result *r);
+/* NULL out of range. The borrow lives until jmap_set_result_free. */
 const char *jmap_set_result_failure_id_at(const jmap_set_result *r, size_t i);
-/* The wire SetError type, e.g. "notFound", "forbidden". */
+/* NULL out of range. The borrow lives until jmap_set_result_free. The
+ * wire SetError type, e.g. "notFound", "forbidden". */
 const char *jmap_set_result_failure_type_at(const jmap_set_result *r,
                                             size_t i);
 
