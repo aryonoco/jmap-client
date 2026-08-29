@@ -11,12 +11,20 @@ static const char *SESSION_JSON = "{\"username\":\"test@example.com\",\"apiUrl\"
 static const char *THREAD_GET_JSON = "{\"methodResponses\":[[\"Thread/get\",{\"accountId\":\"A1\",\"state\":\"th-st1\",\"list\":[{\"id\":\"th-1\",\"emailIds\":[\"em-1\",\"em-2\"]}],\"notFound\":[]},\"c0\"]],\"sessionState\":\"s1\"}";
 static const char *IDENTITY_GET_JSON = "{\"methodResponses\":[[\"Identity/get\",{\"accountId\":\"A1\",\"state\":\"id-st1\",\"list\":[{\"id\":\"449e1873-830a-4cbd-b884-c8fe8a16d36c\",\"name\":\"Alice\",\"email\":\"alice@example.com\",\"textSignature\":\"\",\"htmlSignature\":\"\",\"mayDelete\":true}],\"notFound\":[]},\"c0\"]],\"sessionState\":\"s1\"}";
 static const char *VACATION_GET_JSON = "{\"methodResponses\":[[\"VacationResponse/get\",{\"accountId\":\"A1\",\"state\":\"va-st1\",\"list\":[{\"id\":\"singleton\",\"isEnabled\":true,\"subject\":\"phase-b step-9 OOO\",\"textBody\":\"Out until next sprint.\"}],\"notFound\":[]},\"c0\"]],\"sessionState\":\"s1\"}";
+/* Two "singleton" records disagreeing on isEnabled, the second omitting
+ * subject/textBody: RFC 8621 §8.1 forbids this shape outright (exactly
+ * one VacationResponse object ever exists), so this fixture exists only
+ * to prove the library rejects it rather than reading enabled from
+ * entry 2 with subject/textBody left over from entry 1 — a value that
+ * never existed on the wire. */
+static const char *BAD_VACATION_GET_JSON = "{\"methodResponses\":[[\"VacationResponse/get\",{\"accountId\":\"A1\",\"state\":\"va-st2\",\"list\":[{\"id\":\"singleton\",\"isEnabled\":true,\"subject\":\"phase-b step-9 OOO\",\"textBody\":\"Out until next sprint.\"},{\"id\":\"singleton\",\"isEnabled\":false}],\"notFound\":[]},\"c0\"]],\"sessionState\":\"s1\"}";
 
 int main(void) {
   assert(jmap_init() == JMAP_OK);
   const char *bodies[] = { SESSION_JSON, THREAD_GET_JSON,
-                           IDENTITY_GET_JSON, VACATION_GET_JSON };
-  canned_state st = { bodies, 4, 0, NULL, NULL, 0 };
+                           IDENTITY_GET_JSON, VACATION_GET_JSON,
+                           BAD_VACATION_GET_JSON };
+  canned_state st = { bodies, 5, 0, NULL, NULL, 0 };
   jmap_transport *t = canned_make_transport(&st);
   jmap_client *c = NULL;
   assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t, &c)
@@ -38,6 +46,14 @@ int main(void) {
   assert(jmap_thread_email_at(th, 0) != NULL);
   assert(jmap_thread_email_at(th, 2) == NULL);
   assert(jmap_thread_email_at(th, SIZE_MAX) == NULL);
+  /* A count too large to narrow to Nim's signed int is misuse, not a
+   * RangeDefect abort: SIZE_MAX exercises parseIdArray's unsigned-domain
+   * bound on n itself, before the loop ever narrows it or touches ids —
+   * the same guard t07 already pins via jmap_get_emails, exercised here
+   * too so a future change to one caller cannot silently unpin the
+   * other. */
+  jmap_threads *huge = NULL;
+  assert(jmap_get_threads(c, acct, tids, SIZE_MAX, &huge) == JMAP_E_MISUSE);
   jmap_threads_free(ths);
 
   /* Identities: what a sender enumerates before jmap_send_plain_text. */
@@ -61,6 +77,16 @@ int main(void) {
   assert(jmap_vacation_text_body(v) != NULL);
   jmap_vacation_free(v);
   jmap_vacation_free(NULL);
+
+  /* RFC 8621 §8.1 guarantees exactly one VacationResponse record. A
+   * server that returns two must be rejected as JMAP_E_PROTOCOL, not
+   * read via "first entry wins" or "last entry wins": either would let
+   * a caller-visible field silently pair values across records that
+   * never coexisted on the wire. */
+  jmap_vacation *bad = NULL;
+  assert(jmap_get_vacation(c, acct, &bad) == JMAP_E_PROTOCOL);
+  assert(bad == NULL);
+  assert(strlen(jmap_errmsg(c)) > 0);
 
   jmap_client_free(c);
   free(st.last_request); free(st.last_url);

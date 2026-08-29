@@ -304,9 +304,14 @@ jmap_status jmap_get_threads(jmap_client *client, const char *account_id,
                              jmap_threads **out);
 void jmap_threads_free(jmap_threads *threads);
 size_t jmap_threads_count(const jmap_threads *threads);
+/* NULL out of range. The borrow lives until jmap_threads_free. */
 const jmap_thread *jmap_threads_at(const jmap_threads *threads, size_t i);
 const char *jmap_thread_id(const jmap_thread *th);
 size_t jmap_thread_email_count(const jmap_thread *th);
+/* NULL out of range. th is itself a borrow into the threads handle
+ * (never freed independently, per the typedef above), and so is this
+ * return value: it lives until jmap_threads_free, not until any
+ * per-thread lifetime that does not exist. */
 const char *jmap_thread_email_at(const jmap_thread *th, size_t i);
 
 jmap_status jmap_get_identities(jmap_client *client,
@@ -314,16 +319,20 @@ jmap_status jmap_get_identities(jmap_client *client,
                                 jmap_identities **out);
 void jmap_identities_free(jmap_identities *identities);
 size_t jmap_identities_count(const jmap_identities *identities);
+/* NULL out of range. The borrow lives until jmap_identities_free. */
 const jmap_identity *jmap_identities_at(const jmap_identities *identities,
                                         size_t i);
 const char *jmap_identity_id(const jmap_identity *ident);
 const char *jmap_identity_name(const jmap_identity *ident);
 const char *jmap_identity_email(const jmap_identity *ident);
 
-/* The account's vacation singleton. */
+/* The account's vacation singleton. RFC 8621 section 8.1 requires the
+ * server to return exactly one record; any other count answers
+ * JMAP_E_PROTOCOL rather than guessing which record to expose. */
 jmap_status jmap_get_vacation(jmap_client *client, const char *account_id,
                               jmap_vacation **out);
 void jmap_vacation_free(jmap_vacation *vacation);
+/* 1 or 0. */
 int jmap_vacation_is_enabled(const jmap_vacation *v);
 /* NULL when unset. */
 const char *jmap_vacation_subject(const jmap_vacation *v);

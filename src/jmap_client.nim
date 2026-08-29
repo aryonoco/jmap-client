@@ -196,6 +196,16 @@ proc recordMisuse(h: ptr JmapClientHandle, msg: string): cint =
   h[].err = ErrorSlot(status: jsMisuse, message: msg)
   asCint(jsMisuse)
 
+proc recordProtocolFault(h: ptr JmapClientHandle, msg: string): cint =
+  ## A response decoded without a serde error yet still breaks a
+  ## structural guarantee RFC 8620/8621 place on its shape (e.g. a
+  ## singleton returning some count other than one) — authored here
+  ## rather than carried from L4, since ``JmapError``'s ``jeProtocol``
+  ## arm names dispatch/decode faults only, not this entity-specific
+  ## conformance check.
+  h[].err = ErrorSlot(status: jsProtocol, message: msg)
+  asCint(jsProtocol)
+
 proc clearError(h: ptr JmapClientHandle) =
   ## A fallible call that succeeds resets the slot — jmap_errmsg reports
   ## the MOST RECENT call's outcome, exactly like sqlite3_errmsg.
@@ -1168,6 +1178,8 @@ proc jmapEmailHasAttachment(
   if e.isNil: 0 else: e[].hasAttachment
 
 type ThreadItem {.ruleOff: "objects".} = object
+  ## Flat snapshot of one thread: every string is stored here so the C
+  ## getters return stable borrows against this view.
   id: string
   emailIds: seq[string]
 
@@ -1259,6 +1271,8 @@ proc jmapThreadEmailAt(
   th[].emailIds[int(i)].cstring
 
 type IdentityItem {.ruleOff: "objects".} = object
+  ## Flat snapshot of one identity: every string is stored here so the C
+  ## getters return stable borrows against this view.
   id: string
   name: string
   email: string
@@ -1337,10 +1351,19 @@ proc jmapIdentityEmail(
   if ident.isNil: nil else: ident[].email.cstring
 
 type VacationField = enum
+  ## Presence bits for ``JmapVacationHandle``'s optional wire fields.
+  ## ``borrowInto`` sets a bit exactly when it also fills the matching
+  ## view slot, so an absent field is never confused with one whose
+  ## borrowed value happens to be empty — mirrors ``MailboxField`` /
+  ## ``EmailField``.
   vfSubject
   vfTextBody
 
 type JmapVacationHandle {.ruleOff: "objects".} = object
+  ## Flat snapshot of the one VacationResponse record. RFC 8621 §8.1
+  ## guarantees exactly one, so — unlike the seq-of-items handles above
+  ## — the fields are flattened straight onto the handle rather than
+  ## into a separate item type behind a one-element seq.
   enabled: cint
   subject: string
   textBody: string
@@ -1352,7 +1375,11 @@ proc jmapGetVacation(
     outVacation: ptr ptr JmapVacationHandle,
 ): cint {.exportc: "jmap_get_vacation", dynlib, cdecl, raises: [].} =
   ## Fetches synchronously; the returned handle is a frozen snapshot of
-  ## the singleton VacationResponse object.
+  ## the singleton VacationResponse object. RFC 8621 §8.1 requires the
+  ## server to return exactly one record with id "singleton"; any other
+  ## list length is reported as JMAP_E_PROTOCOL rather than guessed at —
+  ## reading just the first entry of a wrongly-shaped list would risk
+  ## silently pairing fields from unrelated records into one view.
   if not l5Initialised:
     return asCint(jsMisuse)
   if client.isNil:
@@ -1366,11 +1393,18 @@ proc jmapGetVacation(
   let resp = getVacationResponse(client[].client, acct)
   if resp.isErr:
     return recordError(client, resp.error)
+  let list = resp.get().list
+  if list.len != 1:
+    return recordProtocolFault(
+      client,
+      "VacationResponse/get must return exactly one record (RFC 8621 §8.1); got " &
+        $list.len,
+    )
+  let vr = list[0]
   let p = createShared(JmapVacationHandle)
-  for vr in resp.get().list:
-    p[].enabled = cint(ord(vr.isEnabled))
-    borrowInto(vr.subject, p[].subject, vfSubject, p[].present)
-    borrowInto(vr.textBody, p[].textBody, vfTextBody, p[].present)
+  p[].enabled = cint(ord(vr.isEnabled))
+  borrowInto(vr.subject, p[].subject, vfSubject, p[].present)
+  borrowInto(vr.textBody, p[].textBody, vfTextBody, p[].present)
   clearError(client)
   outVacation[] = p
   asCint(jsOk)
