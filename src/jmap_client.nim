@@ -213,8 +213,9 @@ proc jmapClientNew(
   if outClient.isNil or sessionUrl.isNil or username.isNil or password.isNil:
     return asCint(jsMisuse)
   if not transport.isNil:
-    # No public L4 constructor threads a caller-supplied Transport
-    # through yet, so a non-nil value cannot be honoured.
+    # transport arrives as an opaque C pointer; nothing here can turn
+    # it into the Nim ``Transport`` that initJmapClient/connect require,
+    # so only nil (the built-in HTTP backend) is interpretable.
     return asCint(jsMisuse)
   let connected = connect($sessionUrl, $username, $password)
   if connected.isErr:
