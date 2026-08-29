@@ -335,6 +335,8 @@ typedef enum {
 } jmap_sort;
 
 jmap_status jmap_query_new(jmap_query **out);
+/* NULL is a no-op. Freeing after jmap_query_emails has consumed the
+ * query is correct: the call copies what it needs. */
 void jmap_query_free(jmap_query *query);
 
 /* Typed option setters (the sqlite3_bind_* discipline): each option's
@@ -344,20 +346,21 @@ void jmap_query_free(jmap_query *query);
  * so the returned status is the whole diagnosis for which setter
  * failed. Values are parsed and validated HERE, not when the query
  * runs: a value of the right type that is not a legal JMAP value (a
- * malformed mailbox id, an out-of-range limit) is JMAP_E_VALIDATION
- * and leaves the spec unchanged. Calling a setter twice for the SAME
- * option replaces its earlier value outright. JMAP_Q_IN_MAILBOX,
- * JMAP_Q_TEXT and JMAP_Q_READ_STATE each set one property on a single
- * accumulated filter condition (all three narrow the same query, in
- * conjunction); JMAP_Q_LIMIT and JMAP_Q_SORT are independent slots
- * outside that condition. */
+ * malformed mailbox id) is JMAP_E_VALIDATION and leaves the spec
+ * unchanged. Calling a setter twice for the SAME option replaces its
+ * earlier value outright. JMAP_Q_IN_MAILBOX, JMAP_Q_TEXT and
+ * JMAP_Q_READ_STATE each set one property on a single accumulated
+ * filter condition (all three narrow the same query, in conjunction);
+ * JMAP_Q_LIMIT and JMAP_Q_SORT are independent slots outside that
+ * condition. */
 jmap_status jmap_query_set_str(jmap_query *query, jmap_query_opt opt,
                                const char *value);
 jmap_status jmap_query_set_u32(jmap_query *query, jmap_query_opt opt,
                                uint32_t value);
 
-/* Runs Email/query then fetches the matching records' text bodies in
- * one round trip. query may be NULL: no filter, no sort, server-default
+/* Runs Email/query (RFC 8621 section 4.4) then fetches the matching
+ * records' text bodies via Email/get (RFC 8621 section 4.2) in one
+ * round trip. query may be NULL: no filter, no sort, server-default
  * paging — a legal, unfiltered request rather than a special case. */
 jmap_status jmap_query_emails(jmap_client *client,
                               const char *account_id,

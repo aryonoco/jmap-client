@@ -54,13 +54,16 @@ int main(void) {
   assert(jmap_emails_count(es) >= 1);
 
   /* The lowering reached the wire: mailbox filter, unread as a $seen
-   * notKeyword, the text needle, the limit, and the sort property. */
+   * notKeyword, the text needle, the limit, and the sort property in
+   * its DESC direction (the ordinal-to-direction pairing is not the
+   * obvious one, so the property name alone would not catch a swap). */
   assert(strstr(st.last_request, "mb-1") != NULL);
   assert(strstr(st.last_request, "notKeyword") != NULL);
   assert(strstr(st.last_request, "$seen") != NULL);
   assert(strstr(st.last_request, "invoice") != NULL);
   assert(strstr(st.last_request, "\"limit\":10") != NULL);
   assert(strstr(st.last_request, "receivedAt") != NULL);
+  assert(strstr(st.last_request, "\"isAscending\":false") != NULL);
 
   /* NULL query = no filter, no sort, no limit — still a valid call. */
   const char *bodies2[] = { QUERY_JSON };
@@ -86,6 +89,14 @@ int main(void) {
   assert(strstr(st.last_request, "notKeyword") == NULL);
   jmap_emails_free(readOnly);
   jmap_query_free(q2);
+
+  /* NULL arguments are misuse everywhere a handle or out-parameter is
+   * expected, matching the vacation-update handle's coverage. */
+  assert(jmap_query_new(NULL) == JMAP_E_MISUSE);
+  assert(jmap_query_set_str(NULL, JMAP_Q_TEXT, "x") == JMAP_E_MISUSE);
+  assert(jmap_query_set_u32(NULL, JMAP_Q_LIMIT, 1) == JMAP_E_MISUSE);
+  assert(jmap_query_emails(NULL, acct, q, &es) == JMAP_E_MISUSE);
+  assert(jmap_query_emails(c, acct, q, NULL) == JMAP_E_MISUSE);
 
   jmap_emails_free(es);
   jmap_emails_free(all);

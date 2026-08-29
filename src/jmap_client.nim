@@ -2007,7 +2007,9 @@ proc jmapQueryFree(
     handle: ptr JmapQueryHandle
 ) {.exportc: "jmap_query_free", dynlib, cdecl, raises: [].} =
   ## Drops the query spec; safe to free either before or after a query
-  ## call has consumed it.
+  ## call has consumed it. Declared before ``querySpec``, not after: see
+  ## that func's docstring for why moving this destroy call below the
+  ## copy it currently precedes reintroduces a spurious raises error.
   if handle.isNil:
     return
   `=destroy`(handle[])
@@ -2027,20 +2029,23 @@ func accumulated(query: ptr JmapQueryHandle): EmailFilterCondition =
       return EmailFilterCondition()
   EmailFilterCondition()
 
-func setQueryLimit(query: ptr JmapQueryHandle, value: uint32): cint =
+proc setQueryLimit(query: ptr JmapQueryHandle, value: uint32): cint =
   ## 0 means "server default", which QueryParams already spells as an
   ## absent limit — so the C sentinel maps onto a real absence rather
-  ## than travelling as a zero.
+  ## than travelling as a zero. Assigns the ``limit`` field alone: a
+  ## whole-object replacement here would silently reset ``position``,
+  ## ``anchor``, ``anchorOffset`` and ``calculateTotal`` too, clobbering
+  ## whatever a future option for one of those fields had set.
   if value == 0'u32:
-    query[].params = QueryParams()
+    query[].params.limit = Opt.none(UnsignedInt)
     return asCint(jsOk)
   let bound = parseUnsignedInt(int64(value))
   if bound.isErr:
     return asCint(jsValidation)
-  query[].params = QueryParams(limit: Opt.some(bound.get()))
+  query[].params.limit = Opt.some(bound.get())
   asCint(jsOk)
 
-func setQueryReadState(query: ptr JmapQueryHandle, value: uint32): cint =
+proc setQueryReadState(query: ptr JmapQueryHandle, value: uint32): cint =
   ## Lowers the read-state ordinal onto the $seen keyword pair here, at
   ## the boundary, so the boolean a JMAP filter cannot name stays
   ## unrepresentable inside the spec. Every arm sets BOTH keyword slots
@@ -2063,7 +2068,7 @@ func setQueryReadState(query: ptr JmapQueryHandle, value: uint32): cint =
   query[].filter = Opt.some(filterCondition(cond))
   asCint(jsOk)
 
-func setQuerySort(query: ptr JmapQueryHandle, value: uint32): cint =
+proc setQuerySort(query: ptr JmapQueryHandle, value: uint32): cint =
   ## The comparator is built here so the spec carries the sort the
   ## one-shot takes, not an ordinal a call site would have to translate.
   let direction =
