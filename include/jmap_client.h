@@ -102,12 +102,19 @@ typedef enum {
   JMAP_TRANSPORT_TIMEOUT = 3
 } jmap_transport_code;
 
-/* Perform one HTTP exchange. On JMAP_TRANSPORT_OK the callback sets
- * *out_http_status and hands back malloc'd *out_content_type and
- * *out_body buffers — the library copies both and frees them with
- * free(). On any other return the out-parameters are ignored. The
- * callback must not unwind; userdata is threaded back unchanged and
- * never dereferenced by the library. */
+/* Perform one HTTP exchange. url, body and authorization are
+ * library-owned borrows: never NULL (a GET body is the empty string,
+ * not NULL) and valid only for the duration of this call — copy
+ * anything the callback needs to keep past return. On
+ * JMAP_TRANSPORT_OK the callback sets *out_http_status and hands back
+ * malloc'd *out_content_type and *out_body buffers — the library
+ * copies both and frees them with the C library's free(). On any
+ * other return the out-parameters are ignored. The callback must not
+ * unwind; userdata is threaded back unchanged and never dereferenced
+ * by the library. Allocate *out_content_type and *out_body with the
+ * same C runtime this library itself links: passing a buffer across
+ * mismatched CRTs (e.g. two different Windows CRTs, or a debug and a
+ * release CRT) is undefined once the library calls free() on it. */
 typedef jmap_transport_code (*jmap_send_fn)(void *userdata,
                                             jmap_http_method method,
                                             const char *url,

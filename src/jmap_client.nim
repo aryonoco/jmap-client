@@ -247,6 +247,23 @@ type JmapTransportHandle {.ruleOff: "objects".} = object
 proc cFree(p: pointer) {.importc: "free", header: "<stdlib.h>".}
   ## Frees buffers the send callback allocated; Nim's allocator never touches them.
 
+func normaliseContentType(raw: string): string =
+  ## Lowercases and drops any ``; parameter`` suffix (RFC 9110 §8.3), the
+  ## same shape ``readContentType`` in
+  ## ``src/jmap_client/internal/transport.nim`` produces for the same
+  ## wire value. That proc is module-private to L4 (no ``*``) and takes
+  ## an ``httpclient.Response`` rather than a bare string, so L5 cannot
+  ## call it — and widening its API is the owner's decision, not this
+  ## task's. Kept algorithmically identical to it (lowercase, slice at
+  ## the first ``;``, strip) rather than drifting into a second
+  ## definition of "normalised content type".
+  let lowered = raw.toLowerAscii()
+  let semi = lowered.find(';')
+  if semi < 0:
+    lowered.strip()
+  else:
+    lowered[0 ..< semi].strip()
+
 func toHttpResponse(status: cint, ctype, body: cstring): HttpResponse =
   ## Copies the callback's malloc'd buffers into Nim storage and
   ## normalises the content type; the caller frees the originals
@@ -258,7 +275,7 @@ func toHttpResponse(status: cint, ctype, body: cstring): HttpResponse =
       $ctype
   HttpResponse(
     statusCode: int(status),
-    contentType: raw.toLowerAscii().split(';')[0].strip(),
+    contentType: normaliseContentType(raw),
     body:
       if body.isNil:
         ""
@@ -268,16 +285,20 @@ func toHttpResponse(status: cint, ctype, body: cstring): HttpResponse =
 
 func transportFault(code: JmapTransportCode): TransportError =
   ## Names the failure the callback reported on the substrate's own rail.
-  ## ``jtcOk`` shares the network arm rather than being excluded by type:
-  ## the success arm is taken before this is ever called, and a total
+  ## All three arms fold onto ``JMAP_E_TRANSPORT`` at the C ABI by design
+  ## (one transport status), so the per-arm detail is what lets
+  ## jmap_errmsg distinguish TLS from timeout from network — a shared
+  ## string here would silently discard that distinction. ``jtcOk``
+  ## shares the network arm rather than being excluded by type: the
+  ## success arm is taken before this is ever called, and a total
   ## projection is cheaper than a partial one.
   case code
   of jtcTls:
-    transportError(tekTls, "reported by transport callback")
+    transportError(tekTls, "TLS failure reported by transport callback")
   of jtcTimeout:
-    transportError(tekTimeout, "reported by transport callback")
+    transportError(tekTimeout, "timeout reported by transport callback")
   of jtcOk, jtcNetwork:
-    transportError(tekNetwork, "reported by transport callback")
+    transportError(tekNetwork, "network failure reported by transport callback")
 
 proc newCTransport(
     send: JmapSendFn, close: JmapCloseFn, userdata: pointer
@@ -350,8 +371,12 @@ proc jmapTransportNew(
 proc jmapTransportFree(
     handle: ptr JmapTransportHandle
 ) {.exportc: "jmap_transport_free", dynlib, cdecl, raises: [].} =
-  ## Drops the last reference; `=destroy` invokes the registered close
-  ## callback even when it was registered with a NULL userdata.
+  ## Drops the caller's reference — the last one only when the transport
+  ## was never attached to a client; if a client holds the other
+  ## reference the transport lives until jmap_client_free. `=destroy`
+  ## fires the registered close callback exactly when the reference it
+  ## drops here is the last one, even when close was registered with a
+  ## NULL userdata.
   if handle.isNil:
     return
   `=destroy`(handle[])
@@ -359,22 +384,23 @@ proc jmapTransportFree(
 
 proc connectViaTransportGuard(
     sessionUrl, username, password: cstring, transport: ptr JmapTransportHandle
-): Result[JmapClient, cint] =
+): Result[JmapClient, JmapStatus] =
   ## Split out of jmapClientNew to keep it under nimalyzer's complexity
   ## ceiling: folds the attach-once guard (a non-nil transport already
   ## spoken for is misuse, checked before any connect attempt) with the
-  ## dispatch to whichever ``connect`` overload the transport selects,
-  ## projecting the JmapError rail onto ``jmap_status`` on the one error
-  ## rail this returns.
+  ## dispatch to whichever ``connect`` overload the transport selects.
+  ## The error rail stays the named ``JmapStatus`` — never collapsed to a
+  ## bare ``cint`` — so the call site is the one place that projects to
+  ## the wire ordinal via ``asCint``.
   if not transport.isNil and transport[].attach == atAttached:
-    return err(asCint(jsMisuse))
+    return err(jsMisuse)
   let connected =
     if transport.isNil:
       connect($sessionUrl, $username, $password)
     else:
       connect($sessionUrl, $username, $password, transport[].transport)
   if connected.isErr:
-    return err(asCint(statusOf(connected.error.kind)))
+    return err(statusOf(connected.error.kind))
   ok(connected.get())
 
 proc jmapClientNew(
@@ -390,7 +416,7 @@ proc jmapClientNew(
     return asCint(jsMisuse)
   let connected = connectViaTransportGuard(sessionUrl, username, password, transport)
   if connected.isErr:
-    return connected.error
+    return asCint(connected.error)
   # include/jmap_client.h permits handing a handle to another thread;
   # plain create/dealloc are documented thread-local in
   # lib/system/memalloc.nim ("The freed memory must belong to its

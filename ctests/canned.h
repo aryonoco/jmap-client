@@ -33,10 +33,13 @@ static jmap_transport_code canned_send(void *userdata,
   canned_state *st = (canned_state *)userdata;
   (void)method;
   (void)authorization;
+  /* jmap_client.h guarantees url/body/authorization are non-NULL
+   * borrows (a GET body is "", never NULL), so no defensive NULL
+   * check is needed before strdup here. */
   free(st->last_request);
   free(st->last_url);
-  st->last_request = strdup(body ? body : "");
-  st->last_url = strdup(url ? url : "");
+  st->last_request = strdup(body);
+  st->last_url = strdup(url);
   if (st->next >= st->count) return JMAP_TRANSPORT_NETWORK;
   *out_http_status = 200;
   *out_content_type = strdup("application/json");
