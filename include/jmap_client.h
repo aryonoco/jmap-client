@@ -338,6 +338,42 @@ int jmap_vacation_is_enabled(const jmap_vacation *v);
 const char *jmap_vacation_subject(const jmap_vacation *v);
 const char *jmap_vacation_text_body(const jmap_vacation *v);
 
+/* --- Email writes ----------------------------------------------------- */
+
+typedef struct jmap_set_result jmap_set_result;
+
+/* All four take an array of n email ids. Per-id refusals are DATA on
+ * the result object; the returned status reports whole-call failure
+ * only. Empty or duplicate ids reject with JMAP_E_VALIDATION before
+ * any network traffic on the update rail (mark/move); destroy accepts
+ * an empty array (legal wire, destroys nothing). */
+jmap_status jmap_mark_read(jmap_client *client, const char *account_id,
+                           const char *const *ids, size_t n,
+                           jmap_set_result **out);
+jmap_status jmap_mark_unread(jmap_client *client, const char *account_id,
+                             const char *const *ids, size_t n,
+                             jmap_set_result **out);
+/* A full mailbox-membership replace: afterwards the emails are in
+ * mailbox_id and nowhere else. */
+jmap_status jmap_move_emails(jmap_client *client, const char *account_id,
+                             const char *const *ids, size_t n,
+                             const char *mailbox_id,
+                             jmap_set_result **out);
+jmap_status jmap_destroy_emails(jmap_client *client, const char *account_id,
+                                const char *const *ids, size_t n,
+                                jmap_set_result **out);
+void jmap_set_result_free(jmap_set_result *result);
+
+size_t jmap_set_result_updated_count(const jmap_set_result *r);
+const char *jmap_set_result_updated_at(const jmap_set_result *r, size_t i);
+size_t jmap_set_result_destroyed_count(const jmap_set_result *r);
+const char *jmap_set_result_destroyed_at(const jmap_set_result *r, size_t i);
+size_t jmap_set_result_failure_count(const jmap_set_result *r);
+const char *jmap_set_result_failure_id_at(const jmap_set_result *r, size_t i);
+/* The wire SetError type, e.g. "notFound", "forbidden". */
+const char *jmap_set_result_failure_type_at(const jmap_set_result *r,
+                                            size_t i);
+
 #ifdef __cplusplus
 }
 #endif

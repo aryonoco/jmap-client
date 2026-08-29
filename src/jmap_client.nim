@@ -1439,3 +1439,210 @@ proc jmapVacationTextBody(
   if v.isNil or vfTextBody notin v[].present:
     return nil
   v[].textBody.cstring
+
+type SetFailureItem {.ruleOff: "objects".} = object
+  id: string
+  errorType: string
+
+type JmapSetResultHandle {.ruleOff: "objects".} = object
+  updated: seq[string]
+  destroyed: seq[string]
+  failures: seq[SetFailureItem]
+
+func fillFromEmailSet(
+    handle: ptr JmapSetResultHandle, resp: SetResponse[EmailCreatedItem, PartialEmail]
+) =
+  ## Updated ids echo no server-generated fields back for this entity,
+  ## so only the id is worth keeping.
+  for id, serverEcho in resp.updated:
+    handle[].updated.add($id)
+  for id in resp.destroyed:
+    handle[].destroyed.add($id)
+  for id, error in resp.updateFailures:
+    handle[].failures.add(SetFailureItem(id: $id, errorType: error.rawType))
+  for id, error in resp.destroyFailures:
+    handle[].failures.add(SetFailureItem(id: $id, errorType: error.rawType))
+
+type EmailWriteOp = enum
+  ewMarkRead
+  ewMarkUnread
+  ewDestroy
+
+proc runEmailWrite(
+    client: ptr JmapClientHandle,
+    accountId: cstring,
+    ids: ptr cstring,
+    n: csize_t,
+    op: EmailWriteOp,
+    outResult: ptr ptr JmapSetResultHandle,
+): cint =
+  ## Shared body of the three unary write entry points; move carries an
+  ## extra argument and gets its own proc below.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if outResult.isNil:
+    return recordMisuse(client, "out parameter must not be NULL")
+  var acct = default(AccountId)
+  let parsedAcct = parseAccountArg(client, accountId, acct)
+  if parsedAcct != asCint(jsOk):
+    return parsedAcct
+  var wanted: seq[Id] = @[]
+  let parsedIds = parseIdArray(client, ids, n, wanted)
+  if parsedIds != asCint(jsOk):
+    return parsedIds
+  let resp =
+    case op
+    of ewMarkRead:
+      markEmailsRead(client[].client, acct, wanted)
+    of ewMarkUnread:
+      markEmailsUnread(client[].client, acct, wanted)
+    of ewDestroy:
+      destroyEmails(client[].client, acct, wanted)
+  if resp.isErr:
+    return recordError(client, resp.error)
+  let p = createShared(JmapSetResultHandle)
+  fillFromEmailSet(p, resp.get())
+  clearError(client)
+  outResult[] = p
+  asCint(jsOk)
+
+proc jmapMarkRead(
+    client: ptr JmapClientHandle,
+    accountId: cstring,
+    ids: ptr cstring,
+    n: csize_t,
+    outResult: ptr ptr JmapSetResultHandle,
+): cint {.exportc: "jmap_mark_read", dynlib, cdecl, raises: [].} =
+  ## A thin op-selecting wrapper; runEmailWrite carries the boundary
+  ## checks shared by every unary email write.
+  runEmailWrite(client, accountId, ids, n, ewMarkRead, outResult)
+
+proc jmapMarkUnread(
+    client: ptr JmapClientHandle,
+    accountId: cstring,
+    ids: ptr cstring,
+    n: csize_t,
+    outResult: ptr ptr JmapSetResultHandle,
+): cint {.exportc: "jmap_mark_unread", dynlib, cdecl, raises: [].} =
+  ## A thin op-selecting wrapper; runEmailWrite carries the boundary
+  ## checks shared by every unary email write.
+  runEmailWrite(client, accountId, ids, n, ewMarkUnread, outResult)
+
+proc jmapMoveEmails(
+    client: ptr JmapClientHandle,
+    accountId: cstring,
+    ids: ptr cstring,
+    n: csize_t,
+    mailboxId: cstring,
+    outResult: ptr ptr JmapSetResultHandle,
+): cint {.exportc: "jmap_move_emails", dynlib, cdecl, raises: [].} =
+  ## Not routed through runEmailWrite: the extra mailbox_id argument
+  ## needs its own NULL check and its own parse.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if outResult.isNil:
+    return recordMisuse(client, "out parameter must not be NULL")
+  if mailboxId.isNil:
+    return recordMisuse(client, "mailbox_id must not be NULL")
+  var acct = default(AccountId)
+  let parsedAcct = parseAccountArg(client, accountId, acct)
+  if parsedAcct != asCint(jsOk):
+    return parsedAcct
+  var wanted: seq[Id] = @[]
+  let parsedIds = parseIdArray(client, ids, n, wanted)
+  if parsedIds != asCint(jsOk):
+    return parsedIds
+  let parsedMb = parseIdFromServer($mailboxId).lift
+  if parsedMb.isErr:
+    return recordError(client, parsedMb.error)
+  let resp = moveEmails(client[].client, acct, wanted, parsedMb.get())
+  if resp.isErr:
+    return recordError(client, resp.error)
+  let p = createShared(JmapSetResultHandle)
+  fillFromEmailSet(p, resp.get())
+  clearError(client)
+  outResult[] = p
+  asCint(jsOk)
+
+proc jmapDestroyEmails(
+    client: ptr JmapClientHandle,
+    accountId: cstring,
+    ids: ptr cstring,
+    n: csize_t,
+    outResult: ptr ptr JmapSetResultHandle,
+): cint {.exportc: "jmap_destroy_emails", dynlib, cdecl, raises: [].} =
+  ## A thin op-selecting wrapper; runEmailWrite carries the boundary
+  ## checks shared by every unary email write.
+  runEmailWrite(client, accountId, ids, n, ewDestroy, outResult)
+
+proc jmapSetResultFree(
+    handle: ptr JmapSetResultHandle
+) {.exportc: "jmap_set_result_free", dynlib, cdecl, raises: [].} =
+  ## Drops the last reference to the set outcome.
+  if handle.isNil:
+    return
+  `=destroy`(handle[])
+  deallocShared(handle)
+
+proc jmapSetResultUpdatedCount(
+    r: ptr JmapSetResultHandle
+): csize_t {.exportc: "jmap_set_result_updated_count", dynlib, cdecl, raises: [].} =
+  ## A NULL handle is empty, not a defect: pure reads never fail.
+  if r.isNil:
+    0
+  else:
+    csize_t(r[].updated.len)
+
+proc jmapSetResultUpdatedAt(
+    r: ptr JmapSetResultHandle, i: csize_t
+): cstring {.exportc: "jmap_set_result_updated_at", dynlib, cdecl, raises: [].} =
+  ## Out-of-range is NULL, not a defect: pure reads never fail.
+  if r.isNil or i >= csize_t(r[].updated.len):
+    return nil
+  r[].updated[int(i)].cstring
+
+proc jmapSetResultDestroyedCount(
+    r: ptr JmapSetResultHandle
+): csize_t {.exportc: "jmap_set_result_destroyed_count", dynlib, cdecl, raises: [].} =
+  ## A NULL handle is empty, not a defect: pure reads never fail.
+  if r.isNil:
+    0
+  else:
+    csize_t(r[].destroyed.len)
+
+proc jmapSetResultDestroyedAt(
+    r: ptr JmapSetResultHandle, i: csize_t
+): cstring {.exportc: "jmap_set_result_destroyed_at", dynlib, cdecl, raises: [].} =
+  ## Out-of-range is NULL, not a defect: pure reads never fail.
+  if r.isNil or i >= csize_t(r[].destroyed.len):
+    return nil
+  r[].destroyed[int(i)].cstring
+
+proc jmapSetResultFailureCount(
+    r: ptr JmapSetResultHandle
+): csize_t {.exportc: "jmap_set_result_failure_count", dynlib, cdecl, raises: [].} =
+  ## A NULL handle is empty, not a defect: pure reads never fail.
+  if r.isNil:
+    0
+  else:
+    csize_t(r[].failures.len)
+
+proc jmapSetResultFailureIdAt(
+    r: ptr JmapSetResultHandle, i: csize_t
+): cstring {.exportc: "jmap_set_result_failure_id_at", dynlib, cdecl, raises: [].} =
+  ## Out-of-range is NULL, not a defect: pure reads never fail.
+  if r.isNil or i >= csize_t(r[].failures.len):
+    return nil
+  r[].failures[int(i)].id.cstring
+
+proc jmapSetResultFailureTypeAt(
+    r: ptr JmapSetResultHandle, i: csize_t
+): cstring {.exportc: "jmap_set_result_failure_type_at", dynlib, cdecl, raises: [].} =
+  ## The lossless wire error type string, not a translated message.
+  if r.isNil or i >= csize_t(r[].failures.len):
+    return nil
+  r[].failures[int(i)].errorType.cstring
