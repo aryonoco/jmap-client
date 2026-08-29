@@ -61,6 +61,12 @@ int main(void) {
   jmap_emails *bad = NULL;
   assert(jmap_get_emails(c, acct, NULL, 1, &bad) == JMAP_E_MISUSE);
 
+  /* A count too large to narrow to Nim's signed int is misuse, not a
+   * RangeDefect abort: SIZE_MAX exercises parseIdArray's unsigned-domain
+   * bound on n itself, before the loop ever narrows it or touches ids. */
+  jmap_emails *huge = NULL;
+  assert(jmap_get_emails(c, acct, ids, SIZE_MAX, &huge) == JMAP_E_MISUSE);
+
   jmap_emails_free(es);
   jmap_emails_free(NULL);
   jmap_client_free(c);

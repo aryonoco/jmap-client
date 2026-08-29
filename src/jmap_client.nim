@@ -937,6 +937,13 @@ func toEmailItem(e: Email): EmailItem =
   borrowInto(e.subject, item.subject, cefSubject, item.present)
   borrowInto(e.receivedAt, item.receivedAt, cefReceivedAt, item.present)
   borrowInto(decodedTextBody(e), item.textBody, cefTextBody, item.present)
+  # A present-but-empty ``from: []`` collapses onto the same absent
+  # projection as ``Opt.none`` below: cefFromEmail is set only when a
+  # first address actually exists, so jmap_email_from_email and
+  # jmap_email_from_name cannot tell a C caller "the server sent an
+  # empty From" from "From was not returned" — the one optional field on
+  # this view where present-vs-absent is not recoverable through the C
+  # API (documented on the getters in include/jmap_client.h).
   for addrs in e.fromAddr:
     if addrs.len > 0:
       item.fromEmail = addrs[0].email
@@ -961,9 +968,15 @@ proc parseIdArray(
     h: ptr JmapClientHandle, ids: ptr cstring, n: csize_t, outSeq: var seq[Id]
 ): cint =
   ## Boundary parse for id arrays: NULL array with nonzero n is misuse;
-  ## each element parses through the lenient server-id rail.
+  ## an n too large to narrow to Nim's signed int is misuse too, checked
+  ## here while n is still csize_t — the same RangeDefect-across-
+  ## raises:[] hazard the indexed accessors guard against on an index,
+  ## here on a loop bound instead. Each surviving element parses through
+  ## the lenient server-id rail.
   if ids.isNil and n > 0:
     return recordMisuse(h, "ids must not be NULL when n > 0")
+  if n > csize_t(high(int)):
+    return recordMisuse(h, "n exceeds the maximum representable count")
   let arr = cast[ptr UncheckedArray[cstring]](ids)
   for i in 0 ..< int(n):
     if arr[i].isNil:
@@ -1061,18 +1074,27 @@ proc jmapEmailsNotfoundAt(
   handle[].notFound[int(i)].cstring
 
 func emailField(e: ptr EmailItem, field: EmailField, value: string): cstring =
-  ## Shared absent-is-NULL projection for the Opt-shaped getters. ``value``
-  ## is always passed straight from the item's own field at every call
-  ## site, never a temporary — the borrow this returns must outlive the
-  ## call, and only a field of the handle-owned ``e`` does.
-  if e.isNil or field notin e[].present:
+  ## Shared absent-is-NULL projection for the Opt-shaped getters. Never
+  ## called with a nil ``e``: every call site already evaluates
+  ## ``e[].<field>`` to build ``value`` before this runs, so an ``e.isNil``
+  ## check here could never fire — the outer ``if e.isNil`` in each getter
+  ## is the sole, load-bearing nil guard. ``value`` is always passed
+  ## straight from the item's own field, never a temporary — the borrow
+  ## this returns must outlive the call, and only a field of the
+  ## handle-owned ``e`` does.
+  if field notin e[].present:
     return nil
   value.cstring
 
 proc jmapEmailId(
     e: ptr EmailItem
 ): cstring {.exportc: "jmap_email_id", dynlib, cdecl, raises: [].} =
-  ## Always populated: JMAP mints an id for every returned email.
+  ## In practice always populated — jmap_get_emails never sends a
+  ## property filter, so the server has no occasion to omit id — but the
+  ## same presence check as every optional field still guards it: a
+  ## future property-filtered path would answer NULL correctly rather
+  ## than mis-borrow, instead of relying on a guarantee this proc cannot
+  ## itself enforce.
   if e.isNil:
     nil
   else:

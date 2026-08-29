@@ -265,15 +265,23 @@ jmap_status jmap_get_emails(jmap_client *client,
 void jmap_emails_free(jmap_emails *emails);
 
 size_t jmap_emails_count(const jmap_emails *emails);
+/* NULL out of range. The borrow lives until jmap_emails_free. */
 const jmap_email *jmap_emails_at(const jmap_emails *emails, size_t i);
 size_t jmap_emails_notfound_count(const jmap_emails *emails);
+/* NULL out of range. The borrow lives until jmap_emails_free. */
 const char *jmap_emails_notfound_at(const jmap_emails *emails, size_t i);
 
-/* Getters return NULL when the server omitted the field. */
+/* Getters return NULL when the server omitted the field, except
+ * jmap_email_preview: RFC 8621 §4.1.4 makes preview non-optional
+ * (server-set, defaulting to ""), so it is never NULL for a live
+ * handle. */
 const char *jmap_email_id(const jmap_email *e);
 const char *jmap_email_thread_id(const jmap_email *e);
 const char *jmap_email_subject(const jmap_email *e);
-/* First From address (the common display case). */
+/* First From address (the common display case). A present-but-empty
+ * "from": [] server response is indistinguishable here from an absent
+ * from: both jmap_email_from_email and jmap_email_from_name answer
+ * NULL either way. */
 const char *jmap_email_from_email(const jmap_email *e);
 const char *jmap_email_from_name(const jmap_email *e);
 const char *jmap_email_preview(const jmap_email *e);
