@@ -1657,3 +1657,62 @@ proc jmapSetResultFailureTypeAt(
   if r.isNil or i >= csize_t(r[].failures.len):
     return nil
   r[].failures[int(i)].errorType.cstring
+
+func vacationUpdates(
+    state: cint, subject, textBody: cstring
+): seq[VacationResponseUpdate] =
+  ## NULL subject/textBody leave the property untouched: VacationResponse
+  ## has no clear-to-absent, so only a non-NULL pointer patches a field.
+  ## Built here so the export carries no construction branches.
+  var updates = @[setIsEnabled(state == cint(1))]
+  if not subject.isNil:
+    updates.add(setSubject(Opt.some($subject)))
+  if not textBody.isNil:
+    updates.add(setTextBody(Opt.some($textBody)))
+  updates
+
+func fillFromVacationSet(
+    handle: ptr JmapSetResultHandle,
+    resp: SetResponse[NoCreate, PartialVacationResponse],
+) =
+  ## The singleton instantiates SetResponse differently from Email, so
+  ## fillFromEmailSet cannot serve it; NoCreate means no create or
+  ## destroy rows can ever appear, which is why only two walks exist.
+  for id, serverEcho in resp.updated:
+    handle[].updated.add($id)
+  for id, error in resp.updateFailures:
+    handle[].failures.add(SetFailureItem(id: $id, errorType: error.rawType))
+
+proc jmapSetVacation(
+    client: ptr JmapClientHandle,
+    accountId: cstring,
+    state: cint,
+    subject: cstring,
+    textBody: cstring,
+    outResult: ptr ptr JmapSetResultHandle,
+): cint {.exportc: "jmap_set_vacation", dynlib, cdecl, raises: [].} =
+  ## A projection over the setVacationResponse one-shot: the singleton
+  ## id, the update-set seal and the dispatch ceremony are all its
+  ## business, so this validates arguments and records the outcome.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if outResult.isNil:
+    return recordMisuse(client, "out parameter must not be NULL")
+  if state notin [cint(0), cint(1)]:
+    return recordMisuse(client, "vacation state ordinal out of range")
+  var acct = default(AccountId)
+  let parsedAcct = parseAccountArg(client, accountId, acct)
+  if parsedAcct != asCint(jsOk):
+    return parsedAcct
+  let resp = setVacationResponse(
+    client[].client, acct, vacationUpdates(state, subject, textBody)
+  )
+  if resp.isErr:
+    return recordError(client, resp.error)
+  let p = createShared(JmapSetResultHandle)
+  fillFromVacationSet(p, resp.get())
+  clearError(client)
+  outResult[] = p
+  asCint(jsOk)

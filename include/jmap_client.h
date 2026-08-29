@@ -387,6 +387,23 @@ const char *jmap_set_result_failure_id_at(const jmap_set_result *r, size_t i);
 const char *jmap_set_result_failure_type_at(const jmap_set_result *r,
                                             size_t i);
 
+/* --- Vacation response set --------------------------------------------- */
+
+typedef enum {
+  JMAP_VACATION_DISABLED = 0,
+  JMAP_VACATION_ENABLED  = 1
+} jmap_vacation_state;
+
+/* Updates the account's vacation singleton. subject and text_body may
+ * be NULL, meaning "leave that property unset in this update". The
+ * result object's updated list carries the singleton id on success. */
+jmap_status jmap_set_vacation(jmap_client *client,
+                              const char *account_id,
+                              jmap_vacation_state state,
+                              const char *subject,
+                              const char *text_body,
+                              jmap_set_result **out);
+
 #ifdef __cplusplus
 }
 #endif
