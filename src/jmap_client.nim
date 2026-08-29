@@ -62,10 +62,9 @@ type JmapStatus {.size: sizeof(cint).} = enum
   jsMethod = 7
   jsSet = 8
 
-func statusOf(kind: JmapErrorKind): JmapStatus {.used.} =
+func statusOf(kind: JmapErrorKind): JmapStatus =
   ## The C projection of the error rail: one arm, one ordinal, locked at
-  ## v1 so a C caller's switch statements never break. No handle
-  ## constructor calls this yet, hence ``{.used.}``.
+  ## v1 so a C caller's switch statements never break.
   case kind
   of jeValidation: jsValidation
   of jeTransport: jsTransport
@@ -154,3 +153,94 @@ proc jmapStrerror(
 proc jmapVersion(): cstring {.exportc: "jmap_version", dynlib, cdecl, raises: [].} =
   ## A static literal, so callable before jmap_init unlike GC-touching exports.
   cstring"0.1.0"
+
+type ErrorSlot {.ruleOff: "objects".} = object
+  ## Per-handle diagnostic. message backs
+  ## jmap_errmsg's borrow, so it must outlive the call that set it.
+  status: JmapStatus
+  message: string
+
+type SessionCacheState = enum
+  scsEmpty
+  scsReady
+
+type JmapClientHandle {.ruleOff: "objects".} = object
+  ## The C jmap_client: an L5-owned box holding the L4 ref (the object
+  ## behind it is module-private and cannot be minted here) plus every
+  ## per-handle slot the C contract needs. Dropping `client` closes the
+  ## transport through ARC.
+  client: JmapClient
+  err: ErrorSlot
+  cacheState: SessionCacheState
+  accountIds: seq[string] ## sorted render of the session's account ids
+  primaryAccount: string ## "" until resolved; backs a borrow
+  primaryFail: ErrorSlot ## jsOk when a mail primary was resolved
+  stateSlot: string ## backs jmap_get_email_state's borrow
+
+proc recordError(h: ptr JmapClientHandle, err: JmapError): cint {.used.} =
+  ## Renders the diagnostic at record time so the errmsg borrow needs no
+  ## later allocation. No exported proc calls this yet — jmap_client_new
+  ## fails before a handle exists, so it reports the bare status instead;
+  ## later handle-bearing operations call this, hence ``{.used.}``.
+  let status = statusOf(err.kind)
+  h[].err = ErrorSlot(status: status, message: err.message)
+  asCint(status)
+
+proc recordMisuse(h: ptr JmapClientHandle, msg: string): cint {.used.} =
+  ## Misuse detected in L5 code, not on the JmapError rail, so the
+  ## message is authored here rather than carried from L4. Unused until
+  ## a later handle-bearing operation can detect misuse post-construction,
+  ## hence ``{.used.}``.
+  h[].err = ErrorSlot(status: jsMisuse, message: msg)
+  asCint(jsMisuse)
+
+proc clearError(h: ptr JmapClientHandle) {.used.} =
+  ## A fallible call that succeeds resets the slot — jmap_errmsg reports
+  ## the MOST RECENT call's outcome, exactly like sqlite3_errmsg. Unused
+  ## until a later handle-bearing operation exists to succeed, hence
+  ## ``{.used.}``.
+  h[].err = ErrorSlot(status: jsOk, message: "")
+
+proc jmapClientNew(
+    sessionUrl, username, password: cstring,
+    transport: pointer,
+    outClient: ptr ptr JmapClientHandle,
+): cint {.exportc: "jmap_client_new", dynlib, cdecl, raises: [].} =
+  ## Pre-handle failures answer the bare status: there is no handle yet
+  ## to carry a message; that is the accepted trade.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if outClient.isNil or sessionUrl.isNil or username.isNil or password.isNil:
+    return asCint(jsMisuse)
+  if not transport.isNil:
+    # No public L4 constructor threads a caller-supplied Transport
+    # through yet, so a non-nil value cannot be honoured.
+    return asCint(jsMisuse)
+  let connected = connect($sessionUrl, $username, $password)
+  if connected.isErr:
+    return asCint(statusOf(connected.error.kind))
+  let p = create(JmapClientHandle)
+  p[].client = connected.get()
+  outClient[] = p
+  asCint(jsOk)
+
+proc jmapClientFree(
+    handle: ptr JmapClientHandle
+) {.exportc: "jmap_client_free", dynlib, cdecl, raises: [].} =
+  ## Drops the last reference; `=destroy` fires any attached transport's
+  ## close.
+  if handle.isNil:
+    return
+  `=destroy`(handle[])
+  dealloc(handle)
+
+proc jmapErrmsg(
+    client: ptr JmapClientHandle
+): cstring {.exportc: "jmap_errmsg", dynlib, cdecl, raises: [].} =
+  ## Reports the most recently completed call's outcome, mirroring
+  ## sqlite3_errmsg.
+  if client.isNil:
+    return cstring"null client handle"
+  if client[].err.status == jsOk:
+    return cstring"no error"
+  client[].err.message.cstring

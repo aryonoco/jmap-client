@@ -63,6 +63,31 @@ const char *jmap_strerror(jmap_status code);
  * jmap_init. */
 const char *jmap_version(void);
 
+/* Opaque handles. Struct layouts are never exposed. */
+typedef struct jmap_client jmap_client;
+typedef struct jmap_transport jmap_transport;
+
+/* Connect parameters, Basic authentication. transport == NULL selects
+ * the built-in HTTP transport; a non-NULL transport (jmap_transport_new)
+ * attaches caller-supplied HTTP. No network IO happens here — the JMAP
+ * session is fetched on first use, so reachability errors surface on
+ * the first operation, not here. On failure *out is untouched and the
+ * returned status is the diagnosis (no handle exists yet to query). */
+jmap_status jmap_client_new(const char *session_url,
+                            const char *username,
+                            const char *password,
+                            jmap_transport *transport,
+                            jmap_client **out);
+
+/* Releases the client, closing its transport. NULL is a no-op. */
+void jmap_client_free(jmap_client *client);
+
+/* The most recent error on THIS handle (sqlite3_errmsg semantics): the
+ * borrow is owned by the handle, valid until the next fallible call on
+ * the same handle or jmap_client_free, whichever comes first. Returns
+ * "no error" when the last call succeeded. */
+const char *jmap_errmsg(const jmap_client *client);
+
 #ifdef __cplusplus
 }
 #endif
