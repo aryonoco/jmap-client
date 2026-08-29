@@ -165,8 +165,24 @@ typedef enum {
   JMAP_WIRE_RECEIVE = 1
 } jmap_wire_direction;
 
-/* bytes is borrowed for the duration of the call only — copy it if you
- * keep it. The callback must not unwind. */
+/* Fires once per direction per HTTP exchange the client attempts —
+ * up to two calls per exchange, never more. A send fire is NOT
+ * guaranteed a matching receive fire: the request is rendered (and
+ * the send fire raised) before the request-size check and before the
+ * transport call, so an oversized request, an unresolved session
+ * URL, or a transport failure can leave a send with no corresponding
+ * receive.
+ *
+ * bytes is never NULL, even when len is 0 — e.g. the GET request that
+ * fetches the session has an empty body, so that is every client's
+ * very first fire — so memcpy(dst, bytes, len) is always well
+ * defined. bytes is length-delimited, NOT NUL-terminated: do not
+ * treat it as a C string. It is borrowed for the duration of the
+ * call only — copy it if you keep it. The callback must not unwind.
+ * As with jmap_send_fn, it fires while an exchange is in flight:
+ * freeing the client it was invoked from before returning is a
+ * use-after-free the caller must avoid, not a case the library
+ * guards against. */
 typedef void (*jmap_debug_fn)(void *userdata,
                               jmap_wire_direction direction,
                               const uint8_t *bytes,

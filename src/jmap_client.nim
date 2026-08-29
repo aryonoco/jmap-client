@@ -529,9 +529,57 @@ proc jmapClientAccountAt(
     return nil
   client[].accountIds[int(i)].cstring
 
+type JmapWireDirection {.size: sizeof(cint).} = enum
+  ## The C projection of the substrate's ``WireDirection``: a locked
+  ## ordinal pair, independent of L4's own enum declaration order, so
+  ## a C caller's switch statement never breaks under an L4 reorder.
+  jwdSend = 0
+  jwdReceive = 1
+
+func wireDirectionOf(direction: WireDirection): JmapWireDirection =
+  ## Explicit total projection, in the same shape as ``statusOf`` and
+  ## the ``req.httpMethod`` mapping in ``newCTransport`` — the wire
+  ## ordinal must never ride on ``WireDirection``'s member order by
+  ## coincidence.
+  case direction
+  of wdSend: jwdSend
+  of wdReceive: jwdReceive
+
+const emptyWireBuf: array[1, byte] = [0'u8]
+  ## A stable, non-null address handed to the C callback in place of
+  ## ``bytes[0]`` when a fire's payload is empty (the session GET's
+  ## request body, notably the very first fire on every client) — a
+  ## zero-length ``openArray`` has no addressable element, and the
+  ## header's contract promises the callback a live pointer even at
+  ## length 0, so ``memcpy(dst, bytes, 0)`` stays well defined. A
+  ## ``const`` scalar has no runtime address in Nim; a single-element
+  ## ``const array`` does, since aggregates are materialised as
+  ## static storage.
+
 type JmapDebugFn = proc(
-  userdata: pointer, direction: cint, bytes: pointer, len: csize_t
-) {.cdecl, gcsafe, raises: [].} ## The C vtable's wire-debug slot.
+  userdata: pointer, direction: JmapWireDirection, bytes: pointer, len: csize_t
+) {.cdecl, gcsafe, raises: [].}
+  ## A plain function pointer rather than a closure: C has no closure
+  ## ABI to receive one, so ``jmapSetDebugCallback`` pairs it with
+  ## ``userdata`` itself to stand in for the substrate's
+  ## closure-typed ``DebugCallback``.
+
+proc newDebugTrampoline(fn: JmapDebugFn, userdata: pointer): DebugCallback =
+  ## Builds the closure the substrate installs. Kept in its own proc
+  ## so the closure environment's allocation is a call site the
+  ## caller controls: it is reached only from the branch below that
+  ## already passed the latch and nil checks, never hoisted ahead of
+  ## them the way an inline closure literal can be by the destructor
+  ## injection pass.
+  proc(
+      direction: WireDirection, bytes: openArray[byte]
+  ) {.closure, gcsafe, raises: [].} =
+    let p =
+      if bytes.len > 0:
+        cast[pointer](unsafeAddr bytes[0])
+      else:
+        cast[pointer](unsafeAddr emptyWireBuf[0])
+    fn(userdata, wireDirectionOf(direction), p, csize_t(bytes.len))
 
 proc jmapSetDebugCallback(
     client: ptr JmapClientHandle, fn: JmapDebugFn, userdata: pointer
@@ -545,17 +593,6 @@ proc jmapSetDebugCallback(
   if fn.isNil:
     setDebugCallback(client[].client, nil)
   else:
-    let trampoline: DebugCallback = proc(
-        direction: WireDirection, bytes: openArray[byte]
-    ) {.closure, gcsafe, raises: [].} =
-      # bytes may be empty (the session GET has no request body); the
-      # length guard keeps the address-of total.
-      let p =
-        if bytes.len > 0:
-          cast[pointer](unsafeAddr bytes[0])
-        else:
-          nil
-      fn(userdata, cint(ord(direction)), p, csize_t(bytes.len))
-    setDebugCallback(client[].client, trampoline)
+    setDebugCallback(client[].client, newDebugTrampoline(fn, userdata))
   clearError(client)
   asCint(jsOk)
