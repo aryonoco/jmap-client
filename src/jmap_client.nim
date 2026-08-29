@@ -528,3 +528,34 @@ proc jmapClientAccountAt(
   if i >= csize_t(client[].accountIds.len):
     return nil
   client[].accountIds[int(i)].cstring
+
+type JmapDebugFn = proc(
+  userdata: pointer, direction: cint, bytes: pointer, len: csize_t
+) {.cdecl, gcsafe, raises: [].} ## The C vtable's wire-debug slot.
+
+proc jmapSetDebugCallback(
+    client: ptr JmapClientHandle, fn: JmapDebugFn, userdata: pointer
+): cint {.exportc: "jmap_set_debug_callback", dynlib, cdecl, raises: [].} =
+  ## fn == NULL detaches; userdata threads through the trampoline
+  ## unchanged, since the substrate's callback carries none of its own.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if fn.isNil:
+    setDebugCallback(client[].client, nil)
+  else:
+    let trampoline: DebugCallback = proc(
+        direction: WireDirection, bytes: openArray[byte]
+    ) {.closure, gcsafe, raises: [].} =
+      # bytes may be empty (the session GET has no request body); the
+      # length guard keeps the address-of total.
+      let p =
+        if bytes.len > 0:
+          cast[pointer](unsafeAddr bytes[0])
+        else:
+          nil
+      fn(userdata, cint(ord(direction)), p, csize_t(bytes.len))
+    setDebugCallback(client[].client, trampoline)
+  clearError(client)
+  asCint(jsOk)

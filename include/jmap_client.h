@@ -158,6 +158,25 @@ jmap_status jmap_client_account_count(jmap_client *client, size_t *out);
  * (call jmap_client_account_count first). */
 const char *jmap_client_account_at(const jmap_client *client, size_t i);
 
+/* --- Wire debugging -------------------------------------------------- */
+
+typedef enum {
+  JMAP_WIRE_SEND    = 0,
+  JMAP_WIRE_RECEIVE = 1
+} jmap_wire_direction;
+
+/* bytes is borrowed for the duration of the call only — copy it if you
+ * keep it. The callback must not unwind. */
+typedef void (*jmap_debug_fn)(void *userdata,
+                              jmap_wire_direction direction,
+                              const uint8_t *bytes,
+                              size_t len);
+
+/* fn == NULL detaches. userdata is threaded back unchanged. */
+jmap_status jmap_set_debug_callback(jmap_client *client,
+                                    jmap_debug_fn fn,
+                                    void *userdata);
+
 #ifdef __cplusplus
 }
 #endif
