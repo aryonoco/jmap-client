@@ -157,10 +157,12 @@ proc jmapVersion(): cstring {.exportc: "jmap_version", dynlib, cdecl, raises: []
   cstring"0.1.0"
 
 type ErrorSlot {.ruleOff: "objects".} = object
-  ## Per-handle diagnostic. message backs
-  ## jmap_errmsg's borrow, so it must outlive the call that set it.
+  ## Per-handle diagnostic. message backs jmap_errmsg's borrow, and
+  ## methodErrorType backs jmap_errtype's — both must outlive the call
+  ## that set them.
   status: JmapStatus
   message: string
+  methodErrorType: string ## "" unless this outcome was a method-level error
 
 type SessionCacheState = enum
   scsEmpty
@@ -179,14 +181,30 @@ type JmapClientHandle {.ruleOff: "objects".} = object
   primaryFail: ErrorSlot ## jsOk when a mail primary was resolved
   stateSlot: string ## backs jmap_get_email_state's borrow
 
+func methodErrorTypeOf(err: JmapError): string =
+  ## The wire ``type`` string (RFC 8620 section 3.6.2) when ``err`` is a
+  ## method-level failure, else "" — the sentinel jmap_errtype reads as
+  ## absent. A live JmapError.methodFault.error.rawType is structurally
+  ## never empty (the decoder's own nonEmptyStr guard on the wire "type"
+  ## field), so "" here can only mean "not a method error". Exhaustive
+  ## over JmapErrorKind so a new arm is a compile error here, not a
+  ## silent gap.
+  case err.kind
+  of jeValidation, jeTransport, jeRequest, jeSession, jeMisuse, jeProtocol, jeSet:
+    ""
+  of jeMethod:
+    err.methodFault.error.rawType
+
 proc recordError(h: ptr JmapClientHandle, err: JmapError): cint =
-  ## Renders the diagnostic at record time so the errmsg borrow needs no
-  ## later allocation. Called by every fallible handle-bearing operation
-  ## once a handle exists to carry the JmapError rail's outcome; a
-  ## pre-handle failure (jmap_client_new) has no handle yet and reports
-  ## the bare status instead.
+  ## Renders the diagnostic at record time so the errmsg/errtype borrows
+  ## need no later allocation. Called by every fallible handle-bearing
+  ## operation once a handle exists to carry the JmapError rail's
+  ## outcome; a pre-handle failure (jmap_client_new) has no handle yet
+  ## and reports the bare status instead.
   let status = statusOf(err.kind)
-  h[].err = ErrorSlot(status: status, message: err.message)
+  h[].err = ErrorSlot(
+    status: status, message: err.message, methodErrorType: methodErrorTypeOf(err)
+  )
   asCint(status)
 
 proc recordMisuse(h: ptr JmapClientHandle, msg: string): cint =
@@ -466,6 +484,20 @@ proc jmapErrmsg(
     return cstring"no error"
   client[].err.message.cstring
 
+proc jmapErrtype(
+    client: ptr JmapClientHandle
+): cstring {.exportc: "jmap_errtype", dynlib, cdecl, raises: [].} =
+  ## The wire ``type`` string of the last JMAP method-level error on this
+  ## handle — sqlite3_extended_errcode to jmap_errmsg's sqlite3_errmsg.
+  ## NULL whenever the last outcome was not a method-level error (no
+  ## client, no error, or a failure of any other JmapError kind); never
+  ## empty otherwise, so the two cannot be confused.
+  if client.isNil:
+    return nil
+  if client[].err.methodErrorType.len == 0:
+    return nil
+  client[].err.methodErrorType.cstring
+
 proc ensureCaches(h: ptr JmapClientHandle): Result[void, JmapError] =
   ## First use fetches the session and freezes the sorted account-id
   ## render the borrow accessors read from, so later calls need no
@@ -485,8 +517,11 @@ proc ensureCaches(h: ptr JmapClientHandle): Result[void, JmapError] =
     h[].primaryFail = ErrorSlot(status: jsOk, message: "")
   else:
     h[].primaryAccount = ""
-    h[].primaryFail =
-      ErrorSlot(status: statusOf(primary.error.kind), message: primary.error.message)
+    h[].primaryFail = ErrorSlot(
+      status: statusOf(primary.error.kind),
+      message: primary.error.message,
+      methodErrorType: methodErrorTypeOf(primary.error),
+    )
   h[].cacheState = scsReady
   ok()
 

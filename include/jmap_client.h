@@ -89,6 +89,24 @@ void jmap_client_free(jmap_client *client);
  * "no error" when the last call succeeded. */
 const char *jmap_errmsg(const jmap_client *client);
 
+/* The wire "type" string (RFC 8620 section 3.6.2, e.g.
+ * "cannotCalculateChanges") of the last JMAP method-level error on
+ * THIS handle -- the machine-readable counterpart to jmap_errmsg's
+ * prose, on the sqlite3_errmsg/sqlite3_extended_errcode split (SQLite:
+ * "the same except that it always returns the extended result code")
+ * rather than CURLOPT_ERRORBUFFER's human-text-only design. The
+ * substrate carries this off the wire losslessly, so a vendor-specific
+ * type reaches C intact, exactly like jmap_set_result_failure_type_at.
+ *
+ * NULL when the last call did NOT fail with a method-level error --
+ * no client, no error, or a failure of any other status
+ * (JMAP_E_VALIDATION, JMAP_E_SESSION, ...). When non-NULL the string
+ * is never empty, so "not a method error" and "a method error with an
+ * empty type" can never be confused. Same borrow lifetime as
+ * jmap_errmsg: owned by the handle, invalidated by the next fallible
+ * call on it or by jmap_client_free, whichever comes first. */
+const char *jmap_errtype(const jmap_client *client);
+
 /* --- Bring your own HTTP -------------------------------------------- */
 
 typedef enum {
@@ -478,9 +496,19 @@ jmap_status jmap_get_email_state(jmap_client *client,
 
 /* One round-trip: changes since the cursor plus both back-referenced
  * fetches. Persist jmap_sync_new_state as the next cursor; when
- * jmap_sync_has_more is 1, call again from that cursor. A record
- * created and updated since the cursor may appear in both views
- * (RFC 8620 section 5.2) -- dedupe by id when merging. */
+ * jmap_sync_has_more is 1, call again from that cursor.
+ *
+ * RFC 8620 section 5.2 lets a record appear in more than one list: one
+ * created AND updated since the cursor may surface in both created and
+ * updated (dedupe by id when merging); one updated AND destroyed may
+ * surface in both jmap_sync_destroyed_at and updated -- destroyed wins,
+ * since applying updated after destroyed would resurrect it.
+ *
+ * JMAP_E_METHOD on this call is routinely cannotCalculateChanges
+ * (jmap_errtype distinguishes it from every other method error): the
+ * cursor is too old for the server to diff from. There is no partial
+ * recovery -- discard any local state built from this cursor and
+ * re-bootstrap via jmap_get_email_state. */
 jmap_status jmap_sync_emails(jmap_client *client,
                              const char *account_id,
                              const char *since_state,
@@ -495,11 +523,19 @@ void jmap_sync_free(jmap_sync *sync);
  * releases this handle. */
 const char *jmap_sync_old_state(const jmap_sync *s);
 const char *jmap_sync_new_state(const jmap_sync *s);
+/* 1 or 0. 0 for a NULL handle too, indistinguishable from "delta
+ * complete" -- the same convention every other pure-read accessor in
+ * this file follows. */
 int jmap_sync_has_more(const jmap_sync *s);
+/* Email ids destroyed since the cursor. NULL out of range. The borrow
+ * lives until jmap_sync_free. */
 size_t jmap_sync_destroyed_count(const jmap_sync *s);
 const char *jmap_sync_destroyed_at(const jmap_sync *s, size_t i);
 /* Borrowed email views owned by the sync object: valid until
- * jmap_sync_free, never freed by the caller. */
+ * jmap_sync_free, never freed by the caller. Metadata only -- fetched
+ * with no body content, so jmap_email_text_body is NULL for every
+ * element of both. Fetch bodies separately with jmap_get_emails, using
+ * the ids read off these views. */
 const jmap_emails *jmap_sync_created(const jmap_sync *s);
 const jmap_emails *jmap_sync_updated(const jmap_sync *s);
 
