@@ -1166,3 +1166,242 @@ proc jmapEmailHasAttachment(
 ): cint {.exportc: "jmap_email_has_attachment", dynlib, cdecl, raises: [].} =
   ## Always populated: hasAttachment defaults false, never absent.
   if e.isNil: 0 else: e[].hasAttachment
+
+type ThreadItem {.ruleOff: "objects".} = object
+  id: string
+  emailIds: seq[string]
+
+type JmapThreadsHandle {.ruleOff: "objects".} = object
+  items: seq[ThreadItem]
+
+proc jmapGetThreads(
+    client: ptr JmapClientHandle,
+    accountId: cstring,
+    ids: ptr cstring,
+    n: csize_t,
+    outThreads: ptr ptr JmapThreadsHandle,
+): cint {.exportc: "jmap_get_threads", dynlib, cdecl, raises: [].} =
+  ## Fetches synchronously; the returned handle is a frozen snapshot.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if outThreads.isNil:
+    return recordMisuse(client, "out parameter must not be NULL")
+  var acct = default(AccountId)
+  let parsedAcct = parseAccountArg(client, accountId, acct)
+  if parsedAcct != asCint(jsOk):
+    return parsedAcct
+  var wanted: seq[Id] = @[]
+  let parsedIds = parseIdArray(client, ids, n, wanted)
+  if parsedIds != asCint(jsOk):
+    return parsedIds
+  let resp = getThreads(client[].client, acct, ids = directIds(wanted))
+  if resp.isErr:
+    return recordError(client, resp.error)
+  let p = createShared(JmapThreadsHandle)
+  for th in resp.get().list:
+    var item = ThreadItem(id: $th.id)
+    for eid in th.emailIds:
+      item.emailIds.add($eid)
+    p[].items.add(item)
+  clearError(client)
+  outThreads[] = p
+  asCint(jsOk)
+
+proc jmapThreadsFree(
+    handle: ptr JmapThreadsHandle
+) {.exportc: "jmap_threads_free", dynlib, cdecl, raises: [].} =
+  ## Drops the last reference to the fetched snapshot.
+  if handle.isNil:
+    return
+  `=destroy`(handle[])
+  deallocShared(handle)
+
+proc jmapThreadsCount(
+    handle: ptr JmapThreadsHandle
+): csize_t {.exportc: "jmap_threads_count", dynlib, cdecl, raises: [].} =
+  ## A NULL handle is empty, not a defect: pure reads never fail.
+  if handle.isNil:
+    0
+  else:
+    csize_t(handle[].items.len)
+
+proc jmapThreadsAt(
+    handle: ptr JmapThreadsHandle, i: csize_t
+): ptr ThreadItem {.exportc: "jmap_threads_at", dynlib, cdecl, raises: [].} =
+  ## Out-of-range is NULL, not a defect: pure reads never fail.
+  if handle.isNil or i >= csize_t(handle[].items.len):
+    return nil
+  addr handle[].items[int(i)]
+
+proc jmapThreadId(
+    th: ptr ThreadItem
+): cstring {.exportc: "jmap_thread_id", dynlib, cdecl, raises: [].} =
+  ## Always populated: JMAP mints an id for every returned thread.
+  if th.isNil: nil else: th[].id.cstring
+
+proc jmapThreadEmailCount(
+    th: ptr ThreadItem
+): csize_t {.exportc: "jmap_thread_email_count", dynlib, cdecl, raises: [].} =
+  ## A NULL thread is empty, not a defect: pure reads never fail.
+  if th.isNil:
+    0
+  else:
+    csize_t(th[].emailIds.len)
+
+proc jmapThreadEmailAt(
+    th: ptr ThreadItem, i: csize_t
+): cstring {.exportc: "jmap_thread_email_at", dynlib, cdecl, raises: [].} =
+  ## Out-of-range is NULL, not a defect: pure reads never fail.
+  if th.isNil or i >= csize_t(th[].emailIds.len):
+    return nil
+  th[].emailIds[int(i)].cstring
+
+type IdentityItem {.ruleOff: "objects".} = object
+  id: string
+  name: string
+  email: string
+
+type JmapIdentitiesHandle {.ruleOff: "objects".} = object
+  items: seq[IdentityItem]
+
+proc jmapGetIdentities(
+    client: ptr JmapClientHandle,
+    accountId: cstring,
+    outIdentities: ptr ptr JmapIdentitiesHandle,
+): cint {.exportc: "jmap_get_identities", dynlib, cdecl, raises: [].} =
+  ## Fetches synchronously; the returned handle is a frozen snapshot.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if outIdentities.isNil:
+    return recordMisuse(client, "out parameter must not be NULL")
+  var acct = default(AccountId)
+  let parsedAcct = parseAccountArg(client, accountId, acct)
+  if parsedAcct != asCint(jsOk):
+    return parsedAcct
+  let resp = getIdentities(client[].client, acct)
+  if resp.isErr:
+    return recordError(client, resp.error)
+  let p = createShared(JmapIdentitiesHandle)
+  for ident in resp.get().list:
+    p[].items.add(IdentityItem(id: $ident.id, name: ident.name, email: ident.email))
+  clearError(client)
+  outIdentities[] = p
+  asCint(jsOk)
+
+proc jmapIdentitiesFree(
+    handle: ptr JmapIdentitiesHandle
+) {.exportc: "jmap_identities_free", dynlib, cdecl, raises: [].} =
+  ## Drops the last reference to the fetched snapshot.
+  if handle.isNil:
+    return
+  `=destroy`(handle[])
+  deallocShared(handle)
+
+proc jmapIdentitiesCount(
+    handle: ptr JmapIdentitiesHandle
+): csize_t {.exportc: "jmap_identities_count", dynlib, cdecl, raises: [].} =
+  ## A NULL handle is empty, not a defect: pure reads never fail.
+  if handle.isNil:
+    0
+  else:
+    csize_t(handle[].items.len)
+
+proc jmapIdentitiesAt(
+    handle: ptr JmapIdentitiesHandle, i: csize_t
+): ptr IdentityItem {.exportc: "jmap_identities_at", dynlib, cdecl, raises: [].} =
+  ## Out-of-range is NULL, not a defect: pure reads never fail.
+  if handle.isNil or i >= csize_t(handle[].items.len):
+    return nil
+  addr handle[].items[int(i)]
+
+proc jmapIdentityId(
+    ident: ptr IdentityItem
+): cstring {.exportc: "jmap_identity_id", dynlib, cdecl, raises: [].} =
+  ## Always populated: JMAP mints an id for every returned identity.
+  if ident.isNil: nil else: ident[].id.cstring
+
+proc jmapIdentityName(
+    ident: ptr IdentityItem
+): cstring {.exportc: "jmap_identity_name", dynlib, cdecl, raises: [].} =
+  ## Always populated: name defaults to empty, never absent.
+  if ident.isNil: nil else: ident[].name.cstring
+
+proc jmapIdentityEmail(
+    ident: ptr IdentityItem
+): cstring {.exportc: "jmap_identity_email", dynlib, cdecl, raises: [].} =
+  ## Always populated and immutable after the identity was created.
+  if ident.isNil: nil else: ident[].email.cstring
+
+type VacationField = enum
+  vfSubject
+  vfTextBody
+
+type JmapVacationHandle {.ruleOff: "objects".} = object
+  enabled: cint
+  subject: string
+  textBody: string
+  present: set[VacationField]
+
+proc jmapGetVacation(
+    client: ptr JmapClientHandle,
+    accountId: cstring,
+    outVacation: ptr ptr JmapVacationHandle,
+): cint {.exportc: "jmap_get_vacation", dynlib, cdecl, raises: [].} =
+  ## Fetches synchronously; the returned handle is a frozen snapshot of
+  ## the singleton VacationResponse object.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if outVacation.isNil:
+    return recordMisuse(client, "out parameter must not be NULL")
+  var acct = default(AccountId)
+  let parsedAcct = parseAccountArg(client, accountId, acct)
+  if parsedAcct != asCint(jsOk):
+    return parsedAcct
+  let resp = getVacationResponse(client[].client, acct)
+  if resp.isErr:
+    return recordError(client, resp.error)
+  let p = createShared(JmapVacationHandle)
+  for vr in resp.get().list:
+    p[].enabled = cint(ord(vr.isEnabled))
+    borrowInto(vr.subject, p[].subject, vfSubject, p[].present)
+    borrowInto(vr.textBody, p[].textBody, vfTextBody, p[].present)
+  clearError(client)
+  outVacation[] = p
+  asCint(jsOk)
+
+proc jmapVacationFree(
+    handle: ptr JmapVacationHandle
+) {.exportc: "jmap_vacation_free", dynlib, cdecl, raises: [].} =
+  ## Drops the last reference to the fetched snapshot.
+  if handle.isNil:
+    return
+  `=destroy`(handle[])
+  deallocShared(handle)
+
+proc jmapVacationIsEnabled(
+    v: ptr JmapVacationHandle
+): cint {.exportc: "jmap_vacation_is_enabled", dynlib, cdecl, raises: [].} =
+  ## Always populated: isEnabled defaults false, never absent.
+  if v.isNil: 0 else: v[].enabled
+
+proc jmapVacationSubject(
+    v: ptr JmapVacationHandle
+): cstring {.exportc: "jmap_vacation_subject", dynlib, cdecl, raises: [].} =
+  ## NULL when the server omitted subject, not an empty string.
+  if v.isNil or vfSubject notin v[].present:
+    return nil
+  v[].subject.cstring
+
+proc jmapVacationTextBody(
+    v: ptr JmapVacationHandle
+): cstring {.exportc: "jmap_vacation_text_body", dynlib, cdecl, raises: [].} =
+  ## NULL when the server omitted textBody, not an empty string.
+  if v.isNil or vfTextBody notin v[].present:
+    return nil
+  v[].textBody.cstring

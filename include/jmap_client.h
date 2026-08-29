@@ -291,6 +291,44 @@ const char *jmap_email_received_at(const jmap_email *e);
 const char *jmap_email_text_body(const jmap_email *e);
 int jmap_email_has_attachment(const jmap_email *e);
 
+/* --- Threads, identities, vacation ------------------------------------ */
+
+typedef struct jmap_threads jmap_threads;
+typedef struct jmap_thread jmap_thread; /* a borrow, never freed */
+typedef struct jmap_identities jmap_identities;
+typedef struct jmap_identity jmap_identity; /* a borrow, never freed */
+typedef struct jmap_vacation jmap_vacation;
+
+jmap_status jmap_get_threads(jmap_client *client, const char *account_id,
+                             const char *const *ids, size_t n,
+                             jmap_threads **out);
+void jmap_threads_free(jmap_threads *threads);
+size_t jmap_threads_count(const jmap_threads *threads);
+const jmap_thread *jmap_threads_at(const jmap_threads *threads, size_t i);
+const char *jmap_thread_id(const jmap_thread *th);
+size_t jmap_thread_email_count(const jmap_thread *th);
+const char *jmap_thread_email_at(const jmap_thread *th, size_t i);
+
+jmap_status jmap_get_identities(jmap_client *client,
+                                const char *account_id,
+                                jmap_identities **out);
+void jmap_identities_free(jmap_identities *identities);
+size_t jmap_identities_count(const jmap_identities *identities);
+const jmap_identity *jmap_identities_at(const jmap_identities *identities,
+                                        size_t i);
+const char *jmap_identity_id(const jmap_identity *ident);
+const char *jmap_identity_name(const jmap_identity *ident);
+const char *jmap_identity_email(const jmap_identity *ident);
+
+/* The account's vacation singleton. */
+jmap_status jmap_get_vacation(jmap_client *client, const char *account_id,
+                              jmap_vacation **out);
+void jmap_vacation_free(jmap_vacation *vacation);
+int jmap_vacation_is_enabled(const jmap_vacation *v);
+/* NULL when unset. */
+const char *jmap_vacation_subject(const jmap_vacation *v);
+const char *jmap_vacation_text_body(const jmap_vacation *v);
+
 #ifdef __cplusplus
 }
 #endif
