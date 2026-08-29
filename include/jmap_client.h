@@ -10,9 +10,10 @@
  *     through out-parameters. Rich diagnostics: jmap_errmsg(client).
  *   - The library owns everything its read accessors return: a
  *     const char* or view is a borrow, valid until the handle that
- *     produced it is freed (jmap_errmsg's borrow is also invalidated
- *     by the next fallible call on the same client). Never free a
- *     borrow. Objects are released only via their paired jmap_*_free.
+ *     produced it is freed (jmap_errmsg's and jmap_get_email_state's
+ *     borrows are also invalidated by the next fallible call on the
+ *     same client). Never free a borrow. Objects are released only via
+ *     their paired jmap_*_free.
  *   - A handle is confined to one thread at a time; hand a handle to
  *     another thread by ceasing to use it on the old one.
  *   - This header is the ABI: symbols are appended, ordinals never
@@ -452,6 +453,55 @@ jmap_status jmap_set_vacation(jmap_client *client,
                               const char *account_id,
                               const jmap_vacation_update *update,
                               jmap_set_result **out);
+
+/* --- Incremental sync ------------------------------------------------- */
+
+typedef struct jmap_sync jmap_sync;
+
+/* The current Email object state -- the since_state cursor a first
+ * jmap_sync_emails call needs. On JMAP_OK the returned string is
+ * never NULL and never empty: the substrate refuses to parse a state
+ * token that fails that check, so a server response that tried to
+ * claim an empty state fails the call (JMAP_E_PROTOCOL) instead of
+ * succeeding with a hollow value. A non-JMAP_OK return leaves *out
+ * untouched, so "no cursor yet" -- this was never called, or the last
+ * call on this handle failed -- stays visibly different from a valid
+ * cursor: the caller's own initial value (typically NULL) survives to
+ * say so, never an empty string standing in for it.
+ *
+ * The borrow is owned by the client handle and invalidated by the
+ * next fallible call on it, exactly like jmap_errmsg; copy the string
+ * before making another call if it must outlive that call. */
+jmap_status jmap_get_email_state(jmap_client *client,
+                                 const char *account_id,
+                                 const char **out);
+
+/* One round-trip: changes since the cursor plus both back-referenced
+ * fetches. Persist jmap_sync_new_state as the next cursor; when
+ * jmap_sync_has_more is 1, call again from that cursor. A record
+ * created and updated since the cursor may appear in both views
+ * (RFC 8620 section 5.2) -- dedupe by id when merging. */
+jmap_status jmap_sync_emails(jmap_client *client,
+                             const char *account_id,
+                             const char *since_state,
+                             jmap_sync **out);
+void jmap_sync_free(jmap_sync *sync);
+
+/* Both always non-NULL and non-empty on a live handle, for the same
+ * reason jmap_get_email_state's value is: the substrate never carries
+ * an empty state token past decode. Unlike that borrow, these belong
+ * to the sync object itself, not the client -- they stay valid across
+ * any later call on the client that produced them, until jmap_sync_free
+ * releases this handle. */
+const char *jmap_sync_old_state(const jmap_sync *s);
+const char *jmap_sync_new_state(const jmap_sync *s);
+int jmap_sync_has_more(const jmap_sync *s);
+size_t jmap_sync_destroyed_count(const jmap_sync *s);
+const char *jmap_sync_destroyed_at(const jmap_sync *s, size_t i);
+/* Borrowed email views owned by the sync object: valid until
+ * jmap_sync_free, never freed by the caller. */
+const jmap_emails *jmap_sync_created(const jmap_sync *s);
+const jmap_emails *jmap_sync_updated(const jmap_sync *s);
 
 #ifdef __cplusplus
 }

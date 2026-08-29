@@ -1799,3 +1799,150 @@ proc jmapSetVacation(
   clearError(client)
   outResult[] = p
   asCint(jsOk)
+
+proc jmapGetEmailState(
+    client: ptr JmapClientHandle, accountId: cstring, outState: ptr cstring
+): cint {.exportc: "jmap_get_email_state", dynlib, cdecl, raises: [].} =
+  ## The current Email state string; hand it back unchanged as
+  ## since_state on the next sync call. Bootstraps with an empty-ids
+  ## Email/get, so a first cursor costs no email payload.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if outState.isNil:
+    return recordMisuse(client, "out parameter must not be NULL")
+  var acct = default(AccountId)
+  let parsedAcct = parseAccountArg(client, accountId, acct)
+  if parsedAcct != asCint(jsOk):
+    return parsedAcct
+  let resp = getEmailState(client[].client, acct)
+  if resp.isErr:
+    return recordError(client, resp.error)
+  client[].stateSlot = $resp.get()
+  clearError(client)
+  outState[] = client[].stateSlot.cstring
+  asCint(jsOk)
+
+type JmapSyncHandle {.ruleOff: "objects".} = object
+  oldState: string
+  newState: string
+  hasMore: cint
+  destroyed: seq[string]
+  created: JmapEmailsHandle
+  updated: JmapEmailsHandle
+
+proc jmapSyncEmails(
+    client: ptr JmapClientHandle,
+    accountId: cstring,
+    sinceState: cstring,
+    outSync: ptr ptr JmapSyncHandle,
+): cint {.exportc: "jmap_sync_emails", dynlib, cdecl, raises: [].} =
+  ## Changes plus the two Email/get fetches in one round trip, so a
+  ## caller never juggles three calls for a single sync step.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if outSync.isNil:
+    return recordMisuse(client, "out parameter must not be NULL")
+  if sinceState.isNil:
+    return recordMisuse(client, "since_state must not be NULL")
+  var acct = default(AccountId)
+  let parsedAcct = parseAccountArg(client, accountId, acct)
+  if parsedAcct != asCint(jsOk):
+    return parsedAcct
+  let parsedState = parseJmapState($sinceState).lift
+  if parsedState.isErr:
+    return recordError(client, parsedState.error)
+  let resp = syncEmails(client[].client, acct, parsedState.get())
+  if resp.isErr:
+    return recordError(client, resp.error)
+  let sync = resp.get()
+  let p = createShared(JmapSyncHandle)
+  p[].oldState = $sync.changes.oldState
+  p[].newState = $sync.changes.newState
+  p[].hasMore = cint(ord(sync.changes.hasMoreChanges))
+  for id in sync.changes.destroyed:
+    p[].destroyed.add($id)
+  let (createdItems, createdMissing) = toEmailsHandleContent(sync.created)
+  p[].created = JmapEmailsHandle(items: createdItems, notFound: createdMissing)
+  let (updatedItems, updatedMissing) = toEmailsHandleContent(sync.updated)
+  p[].updated = JmapEmailsHandle(items: updatedItems, notFound: updatedMissing)
+  clearError(client)
+  outSync[] = p
+  asCint(jsOk)
+
+proc jmapSyncFree(
+    handle: ptr JmapSyncHandle
+) {.exportc: "jmap_sync_free", dynlib, cdecl, raises: [].} =
+  ## Drops the last reference to the sync outcome, including its two
+  ## nested email handles.
+  if handle.isNil:
+    return
+  `=destroy`(handle[])
+  deallocShared(handle)
+
+proc jmapSyncOldState(
+    s: ptr JmapSyncHandle
+): cstring {.exportc: "jmap_sync_old_state", dynlib, cdecl, raises: [].} =
+  ## Always populated: every sync response echoes the state it started
+  ## from. Owned by the sync handle, not the client — unaffected by any
+  ## later call on the client that produced it.
+  if s.isNil: nil else: s[].oldState.cstring
+
+proc jmapSyncNewState(
+    s: ptr JmapSyncHandle
+): cstring {.exportc: "jmap_sync_new_state", dynlib, cdecl, raises: [].} =
+  ## Always populated: every sync response echoes the state it now
+  ## sits at. Owned by the sync handle, not the client — unaffected by
+  ## any later call on the client that produced it.
+  if s.isNil: nil else: s[].newState.cstring
+
+proc jmapSyncHasMore(
+    s: ptr JmapSyncHandle
+): cint {.exportc: "jmap_sync_has_more", dynlib, cdecl, raises: [].} =
+  ## Always populated: signals whether another sync call is needed to
+  ## catch up.
+  if s.isNil: 0 else: s[].hasMore
+
+proc jmapSyncDestroyedCount(
+    s: ptr JmapSyncHandle
+): csize_t {.exportc: "jmap_sync_destroyed_count", dynlib, cdecl, raises: [].} =
+  ## A NULL handle is empty, not a defect: pure reads never fail.
+  if s.isNil:
+    0
+  else:
+    csize_t(s[].destroyed.len)
+
+proc jmapSyncDestroyedAt(
+    s: ptr JmapSyncHandle, i: csize_t
+): cstring {.exportc: "jmap_sync_destroyed_at", dynlib, cdecl, raises: [].} =
+  ## Out-of-range is NULL, not a defect: pure reads never fail. ``i`` is
+  ## compared against the count while both are still ``csize_t``
+  ## (unsigned), so a caller's ``SIZE_MAX`` answers NULL instead of
+  ## narrowing to ``int`` first and raising a RangeDefect across this
+  ## ``raises: []`` boundary.
+  if s.isNil or i >= csize_t(s[].destroyed.len):
+    return nil
+  s[].destroyed[int(i)].cstring
+
+proc jmapSyncCreated(
+    s: ptr JmapSyncHandle
+): ptr JmapEmailsHandle {.exportc: "jmap_sync_created", dynlib, cdecl, raises: [].} =
+  ## A borrow into the sync handle's own storage, freed only when the
+  ## sync handle is.
+  if s.isNil:
+    nil
+  else:
+    addr s[].created
+
+proc jmapSyncUpdated(
+    s: ptr JmapSyncHandle
+): ptr JmapEmailsHandle {.exportc: "jmap_sync_updated", dynlib, cdecl, raises: [].} =
+  ## A borrow into the sync handle's own storage, freed only when the
+  ## sync handle is.
+  if s.isNil:
+    nil
+  else:
+    addr s[].updated
