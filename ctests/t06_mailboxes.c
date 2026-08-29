@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /* Copyright (c) 2026 Aryan Ameri */
 #include <assert.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdio.h>
 #include "jmap_client.h"
@@ -51,8 +52,11 @@ int main(void) {
   }
   assert(saw_child == 1);
 
-  /* Out of range is NULL, never a crash. */
+  /* Out of range is NULL, never a crash. SIZE_MAX exercises the
+   * unsigned-domain bounds check directly: narrowing to int first
+   * would raise a RangeDefect across this raises:[] boundary. */
   assert(jmap_mailboxes_at(mbs, 99) == NULL);
+  assert(jmap_mailboxes_at(mbs, SIZE_MAX) == NULL);
 
   /* Bad account id string is validation, recorded on the handle. */
   jmap_mailboxes *bad = NULL;

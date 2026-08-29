@@ -598,6 +598,12 @@ proc jmapSetDebugCallback(
   asCint(jsOk)
 
 type CMailboxRole {.size: sizeof(cint).} = enum
+  ## The C projection of ``jmap_mailbox_role``: locked, additive-only
+  ## ordinals matching ``include/jmap_client.h`` exactly, independent of
+  ## ``MailboxRoleKind``'s own declaration order. ``crNone`` is the
+  ## absent state (``Mailbox.role`` is ``Opt.none``); ``crUnknown`` is
+  ## every present-but-vendor role (``mrOther``) this ordinal set does
+  ## not further distinguish — see ``toCRole``.
   crNone = 0
   crInbox = 1
   crDrafts = 2
@@ -611,6 +617,10 @@ type CMailboxRole {.size: sizeof(cint).} = enum
   crUnknown = 10
 
 type CMailboxRight {.size: sizeof(cint).} = enum
+  ## The C projection of ``jmap_mailbox_right``: locked, additive-only
+  ## ordinals matching ``include/jmap_client.h`` exactly. RFC 8621 §2.4
+  ## fixes ``MailboxRights`` at nine independent flags, so unlike
+  ## ``CMailboxRole`` there is no "unknown" arm to reserve.
   cwReadItems = 0
   cwAddItems = 1
   cwRemoveItems = 2
@@ -622,6 +632,11 @@ type CMailboxRight {.size: sizeof(cint).} = enum
   cwSubmit = 8
 
 type MailboxField = enum
+  ## Presence bits for ``MailboxItem``'s optional wire fields
+  ## (``mfParentId`` today, one arm per future optional field).
+  ## ``borrowInto`` sets the bit exactly when it also fills the
+  ## matching view slot, so an absent field is never confused with one
+  ## whose borrowed value happens to be empty.
   mfParentId
 
 type MailboxItem {.ruleOff: "objects".} = object
@@ -641,20 +656,24 @@ type MailboxItem {.ruleOff: "objects".} = object
 type JmapMailboxesHandle {.ruleOff: "objects".} = object
   items: seq[MailboxItem]
 
-func toCRole(identifier: string): CMailboxRole =
-  ## Falls back to crUnknown for any role JMAP defines that this
-  ## ordinal set has not yet named.
-  case identifier
-  of "inbox": crInbox
-  of "drafts": crDrafts
-  of "sent": crSent
-  of "trash": crTrash
-  of "junk": crJunk
-  of "archive": crArchive
-  of "important": crImportant
-  of "all": crAll
-  of "flagged": crFlagged
-  else: crUnknown
+func toCRole(role: MailboxRole): CMailboxRole =
+  ## Matched on ``role.kind`` — the L4 discriminator — rather than the
+  ## wire string, so a tenth ``MailboxRoleKind`` member is a compile
+  ## error here (no ``else``) instead of silently falling through to
+  ## ``crUnknown``. ``mrOther`` is the one arm this ordinal set
+  ## deliberately does not distinguish further: its wire text is still
+  ## recoverable via ``jmap_mailbox_role_identifier``.
+  case role.kind
+  of mrInbox: crInbox
+  of mrDrafts: crDrafts
+  of mrSent: crSent
+  of mrTrash: crTrash
+  of mrJunk: crJunk
+  of mrArchive: crArchive
+  of mrImportant: crImportant
+  of mrAll: crAll
+  of mrFlagged: crFlagged
+  of mrOther: crUnknown
 
 func borrowInto[T; F: enum](
     value: Opt[T], slot: var string, field: F, present: var set[F]
@@ -667,25 +686,52 @@ func borrowInto[T; F: enum](
     slot = $v
     present.incl(field)
 
+func rightOrdinalTail(name: static string): CMailboxRight =
+  ## The second half of ``rightOrdinal``'s field-name dispatch, split
+  ## out purely to stay under nimalyzer's complexity ceiling — together
+  ## the two cover every ``MailboxRights`` field, and an unmapped field
+  ## still fails to compile, here rather than in the caller.
+  when name == "mayCreateChild":
+    cwCreateChild
+  elif name == "mayRename":
+    cwRename
+  elif name == "mayDelete":
+    cwDelete
+  elif name == "maySubmit":
+    cwSubmit
+  else:
+    {.error: "MailboxRights gained a field toCRights does not project: " & name.}
+
+func rightOrdinal(name: static string): CMailboxRight =
+  ## Compile-time dispatch from a ``MailboxRights`` field name to its C
+  ## ordinal. ``toCRights`` below instantiates this once per field via
+  ## ``fieldPairs``, so a ``MailboxRights`` field with no arm here (or
+  ## in ``rightOrdinalTail``) fails to compile — the field-name analogue
+  ## of ``toCRole``'s exhaustive ``case``, since ``MailboxRights`` is a
+  ## record of independent flags (RFC 8621 §2.4), not a variant type a
+  ## ``case`` can be total over.
+  when name == "mayReadItems":
+    cwReadItems
+  elif name == "mayAddItems":
+    cwAddItems
+  elif name == "mayRemoveItems":
+    cwRemoveItems
+  elif name == "maySetSeen":
+    cwSetSeen
+  elif name == "maySetKeywords":
+    cwSetKeywords
+  else:
+    rightOrdinalTail(name)
+
 func toCRights(rights: MailboxRights): set[CMailboxRight] =
-  ## The nine RFC 8621 §2 rights as one table walk. Each ordinal sits
-  ## beside the field it mirrors, so a tenth right is one row rather than
-  ## a tenth branch in the mapper.
-  let granted = [
-    (cwReadItems, rights.mayReadItems),
-    (cwAddItems, rights.mayAddItems),
-    (cwRemoveItems, rights.mayRemoveItems),
-    (cwSetSeen, rights.maySetSeen),
-    (cwSetKeywords, rights.maySetKeywords),
-    (cwCreateChild, rights.mayCreateChild),
-    (cwRename, rights.mayRename),
-    (cwDelete, rights.mayDelete),
-    (cwSubmit, rights.maySubmit),
-  ]
+  ## Walks every ``MailboxRights`` field via ``fieldPairs`` — an
+  ## unrolled, per-field compile-time iterator — instead of naming each
+  ## field in an array literal, so ``rightOrdinal``'s compile-time
+  ## dispatch is what enforces the ordinal-for-every-field invariant.
   var held: set[CMailboxRight] = {}
-  for (right, allowed) in granted:
-    if allowed:
-      held.incl(right)
+  for name, granted in rights.fieldPairs:
+    if granted:
+      held.incl(rightOrdinal(name))
   held
 
 func toMailboxItem(mb: Mailbox): MailboxItem =
@@ -702,9 +748,10 @@ func toMailboxItem(mb: Mailbox): MailboxItem =
   )
   borrowInto(mb.parentId, item.parentId, mfParentId, item.present)
   for role in mb.role:
-    # Not a plain borrow: the identifier feeds the ordinal projection too.
+    # Not a plain borrow: the same Opt value feeds both the wire-string
+    # slot and, via role.kind, the ordinal projection.
     item.roleIdentifier = identifier(role)
-    item.role = toCRole(item.roleIdentifier)
+    item.role = toCRole(role)
   item
 
 proc parseAccountArg(
@@ -768,8 +815,14 @@ proc jmapMailboxesCount(
 proc jmapMailboxesAt(
     handle: ptr JmapMailboxesHandle, i: csize_t
 ): ptr MailboxItem {.exportc: "jmap_mailboxes_at", dynlib, cdecl, raises: [].} =
-  ## Out-of-range is NULL, not a defect: pure reads never fail.
-  if handle.isNil or int(i) >= handle[].items.len:
+  ## Out-of-range is NULL, not a defect: pure reads never fail. Mirrors
+  ## ``jmap_client_account_at``'s bounds check: ``i`` is compared against
+  ## the count while both are still ``csize_t`` (unsigned), so a caller's
+  ## ``SIZE_MAX`` answers NULL instead of narrowing to ``int`` first and
+  ## raising a RangeDefect across this ``raises: []`` boundary.
+  if handle.isNil:
+    return nil
+  if i >= csize_t(handle[].items.len):
     return nil
   addr handle[].items[int(i)]
 
@@ -797,8 +850,11 @@ proc jmapMailboxRoleGet(
 proc jmapMailboxRoleIdentifier(
     mb: ptr MailboxItem
 ): cstring {.exportc: "jmap_mailbox_role_identifier", dynlib, cdecl, raises: [].} =
-  ## NULL when the mailbox has no well-known role — distinct from an
-  ## empty string.
+  ## "" identifies a role-less mailbox — never NULL for a live handle:
+  ## parseMailboxRole rejects an empty wire identifier, so a *present*
+  ## role's identifier can never collide with this absent sentinel. (A
+  ## NULL ``mb`` still answers NULL, as with every getter in this
+  ## section — that is a handle-nil guard, not a role-presence signal.)
   if mb.isNil: nil else: mb[].roleIdentifier.cstring
 
 proc jmapMailboxParentId(
