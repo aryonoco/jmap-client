@@ -17,8 +17,9 @@ static const char *VACATION_SET_REFUSED_JSON = "{\"methodResponses\":[[\"Vacatio
 int main(void) {
   assert(jmap_init() == JMAP_OK);
   const char *bodies[] = { SESSION_JSON, VACATION_SET_JSON,
-                           VACATION_SET_JSON, VACATION_SET_REFUSED_JSON };
-  canned_state st = { bodies, 4, 0, NULL, NULL, 0 };
+                           VACATION_SET_JSON, VACATION_SET_JSON,
+                           VACATION_SET_REFUSED_JSON };
+  canned_state st = { bodies, 5, 0, NULL, NULL, 0 };
   jmap_transport *t = canned_make_transport(&st);
   jmap_client *c = NULL;
   assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t, &c)
@@ -61,6 +62,19 @@ int main(void) {
   assert(strstr(st.last_request, "textBody") == NULL);
   jmap_set_result_free(r2);
   jmap_vacation_update_free(only);
+
+  /* Calling a setter twice replaces the earlier value: the wire
+   * carries only the final call, never both. */
+  jmap_vacation_update *twice = NULL;
+  assert(jmap_vacation_update_new(&twice) == JMAP_OK);
+  assert(jmap_vacation_update_set_subject(twice, "First") == JMAP_OK);
+  assert(jmap_vacation_update_set_subject(twice, "Second") == JMAP_OK);
+  jmap_set_result *rTwice = NULL;
+  assert(jmap_set_vacation(c, acct, twice, &rTwice) == JMAP_OK);
+  assert(strstr(st.last_request, "\"subject\":\"Second\"") != NULL);
+  assert(strstr(st.last_request, "First") == NULL);
+  jmap_set_result_free(rTwice);
+  jmap_vacation_update_free(twice);
 
   /* A server refusal is DATA: the call completed, so the status is
    * JMAP_OK, the updated list is EMPTY, and the wire error type
