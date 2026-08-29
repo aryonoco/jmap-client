@@ -618,7 +618,7 @@ type CMailboxRole {.size: sizeof(cint).} = enum
 
 type CMailboxRight {.size: sizeof(cint).} = enum
   ## The C projection of ``jmap_mailbox_right``: locked, additive-only
-  ## ordinals matching ``include/jmap_client.h`` exactly. RFC 8621 §2.4
+  ## ordinals matching ``include/jmap_client.h`` exactly. RFC 8621 §2
   ## fixes ``MailboxRights`` at nine independent flags, so unlike
   ## ``CMailboxRole`` there is no "unknown" arm to reserve.
   cwReadItems = 0
@@ -708,7 +708,7 @@ func rightOrdinal(name: static string): CMailboxRight =
   ## ``fieldPairs``, so a ``MailboxRights`` field with no arm here (or
   ## in ``rightOrdinalTail``) fails to compile — the field-name analogue
   ## of ``toCRole``'s exhaustive ``case``, since ``MailboxRights`` is a
-  ## record of independent flags (RFC 8621 §2.4), not a variant type a
+  ## record of independent flags (RFC 8621 §2), not a variant type a
   ## ``case`` can be total over.
   when name == "mayReadItems":
     cwReadItems
