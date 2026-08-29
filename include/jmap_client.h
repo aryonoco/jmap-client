@@ -10,10 +10,10 @@
  *     through out-parameters. Rich diagnostics: jmap_errmsg(client).
  *   - The library owns everything its read accessors return: a
  *     const char* or view is a borrow, valid until the handle that
- *     produced it is freed (jmap_errmsg's and jmap_get_email_state's
- *     borrows are also invalidated by the next fallible call on the
- *     same client). Never free a borrow. Objects are released only via
- *     their paired jmap_*_free.
+ *     produced it is freed (jmap_errmsg's, jmap_errtype's, and
+ *     jmap_get_email_state's borrows are also invalidated by the next
+ *     fallible call on the same client). Never free a borrow. Objects
+ *     are released only via their paired jmap_*_free.
  *   - A handle is confined to one thread at a time; hand a handle to
  *     another thread by ceasing to use it on the old one.
  *   - This header is the ABI: symbols are appended, ordinals never
