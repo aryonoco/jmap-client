@@ -51,7 +51,7 @@ export websocket
 # latch. jmap_strerror and jmap_version take no handle and are the only
 # pre-init entry points.
 
-import std/strutils
+import std/[algorithm, strutils, tables]
 
 type JmapStatus {.size: sizeof(cint).} = enum
   jsOk = 0
@@ -449,3 +449,78 @@ proc jmapErrmsg(
   if client[].err.status == jsOk:
     return cstring"no error"
   client[].err.message.cstring
+
+proc ensureCaches(h: ptr JmapClientHandle): Result[void, JmapError] =
+  ## First use fetches the session and freezes the account renders the
+  ## borrows need. requireMail's failure is captured, not raised here —
+  ## account enumeration must still work on a mail-less session.
+  if h[].cacheState == scsReady:
+    return ok()
+  let session = ?fetchSession(h[].client)
+  var ids: seq[string] = @[]
+  for id in tables.keys(session.accounts):
+    ids.add($id)
+  sort(ids)
+  h[].accountIds = ids
+  let primary = requireMail(session)
+  if primary.isOk:
+    h[].primaryAccount = $primary.get()
+    h[].primaryFail = ErrorSlot(status: jsOk, message: "")
+  else:
+    h[].primaryAccount = ""
+    h[].primaryFail =
+      ErrorSlot(status: statusOf(primary.error.kind), message: primary.error.message)
+  h[].cacheState = scsReady
+  ok()
+
+proc jmapClientPrimaryAccount(
+    client: ptr JmapClientHandle, outAccount: ptr cstring
+): cint {.exportc: "jmap_client_primary_account", dynlib, cdecl, raises: [].} =
+  ## A mail-less session has no primary account; that failure is
+  ## reported here rather than at cache time, so enumeration still works.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if outAccount.isNil:
+    return recordMisuse(client, "out parameter must not be NULL")
+  let cached = ensureCaches(client)
+  if cached.isErr:
+    return recordError(client, cached.error)
+  if client[].primaryFail.status != jsOk:
+    client[].err = client[].primaryFail
+    return asCint(client[].primaryFail.status)
+  clearError(client)
+  outAccount[] = client[].primaryAccount.cstring
+  asCint(jsOk)
+
+proc jmapClientAccountCount(
+    client: ptr JmapClientHandle, outCount: ptr csize_t
+): cint {.exportc: "jmap_client_account_count", dynlib, cdecl, raises: [].} =
+  ## Triggers the lazy session fetch on first call; every later call
+  ## reads the frozen cache.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if outCount.isNil:
+    return recordMisuse(client, "out parameter must not be NULL")
+  let cached = ensureCaches(client)
+  if cached.isErr:
+    return recordError(client, cached.error)
+  clearError(client)
+  outCount[] = csize_t(client[].accountIds.len)
+  asCint(jsOk)
+
+proc jmapClientAccountAt(
+    client: ptr JmapClientHandle, i: csize_t
+): cstring {.exportc: "jmap_client_account_at", dynlib, cdecl, raises: [].} =
+  ## Pure read over the frozen cache: never fetches, never a defect.
+  ## No latch check: the handle came from a constructor that ran one.
+  if client.isNil:
+    return nil
+  if client[].cacheState != scsReady:
+    return nil
+  if int(i) >= client[].accountIds.len:
+    return nil
+  client[].accountIds[int(i)].cstring

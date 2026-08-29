@@ -139,6 +139,25 @@ jmap_status jmap_transport_new(jmap_send_fn send,
  * the transport lives until jmap_client_free. NULL is a no-op. */
 void jmap_transport_free(jmap_transport *transport);
 
+/* --- Session and accounts ------------------------------------------- */
+/* These fetch and cache the JMAP session on first use (which is why
+ * they take a non-const client): expect transport/protocol statuses on
+ * that first call. Account ids are returned in ascending strcmp order,
+ * stable until jmap_client_free. */
+
+/* The RFC 8621 mail primary account (with the library's documented
+ * fallback to the lowest-sorting mail-capable account when the
+ * designated primary lacks the capability). JMAP_E_SESSION when no
+ * account advertises mail. The borrow is owned by the client handle. */
+jmap_status jmap_client_primary_account(jmap_client *client,
+                                        const char **out);
+
+jmap_status jmap_client_account_count(jmap_client *client, size_t *out);
+
+/* Pure read: NULL when out of range or when no fetch has succeeded yet
+ * (call jmap_client_account_count first). */
+const char *jmap_client_account_at(const jmap_client *client, size_t i);
+
 #ifdef __cplusplus
 }
 #endif

@@ -36,8 +36,9 @@ int main(void) {
   jmap_transport_free(t);
   assert(st.closes == 0);
 
-  /* No accessor exists yet to force an exchange; the close-once and
-   * attach-once contracts are what this test pins. */
+  /* Force one exchange (session fetch) through the canned transport. */
+  const char *primary = NULL;
+  assert(jmap_client_primary_account(c, &primary) == JMAP_OK);
 
   jmap_client_free(c);
   assert(st.closes == 1); /* last ref dropped -> close fired once */
