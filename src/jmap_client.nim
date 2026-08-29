@@ -220,7 +220,12 @@ proc jmapClientNew(
   let connected = connect($sessionUrl, $username, $password)
   if connected.isErr:
     return asCint(statusOf(connected.error.kind))
-  let p = create(JmapClientHandle)
+  # include/jmap_client.h permits handing a handle to another thread;
+  # plain create/dealloc are documented thread-local in
+  # lib/system/memalloc.nim ("The freed memory must belong to its
+  # allocating thread!"), so the box goes on the shared heap instead —
+  # correct whether or not the build defines -d:useMalloc.
+  let p = createShared(JmapClientHandle)
   p[].client = connected.get()
   outClient[] = p
   asCint(jsOk)
@@ -233,7 +238,7 @@ proc jmapClientFree(
   if handle.isNil:
     return
   `=destroy`(handle[])
-  dealloc(handle)
+  deallocShared(handle)
 
 proc jmapErrmsg(
     client: ptr JmapClientHandle
