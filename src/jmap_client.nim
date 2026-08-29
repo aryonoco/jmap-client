@@ -894,3 +894,253 @@ proc jmapMailboxHasRight(
     if cint(ord(r)) == right:
       return cint(ord(r in mb[].rights))
   0
+
+type EmailField = enum
+  ## Presence bits for ``EmailItem``'s optional wire fields. ``borrowInto``
+  ## sets a bit exactly when it also fills the matching view slot, so an
+  ## absent field is never confused with one whose borrowed value happens
+  ## to be empty — mirrors ``MailboxField``.
+  cefId
+  cefThreadId
+  cefSubject
+  cefFromEmail
+  cefFromName
+  cefReceivedAt
+  cefTextBody
+
+type EmailItem {.ruleOff: "objects".} = object
+  ## Flat snapshot of one email: every string is stored here so the C
+  ## getters return stable borrows against this view.
+  id: string
+  threadId: string
+  subject: string
+  fromEmail: string
+  fromName: string
+  preview: string
+  receivedAt: string
+  textBody: string
+  hasAttachment: cint
+  present: set[EmailField]
+
+type JmapEmailsHandle {.ruleOff: "objects".} = object
+  items: seq[EmailItem]
+  notFound: seq[string]
+
+func toEmailItem(e: Email): EmailItem =
+  ## Flattens every Opt field to its snapshot slot once, so getters never
+  ## re-derive presence from the source Email. ``borrowInto`` carries every
+  ## plain field; only the From list needs its own walk, because two slots
+  ## come out of one optional address sequence.
+  var item = EmailItem(preview: e.preview, hasAttachment: cint(ord(e.hasAttachment)))
+  borrowInto(e.id, item.id, cefId, item.present)
+  borrowInto(e.threadId, item.threadId, cefThreadId, item.present)
+  borrowInto(e.subject, item.subject, cefSubject, item.present)
+  borrowInto(e.receivedAt, item.receivedAt, cefReceivedAt, item.present)
+  borrowInto(decodedTextBody(e), item.textBody, cefTextBody, item.present)
+  for addrs in e.fromAddr:
+    if addrs.len > 0:
+      item.fromEmail = addrs[0].email
+      item.present.incl(cefFromEmail)
+      borrowInto(addrs[0].name, item.fromName, cefFromName, item.present)
+  item
+
+func toEmailsHandleContent(
+    resp: GetResponse[Email]
+): tuple[items: seq[EmailItem], notFound: seq[string]] =
+  ## Separates found from notFound once, so the handle never re-walks the
+  ## response.
+  var items: seq[EmailItem] = @[]
+  for e in resp.list:
+    items.add(toEmailItem(e))
+  var missing: seq[string] = @[]
+  for id in resp.notFound:
+    missing.add($id)
+  (items: items, notFound: missing)
+
+proc parseIdArray(
+    h: ptr JmapClientHandle, ids: ptr cstring, n: csize_t, outSeq: var seq[Id]
+): cint =
+  ## Boundary parse for id arrays: NULL array with nonzero n is misuse;
+  ## each element parses through the lenient server-id rail.
+  if ids.isNil and n > 0:
+    return recordMisuse(h, "ids must not be NULL when n > 0")
+  let arr = cast[ptr UncheckedArray[cstring]](ids)
+  for i in 0 ..< int(n):
+    if arr[i].isNil:
+      return recordMisuse(h, "ids[" & $i & "] must not be NULL")
+    let parsed = parseIdFromServer($arr[i]).lift
+    if parsed.isErr:
+      return recordError(h, parsed.error)
+    outSeq.add(parsed.get())
+  asCint(jsOk)
+
+proc jmapGetEmails(
+    client: ptr JmapClientHandle,
+    accountId: cstring,
+    ids: ptr cstring,
+    n: csize_t,
+    outEmails: ptr ptr JmapEmailsHandle,
+): cint {.exportc: "jmap_get_emails", dynlib, cdecl, raises: [].} =
+  ## Fetches text bodies eagerly; there is no lazy body fetch on the
+  ## returned handle.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if outEmails.isNil:
+    return recordMisuse(client, "out parameter must not be NULL")
+  var acct = default(AccountId)
+  let parsedAcct = parseAccountArg(client, accountId, acct)
+  if parsedAcct != asCint(jsOk):
+    return parsedAcct
+  var wanted: seq[Id] = @[]
+  let parsedIds = parseIdArray(client, ids, n, wanted)
+  if parsedIds != asCint(jsOk):
+    return parsedIds
+  let resp = getEmails(
+    client[].client, acct, ids = directIds(wanted), bodyFetchOptions = textBodies()
+  )
+  if resp.isErr:
+    return recordError(client, resp.error)
+  let (items, missing) = toEmailsHandleContent(resp.get())
+  let p = createShared(JmapEmailsHandle)
+  p[].items = items
+  p[].notFound = missing
+  clearError(client)
+  outEmails[] = p
+  asCint(jsOk)
+
+proc jmapEmailsFree(
+    handle: ptr JmapEmailsHandle
+) {.exportc: "jmap_emails_free", dynlib, cdecl, raises: [].} =
+  ## Drops the last reference to the fetched snapshot.
+  if handle.isNil:
+    return
+  `=destroy`(handle[])
+  deallocShared(handle)
+
+proc jmapEmailsCount(
+    handle: ptr JmapEmailsHandle
+): csize_t {.exportc: "jmap_emails_count", dynlib, cdecl, raises: [].} =
+  ## A NULL handle is empty, not a defect: pure reads never fail.
+  if handle.isNil:
+    0
+  else:
+    csize_t(handle[].items.len)
+
+proc jmapEmailsAt(
+    handle: ptr JmapEmailsHandle, i: csize_t
+): ptr EmailItem {.exportc: "jmap_emails_at", dynlib, cdecl, raises: [].} =
+  ## Out-of-range is NULL, not a defect: pure reads never fail. ``i`` is
+  ## compared against the count while both are still ``csize_t``
+  ## (unsigned), so a caller's ``SIZE_MAX`` answers NULL instead of
+  ## narrowing to ``int`` first and raising a RangeDefect across this
+  ## ``raises: []`` boundary.
+  if handle.isNil or i >= csize_t(handle[].items.len):
+    return nil
+  addr handle[].items[int(i)]
+
+proc jmapEmailsNotfoundCount(
+    handle: ptr JmapEmailsHandle
+): csize_t {.exportc: "jmap_emails_notfound_count", dynlib, cdecl, raises: [].} =
+  ## A NULL handle has no missing ids, not a defect.
+  if handle.isNil:
+    0
+  else:
+    csize_t(handle[].notFound.len)
+
+proc jmapEmailsNotfoundAt(
+    handle: ptr JmapEmailsHandle, i: csize_t
+): cstring {.exportc: "jmap_emails_notfound_at", dynlib, cdecl, raises: [].} =
+  ## Out-of-range is NULL, not a defect: pure reads never fail. Same
+  ## unsigned-domain compare as ``jmapEmailsAt`` — narrowing ``i`` before
+  ## the bounds check would raise a RangeDefect across this ``raises: []``
+  ## boundary for a caller's ``SIZE_MAX``.
+  if handle.isNil or i >= csize_t(handle[].notFound.len):
+    return nil
+  handle[].notFound[int(i)].cstring
+
+func emailField(e: ptr EmailItem, field: EmailField, value: string): cstring =
+  ## Shared absent-is-NULL projection for the Opt-shaped getters. ``value``
+  ## is always passed straight from the item's own field at every call
+  ## site, never a temporary — the borrow this returns must outlive the
+  ## call, and only a field of the handle-owned ``e`` does.
+  if e.isNil or field notin e[].present:
+    return nil
+  value.cstring
+
+proc jmapEmailId(
+    e: ptr EmailItem
+): cstring {.exportc: "jmap_email_id", dynlib, cdecl, raises: [].} =
+  ## Always populated: JMAP mints an id for every returned email.
+  if e.isNil:
+    nil
+  else:
+    emailField(e, cefId, e[].id)
+
+proc jmapEmailThreadId(
+    e: ptr EmailItem
+): cstring {.exportc: "jmap_email_thread_id", dynlib, cdecl, raises: [].} =
+  ## NULL when the server omitted threadId, not an empty string.
+  if e.isNil:
+    nil
+  else:
+    emailField(e, cefThreadId, e[].threadId)
+
+proc jmapEmailSubject(
+    e: ptr EmailItem
+): cstring {.exportc: "jmap_email_subject", dynlib, cdecl, raises: [].} =
+  ## NULL when the server omitted subject, not an empty string.
+  if e.isNil:
+    nil
+  else:
+    emailField(e, cefSubject, e[].subject)
+
+proc jmapEmailFromEmail(
+    e: ptr EmailItem
+): cstring {.exportc: "jmap_email_from_email", dynlib, cdecl, raises: [].} =
+  ## NULL when the server omitted the from address, not an empty string.
+  if e.isNil:
+    nil
+  else:
+    emailField(e, cefFromEmail, e[].fromEmail)
+
+proc jmapEmailFromName(
+    e: ptr EmailItem
+): cstring {.exportc: "jmap_email_from_name", dynlib, cdecl, raises: [].} =
+  ## NULL both when from is absent and when the address carries no
+  ## display name.
+  if e.isNil:
+    nil
+  else:
+    emailField(e, cefFromName, e[].fromName)
+
+proc jmapEmailPreview(
+    e: ptr EmailItem
+): cstring {.exportc: "jmap_email_preview", dynlib, cdecl, raises: [].} =
+  ## Always populated: preview defaults to empty, never absent.
+  if e.isNil: nil else: e[].preview.cstring
+
+proc jmapEmailReceivedAt(
+    e: ptr EmailItem
+): cstring {.exportc: "jmap_email_received_at", dynlib, cdecl, raises: [].} =
+  ## NULL when the server omitted receivedAt, not an empty string.
+  if e.isNil:
+    nil
+  else:
+    emailField(e, cefReceivedAt, e[].receivedAt)
+
+proc jmapEmailTextBody(
+    e: ptr EmailItem
+): cstring {.exportc: "jmap_email_text_body", dynlib, cdecl, raises: [].} =
+  ## NULL unless a text body was actually decoded from bodyValues.
+  if e.isNil:
+    nil
+  else:
+    emailField(e, cefTextBody, e[].textBody)
+
+proc jmapEmailHasAttachment(
+    e: ptr EmailItem
+): cint {.exportc: "jmap_email_has_attachment", dynlib, cdecl, raises: [].} =
+  ## Always populated: hasAttachment defaults false, never absent.
+  if e.isNil: 0 else: e[].hasAttachment

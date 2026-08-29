@@ -250,6 +250,39 @@ int64_t jmap_mailbox_unread_emails(const jmap_mailbox *mb);
 int jmap_mailbox_is_subscribed(const jmap_mailbox *mb);
 int jmap_mailbox_has_right(const jmap_mailbox *mb, jmap_mailbox_right r);
 
+/* --- Emails ----------------------------------------------------------- */
+
+typedef struct jmap_emails jmap_emails;
+typedef struct jmap_email jmap_email; /* a borrow, never freed */
+
+/* Fetches the named emails with their text bodies. ids is an array of
+ * n id strings (as returned by other calls). */
+jmap_status jmap_get_emails(jmap_client *client,
+                            const char *account_id,
+                            const char *const *ids,
+                            size_t n,
+                            jmap_emails **out);
+void jmap_emails_free(jmap_emails *emails);
+
+size_t jmap_emails_count(const jmap_emails *emails);
+const jmap_email *jmap_emails_at(const jmap_emails *emails, size_t i);
+size_t jmap_emails_notfound_count(const jmap_emails *emails);
+const char *jmap_emails_notfound_at(const jmap_emails *emails, size_t i);
+
+/* Getters return NULL when the server omitted the field. */
+const char *jmap_email_id(const jmap_email *e);
+const char *jmap_email_thread_id(const jmap_email *e);
+const char *jmap_email_subject(const jmap_email *e);
+/* First From address (the common display case). */
+const char *jmap_email_from_email(const jmap_email *e);
+const char *jmap_email_from_name(const jmap_email *e);
+const char *jmap_email_preview(const jmap_email *e);
+/* RFC 3339 UTC date string. */
+const char *jmap_email_received_at(const jmap_email *e);
+/* The decoded text/plain body, when one was fetched. */
+const char *jmap_email_text_body(const jmap_email *e);
+int jmap_email_has_attachment(const jmap_email *e);
+
 #ifdef __cplusplus
 }
 #endif
