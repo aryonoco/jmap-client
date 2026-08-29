@@ -310,6 +310,60 @@ const char *jmap_email_received_at(const jmap_email *e);
 const char *jmap_email_text_body(const jmap_email *e);
 int jmap_email_has_attachment(const jmap_email *e);
 
+/* --- Email query -------------------------------------------------------- */
+
+typedef struct jmap_query jmap_query;
+
+typedef enum {
+  JMAP_Q_IN_MAILBOX = 0, /* string: mailbox id */
+  JMAP_Q_TEXT       = 1, /* string: full-text needle */
+  JMAP_Q_LIMIT      = 2, /* u32: max results, 0 = server default */
+  JMAP_Q_READ_STATE = 3, /* u32: a jmap_read_state ordinal */
+  JMAP_Q_SORT       = 4  /* u32: a jmap_sort ordinal */
+  /* additive growth only */
+} jmap_query_opt;
+
+typedef enum {
+  JMAP_READ_ANY    = 0,
+  JMAP_READ_UNREAD = 1,
+  JMAP_READ_READ   = 2
+} jmap_read_state;
+
+typedef enum {
+  JMAP_SORT_RECEIVED_AT_DESC = 0,
+  JMAP_SORT_RECEIVED_AT_ASC  = 1
+} jmap_sort;
+
+jmap_status jmap_query_new(jmap_query **out);
+void jmap_query_free(jmap_query *query);
+
+/* Typed option setters (the sqlite3_bind_* discipline): each option's
+ * type is documented above; using the wrong-type setter for an
+ * option, a NULL string value, or an out-of-range ordinal is
+ * JMAP_E_MISUSE — the query handle carries no error slot of its own,
+ * so the returned status is the whole diagnosis for which setter
+ * failed. Values are parsed and validated HERE, not when the query
+ * runs: a value of the right type that is not a legal JMAP value (a
+ * malformed mailbox id, an out-of-range limit) is JMAP_E_VALIDATION
+ * and leaves the spec unchanged. Calling a setter twice for the SAME
+ * option replaces its earlier value outright. JMAP_Q_IN_MAILBOX,
+ * JMAP_Q_TEXT and JMAP_Q_READ_STATE each set one property on a single
+ * accumulated filter condition (all three narrow the same query, in
+ * conjunction); JMAP_Q_LIMIT and JMAP_Q_SORT are independent slots
+ * outside that condition. */
+jmap_status jmap_query_set_str(jmap_query *query, jmap_query_opt opt,
+                               const char *value);
+jmap_status jmap_query_set_u32(jmap_query *query, jmap_query_opt opt,
+                               uint32_t value);
+
+/* Runs Email/query then fetches the matching records' text bodies in
+ * one round trip. query may be NULL: no filter, no sort, server-default
+ * paging — a legal, unfiltered request rather than a special case. */
+jmap_status jmap_query_emails(jmap_client *client,
+                              const char *account_id,
+                              const jmap_query *query,
+                              jmap_emails **out);
+
 /* --- Threads and identities -------------------------------------------- */
 
 typedef struct jmap_threads jmap_threads;

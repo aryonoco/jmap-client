@@ -1981,3 +1981,193 @@ proc jmapSyncUpdated(
     nil
   else:
     addr s[].updated
+
+type JmapQueryHandle {.ruleOff: "objects".} = object
+  ## The query spec in the library's OWN types, not the C caller's: each
+  ## typed setter parses and validates its value at the boundary and
+  ## stores the result here, so the query export has nothing left to
+  ## lower. An untouched spec is the unfiltered, unsorted, unbounded
+  ## query, which is a legal request rather than a special case.
+  filter: Opt[Filter[EmailFilterCondition]]
+  sort: Opt[seq[EmailComparator]]
+  params: QueryParams
+
+proc jmapQueryNew(
+    outQuery: ptr ptr JmapQueryHandle
+): cint {.exportc: "jmap_query_new", dynlib, cdecl, raises: [].} =
+  ## Starts with no filter or sort selected; every set call is opt-in.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if outQuery.isNil:
+    return asCint(jsMisuse)
+  outQuery[] = createShared(JmapQueryHandle)
+  asCint(jsOk)
+
+proc jmapQueryFree(
+    handle: ptr JmapQueryHandle
+) {.exportc: "jmap_query_free", dynlib, cdecl, raises: [].} =
+  ## Drops the query spec; safe to free either before or after a query
+  ## call has consumed it.
+  if handle.isNil:
+    return
+  `=destroy`(handle[])
+  deallocShared(handle)
+
+func accumulated(query: ptr JmapQueryHandle): EmailFilterCondition =
+  ## The condition the spec has collected so far — the empty condition
+  ## until a setter names its first term. One leaf condition is the whole
+  ## C filter surface (operator trees are a builder-layer concern), so
+  ## the operator arm is unreachable and answers the empty condition
+  ## rather than making this a partial function.
+  for f in query[].filter:
+    case f.kind
+    of fkCondition:
+      return f.condition
+    of fkOperator:
+      return EmailFilterCondition()
+  EmailFilterCondition()
+
+func setQueryLimit(query: ptr JmapQueryHandle, value: uint32): cint =
+  ## 0 means "server default", which QueryParams already spells as an
+  ## absent limit — so the C sentinel maps onto a real absence rather
+  ## than travelling as a zero.
+  if value == 0'u32:
+    query[].params = QueryParams()
+    return asCint(jsOk)
+  let bound = parseUnsignedInt(int64(value))
+  if bound.isErr:
+    return asCint(jsValidation)
+  query[].params = QueryParams(limit: Opt.some(bound.get()))
+  asCint(jsOk)
+
+func setQueryReadState(query: ptr JmapQueryHandle, value: uint32): cint =
+  ## Lowers the read-state ordinal onto the $seen keyword pair here, at
+  ## the boundary, so the boolean a JMAP filter cannot name stays
+  ## unrepresentable inside the spec. Every arm sets BOTH keyword slots
+  ## rather than only the one the ordinal names, so a second call with a
+  ## different ordinal replaces the earlier read state outright instead
+  ## of leaving its half of the pair stale alongside the new value.
+  var cond = accumulated(query)
+  case value
+  of 0'u32:
+    cond.hasKeyword = Opt.none(Keyword)
+    cond.notKeyword = Opt.none(Keyword)
+  of 1'u32:
+    cond.hasKeyword = Opt.none(Keyword)
+    cond.notKeyword = Opt.some(kwSeen)
+  of 2'u32:
+    cond.hasKeyword = Opt.some(kwSeen)
+    cond.notKeyword = Opt.none(Keyword)
+  else:
+    return asCint(jsMisuse)
+  query[].filter = Opt.some(filterCondition(cond))
+  asCint(jsOk)
+
+func setQuerySort(query: ptr JmapQueryHandle, value: uint32): cint =
+  ## The comparator is built here so the spec carries the sort the
+  ## one-shot takes, not an ordinal a call site would have to translate.
+  let direction =
+    case value
+    of 0'u32:
+      sdDescending
+    of 1'u32:
+      sdAscending
+    else:
+      return asCint(jsMisuse)
+  query[].sort = Opt.some(@[plainComparator(pspReceivedAt, direction)])
+  asCint(jsOk)
+
+func querySpec(query: ptr JmapQueryHandle): JmapQueryHandle =
+  ## A NULL spec pointer is the empty spec: an unfiltered, unsorted,
+  ## unbounded query is permitted, not a defect. Declared after
+  ## ``jmapQueryFree`` deliberately: this is the one operation in the
+  ## section that copies the whole spec by value, and a recursive
+  ## ``Filter[C]`` case object's copy hook must be instantiated after
+  ## its destroy hook, not before, for the compiler to infer both as
+  ## ``raises: []`` (verified by reverting the order and watching the
+  ## build fail on ```=destroy`(handle[])`` with a spurious "can raise
+  ## Exception").
+  if query.isNil:
+    JmapQueryHandle()
+  else:
+    query[]
+
+proc jmapQuerySetStr(
+    query: ptr JmapQueryHandle, opt: cint, value: cstring
+): cint {.exportc: "jmap_query_set_str", dynlib, cdecl, raises: [].} =
+  ## Parses at the boundary: a mailbox id that is not an Id is refused
+  ## here rather than carried as a string to the call site. The query
+  ## handle has no error slot (it is a transient spec), so the status is
+  ## the whole diagnosis.
+  if not l5Initialised or query.isNil or value.isNil:
+    return asCint(jsMisuse)
+  var cond = accumulated(query)
+  case opt
+  of cint(0): # JMAP_Q_IN_MAILBOX
+    let mailbox = parseIdFromServer($value)
+    if mailbox.isErr:
+      return asCint(jsValidation)
+    cond.inMailbox = Opt.some(mailbox.get())
+  of cint(1): # JMAP_Q_TEXT
+    cond.text = Opt.some($value)
+  else:
+    return asCint(jsMisuse)
+  query[].filter = Opt.some(filterCondition(cond))
+  asCint(jsOk)
+
+proc jmapQuerySetU32(
+    query: ptr JmapQueryHandle, opt: cint, value: uint32
+): cint {.exportc: "jmap_query_set_u32", dynlib, cdecl, raises: [].} =
+  ## A dispatch table over the three u32 options; each helper owns its
+  ## own boundary construction, so no ordinal nest lives here.
+  if not l5Initialised or query.isNil:
+    return asCint(jsMisuse)
+  case opt
+  of cint(2): # JMAP_Q_LIMIT
+    setQueryLimit(query, value)
+  of cint(3): # JMAP_Q_READ_STATE
+    setQueryReadState(query, value)
+  of cint(4): # JMAP_Q_SORT
+    setQuerySort(query, value)
+  else:
+    asCint(jsMisuse)
+
+proc jmapQueryEmails(
+    client: ptr JmapClientHandle,
+    accountId: cstring,
+    query: ptr JmapQueryHandle,
+    outEmails: ptr ptr JmapEmailsHandle,
+): cint {.exportc: "jmap_query_emails", dynlib, cdecl, raises: [].} =
+  ## A projection over the queryEmails one-shot. The spec arrived already
+  ## parsed and validated by its setters, so nothing is lowered here; an
+  ## absent query pointer runs an unfiltered, unsorted, unbounded query —
+  ## permitted, not a defect.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if outEmails.isNil:
+    return recordMisuse(client, "out parameter must not be NULL")
+  var acct = default(AccountId)
+  let parsedAcct = parseAccountArg(client, accountId, acct)
+  if parsedAcct != asCint(jsOk):
+    return parsedAcct
+  let spec = querySpec(query)
+  let resp = queryEmails(
+    client[].client,
+    acct,
+    filter = spec.filter,
+    sort = spec.sort,
+    queryParams = spec.params,
+    bodyFetchOptions = textBodies(),
+  )
+  if resp.isErr:
+    return recordError(client, resp.error)
+  let qtg = resp.get()
+  let (items, missing) = toEmailsHandleContent(qtg.get)
+  let p = createShared(JmapEmailsHandle)
+  p[].items = items
+  p[].notFound = missing
+  clearError(client)
+  outEmails[] = p
+  asCint(jsOk)
