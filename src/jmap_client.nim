@@ -206,6 +206,14 @@ proc recordProtocolFault(h: ptr JmapClientHandle, msg: string): cint =
   h[].err = ErrorSlot(status: jsProtocol, message: msg)
   asCint(jsProtocol)
 
+proc recordValidationFault(h: ptr JmapClientHandle, msg: string): cint =
+  ## An argument L5 can prove invalid before any Layer-4 call is made.
+  ## Authored here, but reported as the status the substrate's own seal
+  ## would answer for the same input, so WHERE the refusal happened is
+  ## invisible to the caller.
+  h[].err = ErrorSlot(status: jsValidation, message: msg)
+  asCint(jsValidation)
+
 proc clearError(h: ptr JmapClientHandle) =
   ## A fallible call that succeeds resets the slot — jmap_errmsg reports
   ## the MOST RECENT call's outcome, exactly like sqlite3_errmsg.
@@ -1454,13 +1462,15 @@ type JmapSetResultHandle {.ruleOff: "objects".} = object
   destroyed: seq[string]
   failures: seq[SetFailureItem]
 
-func toSetResultContent(
-    resp: SetResponse[EmailCreatedItem, PartialEmail]
-): JmapSetResultHandle =
+func toSetResultContent[T, U](resp: SetResponse[T, U]): JmapSetResultHandle =
   ## RFC 8620 section 5.3's ``updated`` map may carry any server-changed
-  ## property on a successful update — this view deliberately drops
-  ## that echo and keeps only the id, since none of the four write
-  ## verbs this section exports have a caller-visible use for it yet.
+  ## property on a successful update — this view deliberately drops that
+  ## echo and keeps only the id, since no write verb this section
+  ## exports has a caller-visible use for it yet. All four rails are
+  ## walked for every entity: ``T`` types the create payload alone, so
+  ## an entity that cannot be created can still have rows on the update
+  ## and destroy rails. Create rows have no home on this view because
+  ## the verbs it serves submit none.
   var updated: seq[string] = @[]
   for id, serverEcho in resp.updated:
     updated.add($id)
@@ -1658,61 +1668,134 @@ proc jmapSetResultFailureTypeAt(
     return nil
   r[].failures[int(i)].errorType.cstring
 
-func vacationUpdates(
-    state: cint, subject, textBody: cstring
-): seq[VacationResponseUpdate] =
-  ## NULL subject/textBody leave the property untouched: VacationResponse
-  ## has no clear-to-absent, so only a non-NULL pointer patches a field.
-  ## Built here so the export carries no construction branches.
-  var updates = @[setIsEnabled(state == cint(1))]
-  if not subject.isNil:
-    updates.add(setSubject(Opt.some($subject)))
-  if not textBody.isNil:
-    updates.add(setTextBody(Opt.some($textBody)))
+type JmapVacationUpdateHandle {.ruleOff: "objects".} = object
+  ## The patch the caller is assembling, one slot per property rather
+  ## than an accumulated list: an option setter called twice must
+  ## replace, and a list would instead hand the update-set seal a
+  ## duplicate target property and lose the whole batch. The nesting is
+  ## the three states a JMAP patch distinguishes — an absent outer
+  ## ``Opt`` is "no setter named this property, leave it alone", an
+  ## inner ``Opt.none`` is "clear it to null", an inner ``Opt.some`` is
+  ## "set it to this". RFC 8621 section 8 types isEnabled as a plain
+  ## Boolean, so it has two states, not three.
+  isEnabled: Opt[bool]
+  subject: Opt[Opt[string]]
+  textBody: Opt[Opt[string]]
+
+func clearableString(value: cstring): Opt[string] =
+  ## The NULL-means-clear reading of a settable string property: a NULL
+  ## pointer is the caller asking for the wire null RFC 8621 section 8
+  ## allows, not a missing argument.
+  if value.isNil:
+    Opt.none(string)
+  else:
+    Opt.some($value)
+
+func vacationUpdates(u: JmapVacationUpdateHandle): seq[VacationResponseUpdate] =
+  ## Lowers the touched slots onto the update DSL. An untouched slot
+  ## contributes nothing, so it never reaches the patch; a cleared one
+  ## contributes ``Opt.none``, which the DSL spells as a wire null.
+  var updates: seq[VacationResponseUpdate] = @[]
+  for enabled in u.isEnabled:
+    updates.add(setIsEnabled(enabled))
+  for subject in u.subject:
+    updates.add(setSubject(subject))
+  for textBody in u.textBody:
+    updates.add(setTextBody(textBody))
   updates
 
-func fillFromVacationSet(
-    handle: ptr JmapSetResultHandle,
-    resp: SetResponse[NoCreate, PartialVacationResponse],
-) =
-  ## The singleton instantiates SetResponse differently from Email, so
-  ## fillFromEmailSet cannot serve it; NoCreate means no create or
-  ## destroy rows can ever appear, which is why only two walks exist.
-  for id, serverEcho in resp.updated:
-    handle[].updated.add($id)
-  for id, error in resp.updateFailures:
-    handle[].failures.add(SetFailureItem(id: $id, errorType: error.rawType))
+proc jmapVacationUpdateNew(
+    outUpdate: ptr ptr JmapVacationUpdateHandle
+): cint {.exportc: "jmap_vacation_update_new", dynlib, cdecl, raises: [].} =
+  ## Starts with every property untouched, so a patch never carries a
+  ## property the caller did not name.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if outUpdate.isNil:
+    return asCint(jsMisuse)
+  outUpdate[] = createShared(JmapVacationUpdateHandle)
+  asCint(jsOk)
+
+proc jmapVacationUpdateSetEnabled(
+    update: ptr JmapVacationUpdateHandle, state: cint
+): cint {.exportc: "jmap_vacation_update_set_enabled", dynlib, cdecl, raises: [].} =
+  ## The two-arm enum is the whole domain: RFC 8621 section 8 types
+  ## isEnabled as a Boolean, so there is no clear-to-null arm here and
+  ## an ordinal outside the enum is a caller bug, not a value.
+  if not l5Initialised or update.isNil:
+    return asCint(jsMisuse)
+  if state notin [cint(0), cint(1)]:
+    return asCint(jsMisuse)
+  update[].isEnabled = Opt.some(state == cint(1))
+  asCint(jsOk)
+
+proc jmapVacationUpdateSetSubject(
+    update: ptr JmapVacationUpdateHandle, subject: cstring
+): cint {.exportc: "jmap_vacation_update_set_subject", dynlib, cdecl, raises: [].} =
+  ## A NULL value is accepted and means "clear": refusing it would leave
+  ## the C surface unable to ask for something the wire type allows.
+  ## The update carries no error slot, so the status is the whole
+  ## diagnosis.
+  if not l5Initialised or update.isNil:
+    return asCint(jsMisuse)
+  update[].subject = Opt.some(clearableString(subject))
+  asCint(jsOk)
+
+proc jmapVacationUpdateSetTextBody(
+    update: ptr JmapVacationUpdateHandle, textBody: cstring
+): cint {.exportc: "jmap_vacation_update_set_text_body", dynlib, cdecl, raises: [].} =
+  ## A NULL value is accepted and means "clear": refusing it would leave
+  ## the C surface unable to ask for something the wire type allows.
+  ## The update carries no error slot, so the status is the whole
+  ## diagnosis.
+  if not l5Initialised or update.isNil:
+    return asCint(jsMisuse)
+  update[].textBody = Opt.some(clearableString(textBody))
+  asCint(jsOk)
+
+proc jmapVacationUpdateFree(
+    handle: ptr JmapVacationUpdateHandle
+) {.exportc: "jmap_vacation_update_free", dynlib, cdecl, raises: [].} =
+  ## Drops the patch; safe either before or after a set call has
+  ## consumed it, since that call copies what it needs.
+  if handle.isNil:
+    return
+  `=destroy`(handle[])
+  deallocShared(handle)
 
 proc jmapSetVacation(
     client: ptr JmapClientHandle,
     accountId: cstring,
-    state: cint,
-    subject: cstring,
-    textBody: cstring,
+    update: ptr JmapVacationUpdateHandle,
     outResult: ptr ptr JmapSetResultHandle,
 ): cint {.exportc: "jmap_set_vacation", dynlib, cdecl, raises: [].} =
   ## A projection over the setVacationResponse one-shot: the singleton
   ## id, the update-set seal and the dispatch ceremony are all its
-  ## business, so this validates arguments and records the outcome.
+  ## business. The patch arrived already assembled by its setters, so
+  ## nothing is lowered here. An update no setter touched is refused
+  ## before the call rather than travelling as an empty patch — the
+  ## substrate's seal refuses it too, and answering here keeps the C
+  ## contract true whatever the substrate later chooses.
   if not l5Initialised:
     return asCint(jsMisuse)
   if client.isNil:
     return asCint(jsMisuse)
   if outResult.isNil:
     return recordMisuse(client, "out parameter must not be NULL")
-  if state notin [cint(0), cint(1)]:
-    return recordMisuse(client, "vacation state ordinal out of range")
+  if update.isNil:
+    return recordMisuse(client, "vacation update must not be NULL")
   var acct = default(AccountId)
   let parsedAcct = parseAccountArg(client, accountId, acct)
   if parsedAcct != asCint(jsOk):
     return parsedAcct
-  let resp = setVacationResponse(
-    client[].client, acct, vacationUpdates(state, subject, textBody)
-  )
+  let updates = vacationUpdates(update[])
+  if updates.len == 0:
+    return recordValidationFault(client, "vacation update names no properties")
+  let resp = setVacationResponse(client[].client, acct, updates)
   if resp.isErr:
     return recordError(client, resp.error)
   let p = createShared(JmapSetResultHandle)
-  fillFromVacationSet(p, resp.get())
+  p[] = toSetResultContent(resp.get())
   clearError(client)
   outResult[] = p
   asCint(jsOk)

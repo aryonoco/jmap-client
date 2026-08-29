@@ -291,13 +291,12 @@ const char *jmap_email_received_at(const jmap_email *e);
 const char *jmap_email_text_body(const jmap_email *e);
 int jmap_email_has_attachment(const jmap_email *e);
 
-/* --- Threads, identities, vacation ------------------------------------ */
+/* --- Threads and identities -------------------------------------------- */
 
 typedef struct jmap_threads jmap_threads;
 typedef struct jmap_thread jmap_thread; /* a borrow, never freed */
 typedef struct jmap_identities jmap_identities;
 typedef struct jmap_identity jmap_identity; /* a borrow, never freed */
-typedef struct jmap_vacation jmap_vacation;
 
 jmap_status jmap_get_threads(jmap_client *client, const char *account_id,
                              const char *const *ids, size_t n,
@@ -325,18 +324,6 @@ const jmap_identity *jmap_identities_at(const jmap_identities *identities,
 const char *jmap_identity_id(const jmap_identity *ident);
 const char *jmap_identity_name(const jmap_identity *ident);
 const char *jmap_identity_email(const jmap_identity *ident);
-
-/* The account's vacation singleton. RFC 8621 section 8.1 requires the
- * server to return exactly one record; any other count answers
- * JMAP_E_PROTOCOL rather than guessing which record to expose. */
-jmap_status jmap_get_vacation(jmap_client *client, const char *account_id,
-                              jmap_vacation **out);
-void jmap_vacation_free(jmap_vacation *vacation);
-/* 1 or 0. */
-int jmap_vacation_is_enabled(const jmap_vacation *v);
-/* NULL when unset. */
-const char *jmap_vacation_subject(const jmap_vacation *v);
-const char *jmap_vacation_text_body(const jmap_vacation *v);
 
 /* --- Email writes ----------------------------------------------------- */
 
@@ -387,21 +374,78 @@ const char *jmap_set_result_failure_id_at(const jmap_set_result *r, size_t i);
 const char *jmap_set_result_failure_type_at(const jmap_set_result *r,
                                             size_t i);
 
-/* --- Vacation response set --------------------------------------------- */
+/* --- Vacation response ------------------------------------------------ */
+
+typedef struct jmap_vacation jmap_vacation;
+typedef struct jmap_vacation_update jmap_vacation_update;
 
 typedef enum {
   JMAP_VACATION_DISABLED = 0,
   JMAP_VACATION_ENABLED  = 1
 } jmap_vacation_state;
 
-/* Updates the account's vacation singleton. subject and text_body may
- * be NULL, meaning "leave that property unset in this update". The
- * result object's updated list carries the singleton id on success. */
+/* The account's vacation singleton. RFC 8621 section 8.1 requires the
+ * server to return exactly one record; any other count answers
+ * JMAP_E_PROTOCOL rather than guessing which record to expose. */
+jmap_status jmap_get_vacation(jmap_client *client, const char *account_id,
+                              jmap_vacation **out);
+void jmap_vacation_free(jmap_vacation *vacation);
+/* 1 or 0 — the same two values, in the same order, as
+ * JMAP_VACATION_DISABLED and JMAP_VACATION_ENABLED, so what this
+ * returns can be handed straight to jmap_vacation_update_set_enabled
+ * on the write side. */
+int jmap_vacation_is_enabled(const jmap_vacation *v);
+/* NULL when unset. */
+const char *jmap_vacation_subject(const jmap_vacation *v);
+const char *jmap_vacation_text_body(const jmap_vacation *v);
+
+/* Assembling an update (the same discipline the query options use:
+ * one setter per property, values taken at the setter). A property no
+ * setter named is LEFT UNTOUCHED by the update; a setter called with
+ * NULL CLEARS that property to JSON null, which RFC 8621 section 8
+ * permits for subject and textBody. Those are different requests, and
+ * only the setter surface can tell them apart. Calling a setter twice
+ * replaces the earlier value.
+ *
+ * Each setter answers JMAP_OK or JMAP_E_MISUSE (NULL handle,
+ * out-of-range jmap_vacation_state ordinal, or a call before
+ * jmap_init); a string value is never itself invalid, so no validation
+ * status arises here. The update carries no error slot of its own, so
+ * the returned status is the whole diagnosis.
+ *
+ * fromDate, toDate and htmlBody are NOT projected by this version. RFC
+ * 8621 section 8 makes an absent fromDate "effective immediately" and
+ * an absent toDate "effective indefinitely", so enabling a response
+ * through this surface enables it immediately and indefinitely. A
+ * later version adds setters; existing signatures do not change. */
+jmap_status jmap_vacation_update_new(jmap_vacation_update **out);
+jmap_status jmap_vacation_update_set_enabled(jmap_vacation_update *update,
+                                             jmap_vacation_state state);
+jmap_status jmap_vacation_update_set_subject(jmap_vacation_update *update,
+                                             const char *subject);
+jmap_status jmap_vacation_update_set_text_body(jmap_vacation_update *update,
+                                               const char *text_body);
+/* NULL is a no-op. Freeing after jmap_set_vacation has consumed the
+ * update is correct: the call copies what it needs. */
+void jmap_vacation_update_free(jmap_vacation_update *update);
+
+/* Updates the account's vacation singleton with the assembled patch.
+ * update must not be NULL and must have had at least one setter called
+ * on it: an empty patch is JMAP_E_VALIDATION and nothing is sent.
+ *
+ * JMAP_OK means the CALL completed, not that the server accepted the
+ * change. A refusal is per-id data per RFC 8620 section 5.3: the
+ * ordinary refused update is JMAP_OK with
+ * jmap_set_result_updated_count() == 0 and
+ * jmap_set_result_failure_count() == 1, the reason readable through
+ * jmap_set_result_failure_type_at(). Read the counts before indexing
+ * either list; neither list is guaranteed non-empty by the status.
+ * jmap_set_result_destroyed_count() is structurally 0 for a vacation
+ * result: this update submits no create or destroy rows, so those
+ * rails have nothing to carry back. */
 jmap_status jmap_set_vacation(jmap_client *client,
                               const char *account_id,
-                              jmap_vacation_state state,
-                              const char *subject,
-                              const char *text_body,
+                              const jmap_vacation_update *update,
                               jmap_set_result **out);
 
 #ifdef __cplusplus
