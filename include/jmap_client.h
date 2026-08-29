@@ -88,6 +88,50 @@ void jmap_client_free(jmap_client *client);
  * "no error" when the last call succeeded. */
 const char *jmap_errmsg(const jmap_client *client);
 
+/* --- Bring your own HTTP -------------------------------------------- */
+
+typedef enum {
+  JMAP_HTTP_GET  = 0,
+  JMAP_HTTP_POST = 1
+} jmap_http_method;
+
+typedef enum {
+  JMAP_TRANSPORT_OK      = 0,
+  JMAP_TRANSPORT_NETWORK = 1,
+  JMAP_TRANSPORT_TLS     = 2,
+  JMAP_TRANSPORT_TIMEOUT = 3
+} jmap_transport_code;
+
+/* Perform one HTTP exchange. On JMAP_TRANSPORT_OK the callback sets
+ * *out_http_status and hands back malloc'd *out_content_type and
+ * *out_body buffers — the library copies both and frees them with
+ * free(). On any other return the out-parameters are ignored. The
+ * callback must not unwind; userdata is threaded back unchanged and
+ * never dereferenced by the library. */
+typedef jmap_transport_code (*jmap_send_fn)(void *userdata,
+                                            jmap_http_method method,
+                                            const char *url,
+                                            const char *body,
+                                            const char *authorization,
+                                            int *out_http_status,
+                                            char **out_content_type,
+                                            char **out_body);
+
+/* Fires exactly once, when the last reference to the transport drops
+ * (jmap_transport_free and/or jmap_client_free, whichever is last). */
+typedef void (*jmap_close_fn)(void *userdata);
+
+/* close may be NULL when there is nothing to release. One transport
+ * backs at most one client: a second attach is JMAP_E_MISUSE. */
+jmap_status jmap_transport_new(jmap_send_fn send,
+                               jmap_close_fn close,
+                               void *userdata,
+                               jmap_transport **out);
+
+/* Drops the caller's reference. If a client holds the other reference
+ * the transport lives until jmap_client_free. NULL is a no-op. */
+void jmap_transport_free(jmap_transport *transport);
+
 #ifdef __cplusplus
 }
 #endif

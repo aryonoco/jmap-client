@@ -96,7 +96,13 @@ test-c: build
     set -euo pipefail
     for f in ctests/t*.c; do
         out="/tmp/jmap_c_$(basename "$f" .c)"
-        gcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined \
+        # -D_POSIX_C_SOURCE opts back into strdup() and friends: plain
+        # -std=c99 sets __STRICT_ANSI__, which suppresses glibc's
+        # default-source feature macros and hides everything POSIX
+        # adds on top of C99 — the canned-transport harness needs
+        # strdup() to hand the library malloc'd response buffers.
+        gcc -std=c99 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror \
+            -fsanitize=address,undefined \
             -Iinclude "$f" \
             -Lbin -ljmap_client -Wl,-rpath,"$PWD/bin" -o "$out"
         "$out"
