@@ -87,6 +87,9 @@ build-release:
 test-c: build
     #!/usr/bin/env bash
     set -euo pipefail
+    # ctests/lsan.supp: OpenSSL's process-lifetime provider/store caches
+    # are still-reachable, not leaked — see that file for why.
+    export LSAN_OPTIONS="suppressions=$PWD/ctests/lsan.supp"
     for f in ctests/t*.c; do
         out="/tmp/jmap_c_$(basename "$f" .c)"
         gcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined \
