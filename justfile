@@ -67,16 +67,23 @@ lock:
 # BUILDING
 # =============================================================================
 
+# Handle boxes crossing the C ABI may move between threads — a caller is
+# free to hand one to another thread — so they live on Nim's shared heap
+# rather than the default thread-local one. -d:useMalloc backs that
+# shared heap with libc malloc/free, which also puts every Nim
+# allocation in view of Valgrind, ASan and LeakSanitizer, not just the
+# C side of the boundary.
+
 # Build shared library
 build:
     @echo "Building shared library..."
-    nim c --app:lib --noMain -d:ssl -o:bin/libjmap_client.so src/jmap_client.nim
+    nim c --app:lib --noMain -d:ssl -d:useMalloc -o:bin/libjmap_client.so src/jmap_client.nim
     @echo "Built: bin/libjmap_client.so"
 
 # Build shared library with release optimisations
 build-release:
     @echo "Building shared library (release)..."
-    nim c -d:release --app:lib --noMain -d:ssl -o:bin/libjmap_client.so src/jmap_client.nim
+    nim c -d:release --app:lib --noMain -d:ssl -d:useMalloc -o:bin/libjmap_client.so src/jmap_client.nim
     @echo "Built: bin/libjmap_client.so (release)"
 
 # Compile and run every C compliance test against the built library.
