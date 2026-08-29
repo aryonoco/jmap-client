@@ -79,6 +79,23 @@ build-release:
     nim c -d:release --app:lib --noMain -d:ssl -o:bin/libjmap_client.so src/jmap_client.nim
     @echo "Built: bin/libjmap_client.so (release)"
 
+# Compile and run every C compliance test against the built library.
+# These are plain-C programs proving the ABI contract from the consumer
+# side; they are NOT testament tests, which is why ctests/ sits outside
+# tests/ (testament's `all` mode asserts on a category with no .nim
+# files).
+test-c: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for f in ctests/t*.c; do
+        out="/tmp/jmap_c_$(basename "$f" .c)"
+        gcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -Iinclude "$f" \
+            -Lbin -ljmap_client -Wl,-rpath,"$PWD/bin" -o "$out"
+        "$out"
+    done
+    echo "All C compliance tests passed"
+
 # =============================================================================
 # TESTING
 # =============================================================================
