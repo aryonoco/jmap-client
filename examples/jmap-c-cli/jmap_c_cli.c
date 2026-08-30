@@ -322,7 +322,16 @@ static int cmd_send(const char *to, const char *subject, const char *body) {
   }
   s = jmap_send(g_client, g_account, m, &r);
   jmap_message_free(m);
-  if (s != JMAP_OK) return die("send", s);
+  if (s != JMAP_OK) {
+    /* A refused create names its reason, and the reasons differ in what
+     * the user should do next — free space, or shrink the message — so
+     * print the type alongside the server's prose. */
+    if (s == JMAP_E_SET) {
+      const char *type = jmap_errtype(g_client);
+      if (type) fprintf(stderr, "send: refused with %s\n", type);
+    }
+    return die("send", s);
+  }
   printf("sent: %s (submission %s)\n", jmap_send_result_email_id(r),
          jmap_send_result_submission_id(r));
   jmap_send_result_free(r);

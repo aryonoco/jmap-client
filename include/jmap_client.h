@@ -57,7 +57,8 @@ typedef enum {
   JMAP_E_MISUSE     = 5, /* caller bug: NULL argument, wrong handle */
   JMAP_E_PROTOCOL   = 6, /* malformed response, or not valid JMAP */
   JMAP_E_METHOD     = 7, /* the whole method call returned an error */
-  JMAP_E_SET        = 8  /* the server refused the one new object */
+  JMAP_E_SET        = 8  /* the server refused the one new object, and
+                          * named the reason */
   /* These values are not frozen yet, but they never change by
    * accident. See the note on the ABI at the top of this file. */
 } jmap_status;
@@ -65,14 +66,17 @@ typedef enum {
 /*
  * JMAP_E_METHOD means the server answered the method call with an error
  * instead of a result. Call jmap_errtype() to read the error type
- * string the server sent.
+ * string the server sent. RFC 8620 section 3.6.2 describes these
+ * errors.
  *
  * JMAP_E_SET means a change that creates exactly one object had that
  * create refused, and the server gave a typed reason (RFC 8620
  * section 5.3). It comes back as the status of the call, and not as an
  * entry in a failure list, because only one object was involved, so
  * there is no list to put it in. jmap_send() is the call in this header
- * that reports a refusal this way.
+ * that reports a refusal this way. Call jmap_errtype() for that reason
+ * too. The two statuses draw their strings from different lists, and
+ * the status you got is what tells you which list you are reading.
  */
 
 /*
@@ -148,19 +152,32 @@ const char *jmap_errmsg(const jmap_client *client);
 
 /*
  * jmap_errtype() returns the "type" string the server sent for the last
- * JMAP method-level error on this client, for example
- * "cannotCalculateChanges". RFC 8620 section 3.6.2 defines these
- * strings. Use jmap_errmsg() for text a person reads, and this function
- * for a value your code compares. The library carries the type off the
- * wire without changing it, so a type one vendor invented reaches C
- * intact. jmap_set_result_failure_type_at() works the same way.
+ * typed error on this client. Two statuses carry one.
  *
- * It returns NULL when the last call did not fail with a method-level
- * error. That covers a NULL client, no error at all, and a failure with
- * any other status such as JMAP_E_VALIDATION or JMAP_E_SESSION. When
- * the result is not NULL, it is never the empty string. So you can
- * never confuse "not a method error" with "a method error whose type is
- * empty".
+ * After JMAP_E_METHOD it is a method error type, for example
+ * "cannotCalculateChanges". RFC 8620 section 3.6.2 gives the shape of
+ * these errors and the types any method may return; individual methods
+ * define more of their own.
+ *
+ * After JMAP_E_SET it is the reason the one create was refused, for
+ * example "overQuota" or "tooLarge". RFC 8620 section 5.3 does the same
+ * for these: a list any record type may draw on, which individual
+ * methods extend.
+ *
+ * Read the status first, because it is what says which of the two the
+ * string came from. Use jmap_errmsg() for text a person reads, and this
+ * function for a value your code compares. The library carries the type
+ * off the wire without changing it, so a type one vendor invented
+ * reaches C intact. jmap_set_result_failure_type_at() works the same
+ * way, for the refusals that come back as data on a result instead of
+ * as a status.
+ *
+ * It returns NULL when the last call did not fail with either of those
+ * two statuses. That covers a NULL client, no error at all, and a
+ * failure with any other status such as JMAP_E_VALIDATION or
+ * JMAP_E_SESSION. When the result is not NULL, it is never the empty
+ * string. So you can never confuse "no type at all" with "a type that
+ * is empty".
  *
  * The borrow lives as long as the one from jmap_errmsg(). The client
  * owns it. The next call that can fail on the same client, or

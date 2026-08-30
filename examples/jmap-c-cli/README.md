@@ -84,9 +84,9 @@ Every awkward call site recorded here is a bug against the C API design
 - **Two different shapes for one refused write.** A refusal of an id in
   `jmap_mark_read()` or `jmap_move_emails()` is data on the result, read
   with `jmap_set_result_failure_type_at()`. A refusal of the one object
-  `jmap_send()` creates is the status `JMAP_E_SET` instead, and
-  `jmap_errtype()` returns NULL for it, so the typed reason reaches C
-  only inside the prose of `jmap_errmsg()`.
+  `jmap_send()` creates is the status `JMAP_E_SET` instead, read with
+  `jmap_errtype()`. Both hand back the same wire type string, so the
+  bench writes two code paths to reach one value.
 - **Naming a well-known mailbox costs a round trip.** There is no lookup
   by role, so `find_role_mailbox()` fetches every mailbox in the account
   and walks the list — twice per `send`, once for Drafts and once for

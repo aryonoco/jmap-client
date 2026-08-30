@@ -15,6 +15,12 @@ static const char *SESSION_JSON = "{\"username\":\"test@example.com\",\"apiUrl\"
  * EmailSubmission] decoders) against the account SESSION_JSON names,
  * then echoed as this literal. */
 static const char *SEND_JSON = "{\"methodResponses\":[[\"Email/set\",{\"accountId\":\"A1\",\"newState\":\"s2\",\"created\":{\"draft\":{\"id\":\"em-1\",\"blobId\":\"b1\",\"threadId\":\"th-1\",\"size\":42}}},\"c0\"],[\"EmailSubmission/set\",{\"accountId\":\"A1\",\"newState\":\"s3\",\"created\":{\"sub\":{\"id\":\"sub-1\"}}},\"c1\"],[\"Email/set\",{\"accountId\":\"A1\",\"newState\":\"s4\",\"updated\":{\"em-1\":null}},\"c1\"]],\"sessionState\":\"s1\"}";
+/* The draft is filed but the submission is refused: the create the
+ * client asked for comes back under notCreated carrying a "type", the
+ * shape RFC 8621 section 7.5 shows for a rejected EmailSubmission. The
+ * implicit Email/set still follows, changing nothing, because the
+ * submission it was conditional on never happened. */
+static const char *REFUSED_JSON = "{\"methodResponses\":[[\"Email/set\",{\"accountId\":\"A1\",\"newState\":\"s2\",\"created\":{\"draft\":{\"id\":\"em-1\",\"blobId\":\"b1\",\"threadId\":\"th-1\",\"size\":42}}},\"c0\"],[\"EmailSubmission/set\",{\"accountId\":\"A1\",\"newState\":\"s3\",\"notCreated\":{\"sub\":{\"type\":\"forbiddenToSend\",\"description\":\"sending is disabled for this account\"}}},\"c1\"],[\"Email/set\",{\"accountId\":\"A1\",\"newState\":\"s3\"},\"c1\"]],\"sessionState\":\"s1\"}";
 
 /* True when the JSON key `key` is followed by `needle` before the
  * bracket that closes that key's address array. Every recipient also
@@ -214,6 +220,49 @@ int main(void) {
 
   jmap_client_free(c);
   free(st.last_request); free(st.last_url);
+
+  /* A refused create is JMAP_E_SET, and the reason is machine-readable:
+   * strcmp against the exact wire type, not a bare non-NULL check,
+   * because a caller branches on which refusal it was -- over quota,
+   * too large, not allowed to send -- and a NULL check would pass for
+   * any of them. */
+  const char *bodies2[] = { SESSION_JSON, REFUSED_JSON };
+  canned_state st2 = { bodies2, 2, 0, NULL, NULL, 0 };
+  jmap_transport *t2 = canned_make_transport(&st2);
+  jmap_client *c2 = NULL;
+  assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t2, &c2)
+         == JMAP_OK);
+  jmap_transport_free(t2);
+  const char *acct2 = NULL;
+  assert(jmap_client_primary_account(c2, &acct2) == JMAP_OK);
+  jmap_message *refused = NULL;
+  jmap_send_result *no_result = NULL;
+  assert(jmap_message_new(&refused) == JMAP_OK);
+  assert(jmap_message_set_str(refused, JMAP_MSG_IDENTITY_ID, "identity-1")
+         == JMAP_OK);
+  assert(jmap_message_set_str(refused, JMAP_MSG_DRAFTS_MAILBOX, "mb-drafts")
+         == JMAP_OK);
+  assert(jmap_message_set_str(refused, JMAP_MSG_SENT_MAILBOX, "mb-sent")
+         == JMAP_OK);
+  assert(jmap_message_set_str(refused, JMAP_MSG_FROM, "me@example.com")
+         == JMAP_OK);
+  assert(jmap_message_set_str(refused, JMAP_MSG_TO, "you@example.com")
+         == JMAP_OK);
+  assert(jmap_message_set_str(refused, JMAP_MSG_SUBJECT, "refused subject")
+         == JMAP_OK);
+  assert(jmap_message_set_str(refused, JMAP_MSG_BODY, "refused body text.")
+         == JMAP_OK);
+  assert(jmap_send(c2, acct2, refused, &no_result) == JMAP_E_SET);
+  assert(no_result == NULL);
+  assert(jmap_errtype(c2) != NULL);
+  assert(strcmp(jmap_errtype(c2), "forbiddenToSend") == 0);
+  /* The prose is still there for a person to read; the type is the
+   * value the code compares. */
+  assert(strlen(jmap_errmsg(c2)) > 0);
+  jmap_message_free(refused);
+  jmap_client_free(c2);
+  free(st2.last_request); free(st2.last_url);
+
   jmap_cleanup();
   printf("t12 ok\n");
   return 0;
