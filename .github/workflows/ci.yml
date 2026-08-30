@@ -82,8 +82,6 @@ jobs:
           echo "$HOME/nim/bin" >> $GITHUB_PATH
           echo "$HOME/.nimble/bin" >> $GITHUB_PATH
           echo "$HOME/.local/share/mise/shims" >> $GITHUB_PATH
-          # Where `uv tool install` puts its shims (clang-format).
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       # nph is built from source via nimble: upstream's GitHub release for
       # aarch64 contains the x86_64 binary, so mise cannot reliably provide
@@ -118,13 +116,6 @@ jobs:
       # keep versions in sync.
       - name: Install nimalyzer
         run: nimble install nimalyzer@0.12.2 --accept
-
-      # From PyPI rather than apt so the runner and the devcontainer get a
-      # byte-identical binary — clang-format's output is not stable across
-      # major versions, and the distro packages disagree. Mirrors
-      # .devcontainer/scripts/post-create.sh — keep versions in sync.
-      - name: Install clang-format
-        run: uv tool install clang-format==23.1.0
 
       - name: Check formatting
         run: just fmt-check

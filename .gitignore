@@ -328,6 +328,12 @@ coverage.xml
 docker-compose.override.yml
 docker-compose.override.yaml
 
+# DOCKER_CONFIG points here (see mise.toml) so Docker never consults the
+# VS Code credential shim. Only the credsStore-free config.json is committed;
+# Docker writes a token seed and a buildx state tree beside it at runtime.
+.devcontainer/docker-config/*
+!.devcontainer/docker-config/config.json
+
 # Self-signed PKCS12 keystore generated on demand by
 # .devcontainer/scripts/ensure-james-keystore.sh — regenerated whenever
 # missing, so the binary is not committed to the repo.

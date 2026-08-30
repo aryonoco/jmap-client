@@ -17,6 +17,14 @@ just = "1.58.0"
 node = "24"
 "npm:cspell" = "10.1.1"
 uv = "0.12.7"
+# From PyPI rather than apt so the devcontainer and the CI runner get a
+# byte-identical binary: clang-format's output is not stable across major
+# versions and the distro packages diverge by one. mise's pipx backend
+# shells out to the `uv` pinned above, so the two entries are ordered by
+# dependency, not by preference. Pinned for the same reason as the rest of
+# this section — `just fmt-c-check` fails the build on a diff, so a float
+# would turn an upstream release into a repo-wide reformat.
+"pipx:clang-format" = "23.1.0"
 
 # -- CLI utilities (not in Debian repos) ----------------------------------
 # Major-line floats: these resolve to the newest release in the line on
@@ -29,3 +37,13 @@ watchexec = "2"
 [env]
 NIM_VERSION = "2.2.10"
 USE_BUILTIN_RIPGREP = "0"
+# Point Docker at a credential-helper-free config. The VS Code Dev Containers
+# extension writes a `credsStore` into ~/.docker/config.json naming a shim that
+# resolves credentials over a Unix socket located via REMOTE_CONTAINERS_IPC.
+# Any shell without that variable — an agent's non-interactive shell, or a
+# `just` recipe run after the container is reattached — makes the shim exit
+# 255, and Docker treats a failed helper as fatal before it ever reaches the
+# registry, so `just james-up` dies on a public image it needs no credentials
+# for. The stock config carries no `auths` entry and every image the JMAP test
+# targets pull is public, so the helper has nothing to resolve either way.
+DOCKER_CONFIG = "{{config_root}}/.devcontainer/docker-config"

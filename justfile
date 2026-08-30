@@ -209,16 +209,15 @@ test-report:
 # shard logs to testresults/test-full/<shard>.log; live output is
 # prefixed [stalwart] / [james] / [cyrus] / [joinable] per line for
 # attribution. Fail-fast: first failing shard SIGTERMs siblings.
-# Requires at least one of Stalwart, James, or Cyrus to be up.
+# Requires at least one of Stalwart, James, or Cyrus to be up; every
+# configured target is probed before any shard spawns, so a stale
+# /tmp env file naming a stopped server aborts here rather than
+# failing every live test with a DNS error.
 test-full:
     #!/usr/bin/env bash
     set -m
     set -uo pipefail
-    if [ ! -f /tmp/stalwart-env.sh ] && [ ! -f /tmp/james-env.sh ] && [ ! -f /tmp/cyrus-env.sh ]; then
-        echo "ERROR: at least one of /tmp/stalwart-env.sh, /tmp/james-env.sh, or /tmp/cyrus-env.sh required" >&2
-        echo "       run 'just jmap-up' (or 'just stalwart-up' / 'just james-up' / 'just cyrus-up') first" >&2
-        exit 1
-    fi
+    .devcontainer/scripts/require-live-targets.sh || exit 1
     declare -A shard_pids=()
     declare -A shard_logs=()
     cleanup() {
@@ -873,11 +872,7 @@ jmap-logs:
 test-integration:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ ! -f /tmp/stalwart-env.sh ] && [ ! -f /tmp/james-env.sh ] && [ ! -f /tmp/cyrus-env.sh ]; then
-        echo "ERROR: at least one of /tmp/stalwart-env.sh, /tmp/james-env.sh, or /tmp/cyrus-env.sh required" >&2
-        echo "       run 'just jmap-up' (or 'just stalwart-up' / 'just james-up' / 'just cyrus-up') first" >&2
-        exit 1
-    fi
+    .devcontainer/scripts/require-live-targets.sh
     if [ -f /tmp/stalwart-env.sh ]; then . /tmp/stalwart-env.sh; fi
     if [ -f /tmp/james-env.sh ]; then . /tmp/james-env.sh; fi
     if [ -f /tmp/cyrus-env.sh ]; then . /tmp/cyrus-env.sh; fi
@@ -894,11 +889,7 @@ test-integration:
 capture-fixtures:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ ! -f /tmp/stalwart-env.sh ] && [ ! -f /tmp/james-env.sh ] && [ ! -f /tmp/cyrus-env.sh ]; then
-        echo "ERROR: at least one of /tmp/stalwart-env.sh, /tmp/james-env.sh, or /tmp/cyrus-env.sh required" >&2
-        echo "       run 'just jmap-up' (or 'just stalwart-up' / 'just james-up' / 'just cyrus-up') first" >&2
-        exit 1
-    fi
+    .devcontainer/scripts/require-live-targets.sh
     if [ -f /tmp/stalwart-env.sh ]; then . /tmp/stalwart-env.sh; fi
     if [ -f /tmp/james-env.sh ]; then . /tmp/james-env.sh; fi
     if [ -f /tmp/cyrus-env.sh ]; then . /tmp/cyrus-env.sh; fi

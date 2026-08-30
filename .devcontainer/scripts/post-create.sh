@@ -24,11 +24,6 @@ echo "  Done"
 echo ""
 echo "Installing Python tools via uv..."
 uv tool install reuse==6.2.0
-# clang-format comes from PyPI rather than apt so that the devcontainer and
-# the CI runner get a byte-identical binary; the distro packages diverge by
-# major version, and clang-format's output is not stable across those.
-# Keep in sync with .github/workflows/ci.yml.
-uv tool install clang-format==23.1.0
 echo "  Done"
 
 # Pinned rather than floating: src/ carries {.ruleOff.} pragmas placed to

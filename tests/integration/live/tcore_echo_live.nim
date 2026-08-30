@@ -16,7 +16,6 @@ import std/json
 
 import results
 import jmap_client
-import jmap_client/internal/serialisation/serde
 import ./mcapture
 import ./mconfig
 import ./mlive

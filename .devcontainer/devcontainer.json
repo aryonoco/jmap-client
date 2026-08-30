@@ -168,7 +168,7 @@
         "C_Cpp.default.defines": ["_POSIX_C_SOURCE=200809L"],
         // cpptools bundles its own clang-format. Pointing it at the pinned
         // one keeps the editor and `just fmt-c-check` on the same binary.
-        "C_Cpp.clang_format_path": "/home/vscode/.local/bin/clang-format",
+        "C_Cpp.clang_format_path": "/home/vscode/.local/share/mise/shims/clang-format",
         "[c]": {
           "editor.defaultFormatter": "ms-vscode.cpptools",
           "editor.formatOnSave": true
