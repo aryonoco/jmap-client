@@ -38,9 +38,12 @@ Additional conventions:
 
 ## Pragma Bundling
 
-**Do not bundle.** Write all four pragmas inline on every export. Neither
-a custom pragma nor a surrounding `{.push.}` is acceptable here, however
-well the compiler accepts them:
+**Do not bundle.** Write all four pragmas inline on every export.
+Neither a custom pragma nor a surrounding `{.push.}` is acceptable *as a
+way to supply these four*, however well the compiler accepts them. (The
+module-level `{.push raises: [].}` every source module carries is a
+different thing and stays: it is the file's default effect wall, not a
+substitute for the per-export pragma text.)
 
 ```nim
 # WRONG -- compiles, links, and fails the header inventory gate.
@@ -115,11 +118,10 @@ Rules:
   ordinal and a real call that returns each one; for the entity and option
   enums, with a call carrying the value in or out. So a new arm means
   editing both lists and adding the compliance case that reaches it.
-  Exported
-  signatures still return `cint`, and a C enum is `int`-sized, so the ABI
-  matches either way. Bare `cint` constants are not an acceptable
-  substitute: they give the C compiler nothing to switch exhaustively over
-  and nothing to name in a debugger
+  Exported signatures still return `cint`, and a C enum is `int`-sized,
+  so the ABI matches either way. Bare `cint` constants are not an
+  acceptable substitute: they give the C compiler nothing to switch
+  exhaustively over and nothing to name in a debugger
 - Entity enums (mailbox role, sort key, …) project the same way, with an
   `_UNKNOWN` ordinal for the forward-compatibility arm plus a
   raw-identifier string getter, so a server value this build does not know
@@ -221,10 +223,31 @@ type JmapClientHandle = object
   err: ErrorSlot ## most recent failure on THIS handle, never shared
 ```
 
-`recordError` is the only writer. It overwrites unconditionally:
-`sqlite3_errmsg` semantics are "the most recent call on this handle",
-so there is no `clearLastError` to forget at the top of an operation
-and no error queue to drain.
+Every write to the slot assigns the whole `ErrorSlot`, never a field of
+one, so no write can leave a stale `message` or `wireErrorType` beside a
+fresh `status`. There are five writers and they divide by where the
+diagnostic came from:
+
+| Writer | Records |
+|--------|---------|
+| `recordError` | An outcome carried on the `JmapError` rail from L4 |
+| `recordMisuse` | A caller bug L5 detects itself -- a NULL out-parameter, a wrong handle |
+| `recordProtocolFault` | A response that decoded cleanly but breaks a structural guarantee the RFC places on its shape |
+| `recordValidationFault` | An argument L5 can prove invalid before any L4 call, reported as the status the substrate's own seal would answer |
+| `clearError` | Success -- the slot resets, so the reader never sees a diagnostic from an earlier call |
+
+The three siblings of `recordError` exist because their messages are
+authored in L5 rather than carried from the rail; each returns the
+`jmap_status` its export hands straight back, so the one-error-rail rule
+holds either way. A cached failure may also be replayed into the slot
+verbatim — the lazy session's primary-account failure is — but that
+copies a slot rather than adding a sixth shape.
+
+Each writer overwrites unconditionally: `sqlite3_errmsg` semantics are
+"the most recent call on this handle", so there is no `clearLastError`
+for a caller to forget at the top of an operation and no error queue to
+drain. `clearError` is internal and runs on the success path, not a
+prologue anyone can skip.
 
 ```nim
 proc recordError(c: ptr JmapClientHandle, err: JmapError): cint =

@@ -24,10 +24,14 @@ the call was made on; nothing lives in thread-local or global state.
   travel through out-parameters. Never NULL-as-error, never a negative
   sentinel folded into an answer, never a side channel the caller has to
   fetch separately.
-- `recordError(handle, err)` stores the `JmapError` kind, its bounded
-  `message()`, and the wire `type` string where the arm carries one, in
-  the handle's error slot, and returns the projected `jmap_status`. There
-  is no `clearLastError` / `setLastError` pair.
+- `recordError(handle, err)` stores the status the `JmapError` kind
+  projects to, that error's bounded `message()`, and the wire `type`
+  string where the arm carries one, in the handle's error slot, and
+  returns that status. The kind itself never reaches the slot -- what a C
+  caller can read is the projection. Siblings author the diagnostics L5
+  raises itself rather than carries from the rail, and `clearError`
+  resets the slot on success; there is still no `clearLastError` /
+  `setLastError` pair for a caller to drive.
 - `jmap_errmsg(handle)` returns a `const char*` borrowed from that
   handle's own storage, describing the most recent failure on that handle
   (`sqlite3_errmsg` semantics). `jmap_errtype(handle)` borrows from the

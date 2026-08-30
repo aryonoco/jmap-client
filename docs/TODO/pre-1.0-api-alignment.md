@@ -2736,11 +2736,16 @@ and `_PATCH` for compile-time checks, and `jmap_version()` returns
 `jmap_init()`. `ctests/t01_init_version.c` `_Static_assert`s the three
 macros and the H19 snapshot locks them. The Nim-side `clientVersion()`
 above is untouched and remains this item's whole open scope, which is
-why the marker stays ⬜ TODO. It has more to unify than it did: the
-version is now written out in four places — `jmap_client.nimble:6`,
-`transport.nim`'s `userAgent` default, `jmapVersion`'s `cstring`
-literal, and the header's three macros — with nothing holding them to
-each other.
+why the marker stays ⬜ TODO.
+
+**Both paragraphs above are superseded on one point.** Each states that
+the `userAgent` default in `transport.nim` is "the only version literal
+under `src/`". It no longer is: `jmapVersion` returns `cstring"0.1.0"`
+from `src/jmap_client.nim:157`. So the item has more to unify than it
+did — the version is now written out in four places
+(`jmap_client.nimble:6`, `transport.nim`'s `userAgent` default,
+`jmapVersion`'s literal, and the header's three macros) with nothing
+holding them to each other. The rest of both paragraphs stands.
 
 ### C7. Charter clause on `convenience.nim` *(P6)* — ❌ MOOT (S4)
 
@@ -3243,9 +3248,14 @@ built; no ledger item tracked the build itself, so this one records it.
 - **`include/jmap_client.h`**, hand-curated, self-contained, and the
   contract a consumer compiles against. It carries the version macros
   and `jmap_version()` (see C6 above).
-- **The C compliance suite**, `ctests/t01`–`ctests/t13`: plain-C programs
-  driving the ABI against canned transports, reaching all eight
-  `JMAP_E_*` statuses.
+- **The C compliance suite**, `ctests/t01`–`ctests/t14`: fourteen plain-C
+  programs driving the ABI against the canned transports in
+  `ctests/canned.h`. Two replay scripted responses — one on a fixed 200
+  carrying `application/json`, one scripting the HTTP status and
+  Content-Type too — plus a send callback that always fails the
+  exchange. Every one of the eight `JMAP_E_*` statuses is the return
+  value of a real call in at least one program; `JMAP_E_REQUEST` was the
+  last to be, and `ctests/t14_request_error.c` is where it is earned.
 - **The C consumer bench**, `examples/jmap-c-cli/` — P29 applied to the
   FFI. Its README's FINDINGS section records six awkward call sites, the
   wrap-rate evidence this item exists to produce. Building it is gated;

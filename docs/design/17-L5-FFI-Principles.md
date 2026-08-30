@@ -631,9 +631,22 @@ never compiles is indistinguishable from an audit that passes.
 `just lint-defect-audits` compiles all four and runs in `check`, in
 `ci`, and in the hosted workflow.
 
-The C compliance suite reaches all eight `JMAP_E_*` statuses and runs
-under AddressSanitizer and UndefinedBehaviorSanitizer unconditionally,
-not "where available". What it does not do is double-free or
+The C compliance suite is fourteen plain-C programs, and every one of
+the eight `JMAP_E_*` statuses is the return value of a real call in at
+least one of them — not merely a name the header declares.
+`JMAP_E_REQUEST` was the last to earn that, and it took a second replay
+transport in `ctests/canned.h`. The first hard-codes a 200 carrying
+`application/json`, and the library classifies a response by status and
+Content-Type before it reads the body, so the ordinary shape of RFC 8620
+§3.6.1's whole-request rejection — an HTTP error status carrying RFC 7807
+problem details — could not be produced at all.
+`ctests/t14_request_error.c` drives it three ways: the rejection as a
+server sends it, the same rejection arriving on a 200 (which the older
+transport could have produced but no test asked for), and, as the
+negative that earns the other two, a 4xx whose body is not problem
+details, which is `JMAP_E_TRANSPORT` instead. The suite runs under
+AddressSanitizer and UndefinedBehaviorSanitizer unconditionally, not
+"where available". What it does not do is double-free or
 use-after-free: both are undefined behaviour no library can define
 away, so the suite pins the contracts standing around them instead —
 freeing NULL is a no-op, an out-of-range index answers NULL rather than
@@ -714,8 +727,9 @@ that replace what they point at.
 - [x] `lint-c-header-types` (H20), the header-against-Nim type
       cross-check — a third gate this note did not anticipate; see §10's
       amendment.
-- [x] The C compliance suite, `ctests/t01`–`ctests/t13`, run by
-      `just test-c` under ASan and UBSan.
+- [x] The C compliance suite, `ctests/t01`–`ctests/t14`, run by
+      `just test-c` under ASan and UBSan, reaching every `JMAP_E_*`
+      status through a real call.
 - [x] `lint-defect-audits`, putting the compile-time audits behind a
       gate that runs on every push.
 - [x] The C bench `examples/jmap-c-cli/`, built in CI with
