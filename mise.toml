@@ -1,6 +1,6 @@
 [tools]
 # -- Nim ecosystem -------------------------------------------------------
-# nph is installed via nimble in .devcontainer/scripts/on-create.sh because
+# nph is installed via nimble in .devcontainer/scripts/post-create.sh because
 # upstream's GitHub releases mis-publish the same x86_64 binary under both
 # nph-linux_x64.tar.gz and nph-linux_arm64.tar.gz (verified empirically on
 # v0.5–v0.7). Mise selects by asset name, so on aarch64 hosts it installs
@@ -8,19 +8,22 @@
 # /lib64/ld-linux-x86-64.so.2" the first time `just fmt-check` runs.
 # Building from source via nimble against the in-image Nim emits a binary
 # matching the host architecture on both amd64 and arm64. Pin the version
-# in on-create.sh.
-"github:nim-lang/langserver" = { version = "1.12.0", exe = "nimlangserver" }
+# in post-create.sh.
+"github:nim-lang/langserver" = { version = "1.14.0", exe = "nimlangserver" }
 
 # -- Project tooling (build, lint, spell, licence) ------------------------
-just = "1.48.0"
-"github:terror/just-lsp" = "0.4.0"
+just = "1.58.0"
+"github:terror/just-lsp" = "0.6.2"
 node = "24"
-"npm:cspell" = "9.7.0"
-uv = "0.11.2"
+"npm:cspell" = "10.1.1"
+uv = "0.12.7"
 
 # -- CLI utilities (not in Debian repos) ----------------------------------
+# Major-line floats: these resolve to the newest release in the line on
+# every `mise install`, which is the intended behaviour for utilities
+# nothing in `just ci` depends on.
 yq = "4"
-ast-grep = "0.38"
+ast-grep = "0.45"
 watchexec = "2"
 
 [env]

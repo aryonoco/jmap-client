@@ -26,9 +26,16 @@ echo "Installing Python tools via uv..."
 uv tool install reuse==6.2.0
 echo "  Done"
 
+# Pinned rather than floating: src/ carries {.ruleOff.} pragmas placed to
+# work around specific 0.12.2 rule bugs (hasDoc on `ref NamedType`,
+# varUplevel on typeless ObjConstr), and CLAUDE.md forbids relaxing rules
+# to accommodate the analyser. An unpinned install can therefore turn a
+# nimalyzer release into a source-restructuring exercise, arriving
+# unannounced on whichever machine rebuilds first. Keep in sync with
+# .github/workflows/ci.yml.
 echo ""
 echo "Installing nimalyzer via nimble..."
-nimble install nimalyzer --accept
+nimble install nimalyzer@0.12.2 --accept
 echo "  Done"
 
 # nph is built from source rather than fetched from GitHub releases:

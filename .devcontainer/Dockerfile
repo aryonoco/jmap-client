@@ -34,7 +34,7 @@ RUN mkdir -p /home/vscode/.nimble \
     && chmod 700 /home/vscode/.claude
 
 # Antidote (zsh plugin manager) — pinned tag for reproducibility
-RUN git clone --depth=1 --branch v2.0.3 https://github.com/mattmc3/antidote.git /home/vscode/.antidote \
+RUN git clone --depth=1 --branch v2.3.0 https://github.com/mattmc3/antidote.git /home/vscode/.antidote \
     && chown -R vscode:vscode /home/vscode/.antidote
 
 # Install Nim from source (only tool that requires source build)
