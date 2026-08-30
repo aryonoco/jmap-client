@@ -93,6 +93,15 @@ typedef enum {
  * starts the language runtime, which the library needs because it is a
  * shared object built without a main() of its own. Calling it more than
  * once is safe.
+ *
+ * jmap_init() is not thread-safe. Call it from one thread, before you
+ * start any other. Calling it again from the same thread is a no-op.
+ * What makes the repeat a no-op is a plain flag with no lock around
+ * it, so two threads reaching this call at once can both start the
+ * runtime, and starting it twice leaves it in a state no later call
+ * can rely on. The threading rule at the top of this file is about
+ * handles, and this call holds none, which is why it is said again
+ * here.
  */
 jmap_status jmap_init(void);
 
@@ -100,6 +109,11 @@ jmap_status jmap_init(void);
  * jmap_cleanup() tears the library down. It is optional, and it belongs
  * at process exit. It is not safe to call while handles are still
  * alive, so free every handle first.
+ *
+ * Nothing brings the library back afterwards. A jmap_init() that
+ * follows a jmap_cleanup() starts the language runtime a second time,
+ * over state the first start already built, and the library does not
+ * survive that. Use the pair once per process, in that order.
  */
 void jmap_cleanup(void);
 
@@ -286,6 +300,15 @@ void jmap_transport_free(jmap_transport *transport);
 jmap_status jmap_client_primary_account(jmap_client *client,
                                         const char **out);
 
+/*
+ * jmap_client_account_count() writes the number of accounts to *out. It
+ * is the only count in this header that reports through a status
+ * instead of returning the number, because it is one of the calls that
+ * fetches the session, and a transport or protocol failure has to
+ * reach you as something other than a count. Every other _count reads a
+ * handle you already hold, so it cannot fail and returns the number
+ * directly.
+ */
 jmap_status jmap_client_account_count(jmap_client *client, size_t *out);
 
 /*
@@ -401,6 +424,9 @@ const jmap_mailbox *jmap_mailboxes_at(const jmap_mailboxes *mailboxes,
 
 const char *jmap_mailbox_id(const jmap_mailbox *mb);
 const char *jmap_mailbox_name(const jmap_mailbox *mb);
+/* The _get suffix is unique in this header, and it is here only so the
+ * function does not collide with the jmap_mailbox_role type above. C
+ * gives types and functions one namespace to share. */
 jmap_mailbox_role jmap_mailbox_role_get(const jmap_mailbox *mb);
 /* Returns the role string the server sent, or "" when the mailbox has
  * no role. */
@@ -411,6 +437,9 @@ int64_t jmap_mailbox_total_emails(const jmap_mailbox *mb);
 int64_t jmap_mailbox_unread_emails(const jmap_mailbox *mb);
 /* Returns 1 or 0. */
 int jmap_mailbox_is_subscribed(const jmap_mailbox *mb);
+/* Returns 1 or 0. A value outside jmap_mailbox_right answers 0: it
+ * names no right the mailbox could hold, and an int has no third
+ * answer to give. */
 int jmap_mailbox_has_right(const jmap_mailbox *mb, jmap_mailbox_right r);
 
 /* --- Emails ----------------------------------------------------------- */
@@ -422,12 +451,24 @@ typedef struct jmap_email jmap_email; /* a borrow, never freed */
  * jmap_get_emails() fetches the named emails with their text bodies.
  * ids points to an array of n id strings, as other calls return them.
  * Must be freed with jmap_emails_free().
+ *
+ * ids may be NULL when n is 0. That asks for nothing and hands back an
+ * empty handle, which is what RFC 8620 section 5.1 says an empty ids
+ * array means. The email write calls reject an empty array; a read has
+ * nothing to refuse.
  */
 jmap_status jmap_get_emails(jmap_client *client,
                             const char *account_id,
                             const char *const *ids,
                             size_t n,
                             jmap_emails **out);
+/*
+ * jmap_emails_free() releases a handle from jmap_get_emails() or
+ * jmap_query_emails(). Never pass it a pointer from jmap_sync_created()
+ * or jmap_sync_updated(): those are borrows into the sync handle, not
+ * objects of their own, and jmap_sync_free() releases them with the
+ * handle they live in.
+ */
 void jmap_emails_free(jmap_emails *emails);
 
 size_t jmap_emails_count(const jmap_emails *emails);
@@ -552,6 +593,9 @@ typedef struct jmap_identity jmap_identity; /* a borrow, never freed */
 /*
  * jmap_get_threads() fetches the named threads. ids points to an array
  * of n thread id strings. Must be freed with jmap_threads_free().
+ *
+ * As with jmap_get_emails(), ids may be NULL when n is 0, and the
+ * answer is an empty handle.
  */
 jmap_status jmap_get_threads(jmap_client *client, const char *account_id,
                              const char *const *ids, size_t n,
