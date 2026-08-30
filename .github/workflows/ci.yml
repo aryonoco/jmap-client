@@ -131,6 +131,9 @@ jobs:
       - name: Lint (C header drift)
         run: just lint-c-header-snapshot
 
+      - name: Lint (C header types)
+        run: just lint-c-header-types
+
       - name: Run C compliance tests
         run: just test-c
 

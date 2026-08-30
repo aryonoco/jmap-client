@@ -566,6 +566,23 @@ lint-c-header-snapshot:
       /tmp/jmap_c_header_live.txt
     @echo "H19 C-header snapshot lint passed"
 
+# H20 C-header type cross-check. A change detector, not a compatibility
+# promise. Nothing else compares the hand-written declarations against
+# the Nim signatures they stand for: C linkage matches by name alone, so
+# a header that misstates a parameter type still compiles and links.
+# `nim c --header:` emits a prototype per export straight from the Nim
+# side; --compileOnly stops before the C compiler, so this costs a Nim
+# pass and no link.
+lint-c-header-types:
+    @echo "Running H20 C-header type cross-check..."
+    @rm -rf /tmp/jmap_c_header_emit
+    @nim c --compileOnly --app:lib --noMain -d:ssl -d:useMalloc \
+      --header:jmap_emitted.h --nimcache:/tmp/jmap_c_header_emit \
+      --hints:off --warnings:off src/jmap_client.nim
+    nim r --hints:off --warnings:off tests/lint/h20_c_header_types.nim \
+      /tmp/jmap_c_header_emit/jmap_emitted.h
+    @echo "H20 C-header type cross-check passed"
+
 # Static analysis with nimalyzer
 analyse:
     @echo "Running static analysis..."
@@ -576,7 +593,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes lint-c-header lint-c-header-snapshot analyse
+check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes lint-c-header lint-c-header-snapshot lint-c-header-types analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -590,7 +607,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse build lint-c-header lint-c-header-snapshot test-c test
+ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse build lint-c-header lint-c-header-snapshot lint-c-header-types test-c test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"

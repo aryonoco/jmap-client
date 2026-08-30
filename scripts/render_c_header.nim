@@ -2,15 +2,17 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Canonical render of the C ABI contract in ``include/jmap_client.h``,
-## and the header parser the two C-header gates share.
+## and the header parser the C-header gates share.
 ##
 ## Run as a program it writes the render to stdout: ``just
 ## snapshot-c-header`` redirects that onto
 ## ``tests/wire_contract/c-header.txt``, and ``just
 ## lint-c-header-snapshot`` diffs a fresh render against the committed
 ## one. Imported as a module it hands
-## ``tests/lint/h18_c_header_inventory.nim`` the same parse, so the two
-## gates cannot disagree about what the header declares — the
+## ``tests/lint/h18_c_header_inventory.nim`` the same parse, and
+## ``tests/lint/h20_c_header_types.nim`` both that parse and the
+## tokeniser it reads Nim's emitted prototypes with, so no two gates can
+## disagree about what the header declares — the
 ## ``scripts/api_oracle.nim`` division of labour: one parser, several
 ## consumers.
 ##
@@ -31,15 +33,20 @@
 ##
 ## The parse is deliberately narrow. It accepts the shapes above and
 ## aborts on anything else rather than silently dropping a declaration
-## it does not understand, and it assumes the header's own conventions:
-## no string literal contains a comment opener, the only conditional
-## compilation is the ``#ifdef __cplusplus`` extern-"C" wrapper, and
-## every parameter is named. Each holds for this header. A violated
-## assumption normally surfaces as a statement the parser rejects, but
-## not necessarily: a parameter's trailing identifier is taken for its
-## name, so an unnamed multi-word type such as ``unsigned int`` would
-## quietly lose its last word — which is why that one is called out
-## rather than left to the parser.
+## it does not understand. The preprocessor directives it accepts are
+## ``#include``, ``#define``, the include guard, the ``#ifdef
+## __cplusplus`` extern-"C" wrapper and their ``#endif``s; any other
+## conditional aborts, because a declaration inside one is conditional
+## and the render has no way to say so — rendering it unconditionally
+## would state a declaration that some builds do not have.
+##
+## Two assumptions remain. A string literal must not contain a comment
+## opener, which would normally surface as a statement the parser
+## rejects; and every parameter must be named, which would not — a
+## parameter's trailing identifier is taken for its name, so an unnamed
+## multi-word type such as ``unsigned int`` would quietly lose its last
+## word. That is why the second one is stated here rather than left to
+## the parser.
 
 {.push raises: [].}
 
@@ -53,11 +60,18 @@ type
     secFunctions = "functions"
 
   Declaration* = object
-    ## One parsed declaration: the section it renders into, the name it
-    ## introduces, and the canonical lines it renders to.
-    section*: Section
+    ## One parsed declaration. A function is kept as its parts — the
+    ## render is derived from them, and the type cross-check reads them
+    ## directly — so no second copy of a signature can disagree with the
+    ## first. Every other section renders to lines with no further
+    ## structure worth keeping.
     name*: string
-    lines*: seq[string]
+    case section*: Section
+    of secFunctions:
+      returnType*: string
+      paramTypes*: seq[string]
+    of secMacros, secTypes, secEnums:
+      lines*: seq[string]
 
 const
   IdentStart = {'A' .. 'Z', 'a' .. 'z', '_'}
@@ -65,6 +79,8 @@ const
   PunctChars = {'*', '(', ')', ',', '{', '}', '=', '-'}
   IncludeGuardStart = "#ifndef "
   DefineStart = "#define "
+  CplusplusGuard = "#ifdef __cplusplus"
+  InertDirectives = ["#include ", "#endif"]
   HeaderRelPath* = "include" / "jmap_client.h"
   Preamble* = """# Canonical render of the C ABI contract in include/jmap_client.h,
 # produced by scripts/render_c_header.nim and locked by
@@ -103,9 +119,10 @@ proc stripComments(source: string): string =
       result.add(source[i])
       inc i
 
-proc tokenise(statement: string): seq[string] =
+proc tokenise*(statement: string): seq[string] =
   ## Splits a comment-free C statement into identifier tokens and
-  ## single-character punctuation.
+  ## single-character punctuation. Exported because the type
+  ## cross-check reads Nim's emitted prototypes with it.
   result = @[]
   var i = 0
   while i < statement.len:
@@ -123,7 +140,7 @@ proc tokenise(statement: string): seq[string] =
     else:
       fail("unexpected character '" & $c & "' in: " & statement)
 
-proc renderTypeTokens(tokens: openArray[string]): string =
+proc renderTypeTokens*(tokens: openArray[string]): string =
   ## Joins type tokens with single spaces, keeping a pointer run
   ## together so ``char * *`` renders as ``char **``.
   result = ""
@@ -165,24 +182,23 @@ proc paramType(tokens: seq[string], statement: string): string =
   else:
     renderTypeTokens(tokens)
 
-proc renderParams(tokens: openArray[string], statement: string): string =
-  ## Renders a parenthesised parameter list as its comma-separated
-  ## parameter types.
-  splitOnCommas(tokens).mapIt(paramType(it, statement)).join(", ")
+proc paramTypesOf*(tokens: openArray[string], statement: string): seq[string] =
+  ## Renders a parenthesised parameter list as its parameter types.
+  ## Exported alongside ``tokenise``: Nim's emitted prototypes are C
+  ## declarations of the same shape, so the cross-check reads them with
+  ## the same three primitives rather than a second parser.
+  splitOnCommas(tokens).mapIt(paramType(it, statement))
 
 proc parseFunction(tokens: seq[string], statement: string): Declaration =
   ## Parses ``<return type> <name>(<parameters>)``.
   let open = tokens.find("(")
   if open < 2 or tokens[^1] != ")":
     fail("not a function declaration: " & statement)
-  let name = tokens[open - 1]
   Declaration(
     section: secFunctions,
-    name: name,
-    lines: @[
-      renderTypeTokens(tokens[0 ..< open - 1]) & " " & name & "(" &
-        renderParams(tokens[open + 1 ..^ 2], statement) & ")"
-    ],
+    name: tokens[open - 1],
+    returnType: renderTypeTokens(tokens[0 ..< open - 1]),
+    paramTypes: paramTypesOf(tokens[open + 1 ..^ 2], statement),
   )
 
 proc parseOrdinal(tokens: seq[string], statement: string): int =
@@ -244,7 +260,7 @@ proc parseCallbackTypedef(tokens: seq[string], statement: string): Declaration =
     name: name,
     lines: @[
       "typedef " & renderTypeTokens(tokens[1 ..< open]) & " (*" & name & ")(" &
-        renderParams(tokens[open + 5 ..^ 2], statement) & ")"
+        paramTypesOf(tokens[open + 5 ..^ 2], statement).join(", ") & ")"
     ],
   )
 
@@ -270,25 +286,21 @@ proc macroName(line: string): string =
   fields[1]
 
 proc parseMacro(line: string): Declaration =
-  ## Parses ``#define <name> <value>``. A value-less define carries
-  ## nothing a caller can compile against, so it aborts rather than
-  ## render a macro whose meaning the render cannot show.
+  ## Parses ``#define <name> [<value>]``. A value-less define is a
+  ## feature flag a consumer tests with ``#ifdef``, so its name alone is
+  ## what it states and its name alone is what renders.
   let fields = line.splitWhitespace()
-  if fields.len < 3:
-    fail("object-like macro without a value: " & line)
-  Declaration(
-    section: secMacros,
-    name: fields[1],
-    lines: @[fields[1] & " " & fields[2 ..^ 1].join(" ")],
-  )
+  Declaration(section: secMacros, name: fields[1], lines: @[fields[1 ..^ 1].join(" ")])
 
 proc parseHeader*(source: string): seq[Declaration] =
   ## Parses the whole header into declarations. Every ``#define`` is a
   ## macro a caller can compile against, so all of them are rendered
-  ## bar the include guard, which the first ``#ifndef`` names. The
-  ## remaining preprocessor lines carry no ABI, and the ``#ifdef
+  ## bar the include guard, which the first ``#ifndef`` names. Includes
+  ## and ``#endif`` carry no ABI and are skipped, and the ``#ifdef
   ## __cplusplus`` wrapper's contents are language linkage rather than
-  ## declarations, so both are skipped.
+  ## declarations. Any other conditional aborts: its body is
+  ## conditional, and rendering that body unconditionally would state a
+  ## declaration some builds do not have.
   result = @[]
   var body: seq[string] = @[]
   var guard = ""
@@ -301,13 +313,17 @@ proc parseHeader*(source: string): seq[Declaration] =
       if line.startsWith("#endif"):
         inCplusplus = false
       continue
-    if line.startsWith("#ifdef __cplusplus"):
+    if line.startsWith(CplusplusGuard):
       inCplusplus = true
     elif line.startsWith(IncludeGuardStart) and guard.len == 0:
       guard = macroName(line)
-    elif line.startsWith(DefineStart) and macroName(line) != guard:
-      result.add(parseMacro(line))
-    elif not line.startsWith("#"):
+    elif line.startsWith(DefineStart):
+      if macroName(line) != guard:
+        result.add(parseMacro(line))
+    elif line.startsWith("#"):
+      if not InertDirectives.anyIt(line.startsWith(it)):
+        fail("unsupported preprocessor directive: " & line)
+    else:
       body.add(line)
   for statement in body.join(" ").split(';'):
     if statement.strip().len > 0:
@@ -321,8 +337,15 @@ proc renderHeader*(declarations: seq[Declaration]): seq[string] =
     result.add("")
     result.add("## " & $section)
     for declaration in declarations.filterIt(it.section == section):
-      for line in declaration.lines:
-        result.add(line)
+      case declaration.section
+      of secFunctions:
+        result.add(
+          declaration.returnType & " " & declaration.name & "(" &
+            declaration.paramTypes.join(", ") & ")"
+        )
+      of secMacros, secTypes, secEnums:
+        for line in declaration.lines:
+          result.add(line)
 
 proc readHeaderSource*(repoRoot: string): string =
   ## Reads ``include/jmap_client.h`` from the repository root.

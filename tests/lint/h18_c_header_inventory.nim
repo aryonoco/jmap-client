@@ -3,19 +3,24 @@
 
 ## H18 — the C header and the exportc inventory cannot drift apart.
 ##
-## Direction 1: every ``{.exportc: "jmap_…".}`` in
-## ``src/jmap_client.nim`` must be declared as a function in
-## ``include/jmap_client.h``, or the shared object exports a symbol no
-## consumer can call. Direction 2: every function the header declares
-## must exist as an exportc, or a consumer compiles against a
-## declaration that will not link.
+## Direction 1: every ``{.exportc: "jmap_…".}`` under ``src/`` must be
+## declared as a function in ``include/jmap_client.h``, or the shared
+## object exports a symbol no consumer can call. Direction 2: every
+## function the header declares must exist as an exportc, or a consumer
+## compiles against a declaration that will not link.
 ##
 ## Third, every exportc pragma must carry ``dynlib``, ``cdecl`` and
 ## ``raises: []`` alongside the exported name. Each of the four prevents
 ## a distinct failure — Nim name mangling, POSIX symbol hiding, the
 ## wrong calling convention, and an exception unwinding through a C
-## stack frame — and three of them fail at run time rather than at
-## build time, which is why they are checked here.
+## stack frame. The Nim compiler flags none of the three omissions: a
+## missing ``dynlib`` hides the symbol under ``--app:lib`` and surfaces
+## when a C consumer fails to LINK, and a missing ``cdecl`` or
+## ``raises: []`` goes wrong at run time. That is why they are checked
+## here.
+##
+## What this lint does NOT check is that a declaration's TYPES match the
+## Nim proc's; ``tests/lint/h20_c_header_types.nim`` does that.
 ##
 ## The header side is parsed by ``scripts/render_c_header.nim``, the same
 ## parser the H19 snapshot renders through, so the two gates cannot
@@ -33,19 +38,26 @@ import ../../scripts/render_c_header
 
 const
   RepoRoot = currentSourcePath().parentDir.parentDir.parentDir
-  SourceRel = "src" / "jmap_client.nim"
+  SourceDir = "src"
   ExportcMarker = "exportc: \""
   PragmaEnd = ".}"
   RequiredPragmas = ["dynlib", "cdecl", "raises: []"]
 
-proc readSource(path: string): string =
-  ## Reads a file the lint scans, exiting non-zero when it cannot.
+proc nimSources(): string =
+  ## Every ``.nim`` file under ``src/`` concatenated. The exports all sit
+  ## in ``src/jmap_client.nim`` today, but scanning the whole tree is
+  ## what makes that a finding rather than an assumption: an exportc
+  ## added to another module would otherwise be invisible here.
   result = ""
-  try:
-    result = readFile(path)
-  except IOError, OSError:
-    stderr.writeLine "H18: cannot read " & path
-    quit(2)
+  for path in walkDirRec(RepoRoot / SourceDir):
+    if not path.endsWith(".nim"):
+      continue
+    try:
+      result.add(readFile(path))
+      result.add("\n")
+    except IOError, OSError:
+      stderr.writeLine "H18: cannot read " & path
+      quit(2)
 
 proc exportcInventory(
     source: string
@@ -89,7 +101,7 @@ proc reportAll(label: string, names: seq[string]) =
 proc main() =
   ## Compares the two inventories in both directions, audits the pragma
   ## lists, and exits non-zero on any divergence.
-  let (exported, violations) = exportcInventory(readSource(RepoRoot / SourceRel))
+  let (exported, violations) = exportcInventory(nimSources())
   let declared = declaredFunctions()
   let missing = toSeq(exported - declared)
   let extra = toSeq(declared - exported)
@@ -103,7 +115,7 @@ proc main() =
   reportAll("EXTRA in include/jmap_client.h (declared, not exported):", extra)
   stderr.writeLine ""
   stderr.writeLine "The header is hand-written: add, remove or rename the declaration"
-  stderr.writeLine "in include/jmap_client.h to match src/jmap_client.nim, then run:"
+  stderr.writeLine "in include/jmap_client.h to match the Nim exports, then run:"
   stderr.writeLine "    just snapshot-c-header   # rewrites tests/wire_contract/c-header.txt"
   quit(1)
 
