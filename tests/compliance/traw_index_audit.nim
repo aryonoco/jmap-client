@@ -42,12 +42,17 @@ discard """
 ## conversion from the C ABI therefore fails this audit, which is the
 ## intended trade: that deletion should be a deliberate edit here too.
 ##
-## Its residual blind spot is width: a ``.len`` or ``high(int)`` bound
-## discharges a narrowing to any signed target, including ``cint``, and
-## the rule does not check that the ceiling matches. The caller-driven
-## hazard is closed regardless — the bound is in-tree data, not
-## caller-supplied — but a 32-bit narrowing of a length above 2^31 would
-## pass here.
+## Bound and target are compared by width, because the two bound kinds
+## differ in what they leave the caller. A ``.len`` bound is in-tree
+## data, so the value it bounds is no longer caller-controlled; a
+## ``high(T)`` ceiling is not, and leaves the value caller-controlled all
+## the way up to that ceiling — ``if n > csize_t(high(int)): return`` then
+## ``cint(n)`` raises for any ``n >= 2^31``. So a bound discharges a
+## conversion whose target is wide enough to hold what the bound proves:
+## ``high(int)`` vouches for ``int(n)`` and not for ``cint(n)``. A length
+## is read as proving ``int`` and nothing narrower — the conservative
+## reading rather than a proof, since no site narrows a length-bounded
+## value below ``int``, and the audit will say so if one appears.
 ##
 ## What the audit reads
 ## --------------------
@@ -102,20 +107,21 @@ import std/[macros, os, strutils]
 
 type FactKind = enum
   ## What kind of conclusion a guard or binding in scope has established.
-  fkMinLen ## The named collection holds at least ``minLen`` elements.
+  fkMinLen ## The named collection holds at least ``value`` elements.
   fkUnsignedBound
     ## The named ``csize_t`` parameter was compared, in the unsigned
-    ## domain, against a bound narrowing cannot overflow.
+    ## domain, against a bound that confines it to ``value`` bits.
   fkSafeBound
-    ## The named local is bound to such a bound, so a comparison against
-    ## the local is as good as one against the expression itself.
+    ## The named local is bound to such a bound, itself confining a
+    ## compared value to ``value`` bits.
   fkCsizeAlias
     ## The named local is bound to a ``csize_t`` parameter, or to another
-    ## alias of one, and carries the same exposure.
+    ## alias of one, and carries the same exposure. ``value`` is unused.
 
-type Fact = tuple[kind: FactKind, name: string, minLen: int]
+type Fact = tuple[kind: FactKind, name: string, value: int]
   ## A guard's conclusion, valid for the scope that guard encloses.
-  ## ``minLen`` is meaningful for ``fkMinLen`` only.
+  ## ``value`` reads as a minimum element count for ``fkMinLen`` and as a
+  ## bit width for the two bound kinds; see ``FactKind``.
 
 type IndexNeed = enum
   ## What discharging one bracket access would take.
@@ -276,10 +282,43 @@ proc comparisonBounds(cond: NimNode, holds: bool): seq[Fact] =
   if bound.ok:
     result.add (fkMinLen, name, int(bound.m))
 
-const SignedInts = [
-  "int", "int8", "int16", "int32", "int64", "cint", "cshort", "clong", "clonglong",
-  "BiggestInt", "Natural", "Positive",
+const IntWidths: seq[tuple[name: string, bits: int]] = @[
+  ("int", 64),
+  ("int64", 64),
+  ("clonglong", 64),
+  ("BiggestInt", 64),
+  ("Natural", 64),
+  ("Positive", 64),
+  ("int32", 32),
+  ("cint", 32),
+  ("clong", 32), # LLP64 keeps this 32-bit; the narrow reading is the safe one.
+  ("uint32", 32),
+  ("cuint", 32),
+  ("int16", 16),
+  ("cshort", 16),
+  ("uint16", 16),
+  ("cushort", 16),
+  ("int8", 8),
+  ("uint8", 8),
+  ("cuchar", 8),
 ]
+  ## Bit width of every type a narrowing can target, and of every type
+  ## whose ``high`` can appear as a ceiling. A bound proves a value fits
+  ## its own width, so it discharges a narrowing only to a target at
+  ## least that wide — which is what stops ``high(int)`` from vouching
+  ## for a ``cint``.
+
+const LengthBits = 64
+  ## A Nim ``len`` yields ``int``, so a length bound proves ``int`` and
+  ## nothing narrower. There is no live site narrowing a length-bounded
+  ## value below ``int``; if one appears, the audit will say so.
+
+proc widthOf(name: string): int =
+  ## Bit width of the named integer type, or 0 when it is not one.
+  for entry in IntWidths:
+    if entry.name == name:
+      return entry.bits
+  0
 
 proc hasFact(stack: seq[Fact], kind: FactKind, name: string): bool =
   ## True when something in scope established ``kind`` for ``name``.
@@ -288,26 +327,53 @@ proc hasFact(stack: seq[Fact], kind: FactKind, name: string): bool =
       return true
   false
 
+proc factWidth(stack: seq[Fact], kind: FactKind, name: string): int =
+  ## Tightest bound in scope of ``kind`` for ``name``; 0 when there is
+  ## none. Tightest rather than first because a second, looser guard does
+  ## not undo what a narrower one already proved.
+  result = 0
+  for f in stack:
+    if f.kind == kind and f.name == name and (result == 0 or f.value < result):
+      result = f.value
+
 proc isLenExpr(n: NimNode): bool =
   ## True for ``<anything>.len`` and ``len(<anything>)``. Deliberately
   ## indifferent to what names the container: a length is in-tree data
-  ## whatever expression produced it, which is the property that matters.
+  ## whatever expression produced it, and that — not which collection it
+  ## came from — is what makes a narrowing safe. Reading the base instead
+  ## would mean naming it, and ``collKey`` cannot name a deref, so every
+  ## ``handle[].items.len`` guard in the C ABI would stop discharging.
+  ##
+  ## The cost is that a bound rooted in the *wrong* collection still
+  ## discharges: ``if i >= csize_t(b[].other.len)`` vouches for
+  ## ``a[].items[int(i)]``. That is an ``IndexDefect`` rather than the
+  ## ``RangeDefect`` this rule exists for, and the raw-index rule does not
+  ## reach it either — a call-shaped index classifies as ``inIgnored``.
+  ## No check in this repository catches a wrong-collection bound.
   if n.kind == nnkDotExpr and n[1].kind in {nnkIdent, nnkSym} and $n[1] == "len":
     return true
   n.kind in {nnkCall, nnkCommand} and n.len == 2 and n[0].kind in {nnkIdent, nnkSym} and
     $n[0] == "len"
 
-proc isSignedCeiling(n: NimNode): bool =
-  ## True for ``high(T)`` with ``T`` a signed integer type — the ceiling
-  ## form of a bound, used where the value being narrowed is a count
-  ## rather than an index.
-  n.kind in {nnkCall, nnkCommand} and n.len == 2 and n[0].kind in {nnkIdent, nnkSym} and
-    $n[0] == "high" and n[1].kind in {nnkIdent, nnkSym} and $n[1] in SignedInts
+proc ceilingWidth(n: NimNode): int =
+  ## Width ``high(T)`` proves, or 0 when ``n`` is not such a ceiling.
+  ## Used where the value being narrowed is a count rather than an index,
+  ## and the reason a ``high(int)`` ceiling cannot vouch for a ``cint``
+  ## narrowing: it leaves the value caller-controlled up to 2^63-1.
+  if n.kind notin {nnkCall, nnkCommand} or n.len != 2 or
+      n[0].kind notin {nnkIdent, nnkSym} or $n[0] != "high" or
+      n[1].kind notin {nnkIdent, nnkSym}:
+    return 0
+  widthOf($n[1])
 
-proc isBoundExpr(n: NimNode): bool =
-  ## A container length or a signed ceiling — the two shapes whose value
-  ## is in-tree and provably inside a narrowing target's range.
-  isLenExpr(n) or isSignedCeiling(n)
+proc boundWidth(n: NimNode): int =
+  ## Width a bound expression proves: a container length or a ceiling.
+  ## 0 for anything else, including a second caller-supplied width, which
+  ## proves nothing at all.
+  if isLenExpr(n):
+    LengthBits
+  else:
+    ceilingWidth(n)
 
 proc prefixCsize(n: NimNode): bool =
   ## True for ``csize_t(x)``.
@@ -319,10 +385,10 @@ proc postfixCsize(n: NimNode): bool =
   ## and just as sound, so rejecting it would push authors elsewhere.
   n.kind == nnkDotExpr and n[1].kind in {nnkIdent, nnkSym} and $n[1] == "csize_t"
 
-proc isSafeBound(n: NimNode, known: seq[Fact]): bool =
-  ## True when ``n`` is a bound a narrowing can be discharged against: a
-  ## ``csize_t`` conversion — prefix or postfix — of a container length or
-  ## a signed ceiling, or a local bound to one.
+proc safeBoundWidth(n: NimNode, known: seq[Fact]): int =
+  ## Width the bound ``n`` proves, or 0 when ``n`` is not one. A bound is
+  ## a ``csize_t`` conversion — prefix or postfix — of a container length
+  ## or an integer ceiling, or a local bound to one.
   ##
   ## The ``len``-rooted requirement is the whole point. Accepting any
   ## ``csize_t(x)`` would discharge ``i >= csize_t(cap)`` where ``cap`` is
@@ -332,22 +398,26 @@ proc isSafeBound(n: NimNode, known: seq[Fact]): bool =
   ## spelling. Both sound spellings — the postfix conversion and the
   ## hoisted local — are accepted here so no one is pushed towards it.
   if prefixCsize(n):
-    return isBoundExpr(n[1])
+    return boundWidth(n[1])
   if postfixCsize(n):
-    return isBoundExpr(n[0])
-  n.kind in {nnkIdent, nnkSym} and hasFact(known, fkSafeBound, $n)
+    return boundWidth(n[0])
+  if n.kind in {nnkIdent, nnkSym}:
+    return factWidth(known, fkSafeBound, $n)
+  0
 
-proc unsignedCompare(cond: NimNode, known: seq[Fact]): tuple[name, op: string] =
+proc unsignedCompare(
+    cond: NimNode, known: seq[Fact]
+): tuple[name, op: string, bits: int] =
   ## Decompose a comparison between a bare identifier and a safe bound
-  ## into that identifier and the operator read with the identifier on
-  ## the left. Empty name for any other shape.
+  ## into that identifier, the operator read with the identifier on the
+  ## left, and the width the bound proves. Empty name for any other shape.
   if cond.kind != nnkInfix or cond.len != 3:
-    return ("", "")
-  if cond[1].kind in {nnkIdent, nnkSym} and isSafeBound(cond[2], known):
-    return ($cond[1], $cond[0])
-  if cond[2].kind in {nnkIdent, nnkSym} and isSafeBound(cond[1], known):
-    return ($cond[2], mirrorOp($cond[0]))
-  ("", "")
+    return ("", "", 0)
+  if cond[1].kind in {nnkIdent, nnkSym} and safeBoundWidth(cond[2], known) > 0:
+    return ($cond[1], $cond[0], safeBoundWidth(cond[2], known))
+  if cond[2].kind in {nnkIdent, nnkSym} and safeBoundWidth(cond[1], known) > 0:
+    return ($cond[2], mirrorOp($cond[0]), safeBoundWidth(cond[1], known))
+  ("", "", 0)
 
 proc unsignedFacts(cond: NimNode, holds: bool, known: seq[Fact]): seq[Fact] =
   ## ``p >= csize_t(xs.len)`` failing, or ``p < csize_t(xs.len)`` holding,
@@ -361,7 +431,7 @@ proc unsignedFacts(cond: NimNode, holds: bool, known: seq[Fact]): seq[Fact] =
     else:
       cmp.op in [">", ">="]
   if cmp.name.len > 0 and bounded:
-    @[(fkUnsignedBound, cmp.name, 0)]
+    @[(fkUnsignedBound, cmp.name, cmp.bits)]
   else:
     @[]
 
@@ -428,7 +498,7 @@ proc indexNeed(idx: NimNode): tuple[need: IndexNeed, minLen: int] =
 proc satisfied(stack: seq[Fact], name: string, minLen: int): bool =
   ## True when some enclosing guard proves ``name`` long enough.
   for f in stack:
-    if f.kind == fkMinLen and f.name == name and f.minLen >= minLen:
+    if f.kind == fkMinLen and f.name == name and f.value >= minLen:
       return true
   false
 
@@ -531,16 +601,17 @@ proc walkCase(node: NimNode, ctx: var Ctx) =
       walk(branch[j], ctx)
     walkScoped(branch[^1], ctx, caseBranchBounds(node[0], branch))
 
-proc bindingKinds(defs: NimNode, ctx: Ctx): set[FactKind] =
+proc bindingKinds(defs: NimNode, ctx: Ctx): seq[tuple[kind: FactKind, value: int]] =
   ## Which facts one ``a, b = rhs`` group introduces for every name it
   ## binds: the right-hand side is read once, the names share the verdict.
-  result = {}
+  result = @[]
   let rhs = defs[^1]
-  if isSafeBound(rhs, ctx.stack):
-    result.incl fkSafeBound
+  let bits = safeBoundWidth(rhs, ctx.stack)
+  if bits > 0:
+    result.add (fkSafeBound, bits)
   if rhs.kind in {nnkIdent, nnkSym} and
       ($rhs in ctx.csizeParams or hasFact(ctx.stack, fkCsizeAlias, $rhs)):
-    result.incl fkCsizeAlias
+    result.add (fkCsizeAlias, 0)
 
 proc bindingFacts(child: NimNode, ctx: Ctx): seq[Fact] =
   ## Facts introduced by a ``let``/``var``/``const`` section. Hoisting a
@@ -556,8 +627,8 @@ proc bindingFacts(child: NimNode, ctx: Ctx): seq[Fact] =
     let kinds = bindingKinds(defs, ctx)
     for i in 0 ..< defs.len - 2:
       if defs[i].kind in {nnkIdent, nnkSym}:
-        for kind in kinds:
-          result.add (kind, $defs[i], 0)
+        for k in kinds:
+          result.add (k.kind, $defs[i], k.value)
 
 proc walkStmtList(node: NimNode, ctx: var Ctx) =
   ## Visit a statement list, threading through the statements that follow
@@ -576,12 +647,6 @@ proc walkStmtList(node: NimNode, ctx: var Ctx) =
     discard ctx.stack.pop
 
 const L5EntryPoint = "/src/jmap_client.nim"
-
-const Narrowing = [
-  "int", "int8", "int16", "int32", "int64", "cint", "cshort", "clong", "clonglong",
-  "uint8", "uint16", "uint32", "cuchar", "cushort", "cuint", "Natural", "Positive",
-  "BiggestInt",
-]
 
 const RoutineDefs = {
   nnkProcDef, nnkFuncDef, nnkMethodDef, nnkIteratorDef, nnkConverterDef, nnkTemplateDef,
@@ -621,17 +686,29 @@ proc narrowedParam(n: NimNode, ctx: Ctx): string =
 proc checkNarrowing(node, target, operand: NimNode, ctx: var Ctx) =
   ## Judge one narrowing of a ``csize_t`` parameter, written either
   ## ``int(p)`` or ``p.int``. Reachable only inside the C ABI entry point,
-  ## where ``ctx.csizeParams`` is non-empty.
-  if target.kind notin {nnkIdent, nnkSym} or $target notin Narrowing:
+  ## where ``ctx.csizeParams`` is non-empty. A bound discharges the
+  ## conversion only if what it proves fits the target: a ``high(int)``
+  ## ceiling leaves the value caller-controlled well above what a
+  ## ``cint`` can hold, so it vouches for ``int(n)`` and not ``cint(n)``.
+  if target.kind notin {nnkIdent, nnkSym}:
+    return
+  let targetBits = widthOf($target)
+  if targetBits == 0:
     return
   let name = narrowedParam(operand, ctx)
   if name.len == 0:
     return
   inc ctx.narrowSites
-  if hasFact(ctx.stack, fkUnsignedBound, name):
+  let proven = factWidth(ctx.stack, fkUnsignedBound, name)
+  if proven > 0 and proven <= targetBits:
     return
-  ctx.problems.add ctx.path & ":" & $node.lineInfoObj.line &
-    ": unchecked narrowing of csize_t parameter " & repr(node)
+  let subject =
+    if name in ctx.csizeParams:
+      "csize_t parameter `" & name & "`"
+    else:
+      "local `" & name & "`, which aliases a csize_t parameter"
+  ctx.problems.add ctx.path & ":" & $node.lineInfoObj.line & ": unchecked narrowing of " &
+    subject & " in " & repr(node)
 
 proc walkRoutine(node: NimNode, ctx: var Ctx) =
   ## Enter a routine definition on an empty guard stack. A nested routine
