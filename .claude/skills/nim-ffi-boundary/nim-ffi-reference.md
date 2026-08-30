@@ -113,8 +113,10 @@ Source: `manual.md` lines 2028-2126
 > panic).
 
 **Implication for FFI:** Use `ptr T` (untraced) for opaque handles, never
-`ref T` (traced). `ptr T` from `create(T)` has no ARC refcount header and
-is not managed by the garbage collector.
+`ref T` (traced). A `ptr T` from `create(T)` or `createShared(T)` has no
+ARC refcount header and is not managed by the garbage collector. This
+library's handles use the `Shared` pair, because a handle may be freed on
+a thread other than the one that made it.
 
 
 ## Raises Pragma

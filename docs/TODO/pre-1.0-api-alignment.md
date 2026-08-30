@@ -69,16 +69,15 @@ consistency check) will be the freeze-time gate that mechanically
 catches dashboard drift; until it lands, the counts are maintained by
 hand.
 
-Last reconciled 2026-08-04 against `main` at 4185bb9 (the PR #18
-merge, which landed D10 and is the base of the current work). Four
-deltas are folded into the counts below and are not yet on `main`, all
-from branch `api/c15-easy-path-one-shots`: C15, C17, and C21 flipped
-to ✅ DONE, and C23 was opened and closed as the sync one-shot doc 17
-§8 named as a prerequisite.
+Last reconciled 2026-08-30 against branch `api/l5-c-abi`. The four
+deltas the previous reconciliation carried ahead of `main` — C15, C17,
+C21 and C23 — reached `main` with PR #19. One delta is folded into the
+counts below and is not yet on `main`: C24, opened and closed on this
+branch as the Layer-5 C ABI that doc 17 designed.
 
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 82 | Implemented and verified against source / tests. |
+| ✅ DONE | 83 | Implemented and verified against source / tests. |
 | ⬜ TODO | 32 | Not yet implemented. |
 | 🟦 DEFERRED | 5 | Post-1.0, or deferred by user decision (E1; D1, D1.5, D9, D18). |
 | ❌ MOOT | 5 | Premise dissolved by later work (C7, C9, D16, F3, H7). |
@@ -101,7 +100,9 @@ wiring (F6) have landed — `lint-public-api` (H16) and
 recipes, alongside `lint-error-messages` (H15). Wiring those snapshot
 lints into hosted CI is F2's remaining scope. The outstanding lint
 backstops (H2–H6, H8, H9, H14) can ship in the same window or shortly
-after; H1, H1b, H10–H13, and H15–H17 are already in place.
+after; H1, H1b, H10–H13, H15–H17, and the three C-header gates
+H18–H20 (C24, and the only ones of the set hosted CI runs today) are
+already in place.
 
 **Deferred by user decision (2026-08-04)**: D18 (the pre-1.0 freeze
 checklist tracker), D1 and D1.5 (the SemVer / deprecation policy), and D9
@@ -2728,6 +2729,19 @@ const ClientVersion* = "0.1.0"  # synced with .nimble
 func clientVersion*(): string = ClientVersion
 ```
 
+**C-side half shipped with C24 (2026-08-30).**
+`include/jmap_client.h` carries `JMAP_CLIENT_VERSION_MAJOR`, `_MINOR`
+and `_PATCH` for compile-time checks, and `jmap_version()` returns
+`"MAJOR.MINOR.PATCH"` at run time — the libcurl shape, callable before
+`jmap_init()`. `ctests/t01_init_version.c` `_Static_assert`s the three
+macros and the H19 snapshot locks them. The Nim-side `clientVersion()`
+above is untouched and remains this item's whole open scope, which is
+why the marker stays ⬜ TODO. It has more to unify than it did: the
+version is now written out in four places — `jmap_client.nimble:6`,
+`transport.nim`'s `userAgent` default, `jmapVersion`'s `cstring`
+literal, and the header's three macros — with nothing holding them to
+each other.
+
 ### C7. Charter clause on `convenience.nim` *(P6)* — ❌ MOOT (S4)
 
 Campaign reconciliation (2026-06): S4 DISSOLVED the P6 quarantine.
@@ -3209,6 +3223,66 @@ test rather than passing unnoticed, and which incidentally pins the
 RFC 8620 §5.2 case where a record updated then destroyed since
 `sinceState` surfaces as `notFound` on the `/updated` fetch — and
 `oneShotSyncEmailsChangesErrorFailsFast` for the fail-fast rail.
+
+### C24. Layer-5 C ABI v1 (easy path) *(P7, P29, D10)* — ✅ DONE (2026-08-30)
+
+Opened and closed on branch `api/l5-c-abi`. D10 ratified the binding
+principles (`docs/design/17-L5-FFI-Principles.md`) before anything was
+built; no ledger item tracked the build itself, so this one records it.
+
+**Shipped 2026-08-30.**
+
+- **The export section** in `src/jmap_client.nim` (A10 — the sole module
+  carrying `{.exportc.}`): 102 C symbols over the one-shot easy path.
+  Connect and session, mailboxes, emails with decoded text bodies, the
+  email query, threads, identities, the vacation read and update, the
+  four write verbs, the sync cursor and delta, and send. Per-handle
+  error state throughout — `jmap_errmsg` for prose, `jmap_errtype` for
+  the wire `type` string of a typed failure, static `jmap_strerror` —
+  with no thread-local last error anywhere (P14).
+- **`include/jmap_client.h`**, hand-curated, self-contained, and the
+  contract a consumer compiles against. It carries the version macros
+  and `jmap_version()` (see C6 above).
+- **The C compliance suite**, `ctests/t01`–`ctests/t13`: plain-C programs
+  driving the ABI against canned transports, reaching all eight
+  `JMAP_E_*` statuses.
+- **The C consumer bench**, `examples/jmap-c-cli/` — P29 applied to the
+  FFI. Its README's FINDINGS section records six awkward call sites, the
+  wrap-rate evidence this item exists to produce. Building it is gated;
+  running it against a live server is manual, because hosted CI stands
+  up no JMAP server.
+- **The panic-surface audits.** `tests/compliance/traw_index_audit.nim`
+  is new — the second Tier-1 item of `docs/TODO/macro-tests-ffi.md`,
+  extended to the `csize_t` narrowing a bracket audit cannot see — and
+  joins the first, the assert/doAssert ban in
+  `tests/compliance/tno_asserts_in_src.nim`. Both were behind no gate
+  that runs on a push, which the new recipe fixes.
+
+Where implementation overruled the design note, doc 17 carries a dated
+amendment rather than a rewritten paragraph, so the record of what was
+decided survives alongside what shipped. The consequential ones: the
+`create`/`dealloc` pair (handles live on the shared heap, because the
+contract lets a caller free one on another thread); the variadic option
+setter (Nim cannot read a C `va_list`, so the query, message and
+vacation-update handles take typed setters instead); the const-qualified
+account accessors (the session is fetched lazily, so two of the three
+mutate the handle); the single header gate (three shipped, and none of
+them does what the sketched one did); and the ABI-freeze language,
+which promised more than the header says — the library is pre-1.0, the
+header states no compatibility promise, and the gates below are change
+detectors, not compatibility checks.
+
+**Verification gate.** `lint-c-header` (H18, the export/header name
+inventory plus the four mandatory pragmas), `lint-c-header-snapshot`
+(H19, `tests/wire_contract/c-header.txt` as an ordered render),
+`lint-c-header-types` (H20, each declaration against the Nim signature
+it stands for), `test-c` (the compliance suite under ASan and UBSan)
+and `lint-defect-audits` (compiling `tno_asserts_in_src` and
+`traw_index_audit` alongside `tffi_panic_surface` and
+`tmail_e_reexport`). All five run in `just ci` and in
+`.github/workflows/ci.yml`, which also builds the bench. The three Nim
+wire-contract snapshots are unchanged: the C ABI wraps the Nim surface
+without moving it.
 
 ## Section D — Process / policy artefacts
 

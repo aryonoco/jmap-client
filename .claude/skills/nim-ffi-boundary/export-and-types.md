@@ -6,10 +6,10 @@ proc, error code, or modifying the C header.
 
 ## Export Pragmas
 
-Every exported proc requires FOUR pragmas:
+Every exported proc requires FOUR pragmas, and carries no `*`:
 
 ```nim
-proc jmapClientNew*(sessionUrl, username, password: cstring,
+proc jmapClientNew(sessionUrl, username, password: cstring,
     transport: pointer, outClient: ptr pointer): cint
     {.exportc: "jmap_client_new", dynlib, cdecl, raises: [].} =
 ```
@@ -21,6 +21,13 @@ proc jmapClientNew*(sessionUrl, username, password: cstring,
 | `cdecl` | C calling convention | Default `nimcall` = `fastcall` -- wrong convention, corrupted args |
 | `raises: []` | Compile-time guarantee no `CatchableError` escapes | Exception crossing FFI boundary crashes the process |
 
+**No export marker.** A C-linkage symbol carries no `*`. `exportc` already
+publishes the C name; `*` would additionally put the Nim-side identifier on
+the module's Nim API, and the two are disjoint contracts with separate
+snapshots. `tests/wire_contract/public-api.txt` holds the Nim surface and
+`tests/wire_contract/c-header.txt` the C one; a starred export would leak
+an FFI entry point into the first.
+
 Additional conventions:
 - Always `proc` (never `func`) -- FFI is inherently side-effectful
 - Nim-side name: `camelCase` per `--styleCheck:error`
@@ -31,37 +38,30 @@ Additional conventions:
 
 ## Pragma Bundling
 
-**Custom pragma** (recommended -- bundles cannot carry per-proc `exportc`):
+**Do not bundle.** Write all four pragmas inline on every export. Neither
+a custom pragma nor a surrounding `{.push.}` is acceptable here, however
+well the compiler accepts them:
 
 ```nim
+# WRONG -- compiles, links, and fails the header inventory gate.
 {.pragma: api, dynlib, cdecl, raises: [].}
 
-proc jmapClientNew*(sessionUrl, username, password: cstring,
+proc jmapClientNew(sessionUrl, username, password: cstring,
     transport: pointer, outClient: ptr pointer): cint
     {.exportc: "jmap_client_new", api.} =
   ...
 ```
 
-**Push/pop** (alternative):
+`tests/lint/h18_c_header_inventory.nim` reads the pragma as text, from
+`exportc: "` to the closing `.}`, and requires `dynlib`, `cdecl` and
+`raises: []` to appear inside it. Reading the source rather than the
+compiler's view is what lets one lint cover every `.nim` file under `src/`
+without compiling each; the cost is that a bundle satisfies the compiler
+and fails the gate.
 
-```nim
-{.push dynlib, cdecl, raises: [].}
-
-proc jmapClientNew*(sessionUrl, username, password: cstring,
-    transport: pointer, outClient: ptr pointer): cint
-    {.exportc: "jmap_client_new".} =
-  ...
-
-proc jmapClientFree*(handle: pointer)
-    {.exportc: "jmap_client_free".} =
-  ...
-
-{.pop.}
-```
-
-**Caution:** `{.push.}` affects type definitions too. Never push `exportc`
-or `dynlib` across type definitions -- it would attempt to export the type
-as a C symbol.
+A further reason to avoid `{.push.}` here: it affects type definitions too,
+so pushing `exportc` or `dynlib` across one would attempt to export the
+type as a C symbol.
 
 
 ## Type Mapping (Nim to C)
@@ -105,12 +105,21 @@ Rules:
   against the old header keeps sending and comparing the old number
 - **The Nim enum type is never itself exposed.** Its C twin is
   hand-written in `include/jmap_client.h` as a C-native
-  `typedef enum { ... }`, and a CI consistency gate cross-checks the two,
-  so the header stays readable C with no `nimbase.h` dependency while
-  drift is caught at build time. Exported signatures still return `cint`,
-  and a C enum is `int`-sized, so the ABI matches either way. Bare `cint`
-  constants are not an acceptable substitute: they give the C compiler
-  nothing to switch exhaustively over and nothing to name in a debugger
+  `typedef enum { ... }`, so the header stays readable C with no
+  `nimbase.h` dependency. No gate compares the two ordinal lists
+  symbol by symbol -- the header snapshot lint locks the C members and
+  their ordinals so a change to either side has to be deliberate, and the
+  type cross-check reduces a C enum to `i32`, which is all the ABI cares
+  about. The correspondence is held by hand and pinned behaviourally by
+  the C compliance suite -- for `jmap_status`, with a `_Static_assert` per
+  ordinal and a real call that returns each one; for the entity and option
+  enums, with a call carrying the value in or out. So a new arm means
+  editing both lists and adding the compliance case that reaches it.
+  Exported
+  signatures still return `cint`, and a C enum is `int`-sized, so the ABI
+  matches either way. Bare `cint` constants are not an acceptable
+  substitute: they give the C compiler nothing to switch exhaustively over
+  and nothing to name in a debugger
 - Entity enums (mailbox role, sort key, …) project the same way, with an
   `_UNKNOWN` ordinal for the forward-compatibility arm plus a
   raw-identifier string getter, so a server value this build does not know
@@ -139,8 +148,11 @@ One status enum across the whole ABI, the C projection of
 grow additively -- an existing ordinal is never renumbered or reused,
 because already-compiled consumers compare against the old numbers.
 
+The type is module-private, like every L5 type: only the C symbol is
+published, and `cint` is what crosses the boundary.
+
 ```nim
-type JmapStatus* {.size: sizeof(cint).} = enum
+type JmapStatus {.size: sizeof(cint).} = enum
   jsOk = 0
   jsValidation = 1 ## client-supplied input was invalid
   jsTransport = 2 ## network / TLS / timeout / HTTP status
@@ -154,7 +166,8 @@ type JmapStatus* {.size: sizeof(cint).} = enum
 
 Enums cannot carry `{.exportc.}` (see [nim-ffi-reference.md](nim-ffi-reference.md)),
 so the C `jmap_status` typedef is hand-written in `include/jmap_client.h`
-and a CI consistency gate cross-checks it against this enum. Exported
+and kept in step with this enum by hand, under the snapshot lock and the
+compliance assertions described in Enum Handling above. Exported
 signatures return `cint`; a C enum is `int`-sized, so the ABI matches.
 
 ### Projecting the Rail onto a Status
@@ -184,20 +197,26 @@ once at record time -- the rendered string is the storage that backs the
 
 The slot lives on an **L5-owned wrapper object**, never on an L4 type.
 `JmapClient` is `ref JmapClientObj`, and both that object type and its
-fields are private to `internal/client.nim`, so `create(JmapClientObj)`
-does not compile from `src/jmap_client.nim`. The C `jmap_client` is
+fields are private to `internal/client.nim`, so
+`createShared(JmapClientObj)` does not compile from
+`src/jmap_client.nim`. The C `jmap_client` is
 therefore a wrapper holding the L4 ref plus the slot; that also keeps the
 error slot out of the Nim-facing API, where errors travel on the `Result`
 rail instead.
+
+Every borrow a diagnostic reader hands out is rendered into that slot at
+record time, so the slot carries one field per reader.
 
 ```nim
 type ErrorSlot = object
   status: JmapStatus ## jsOk until the first failure on this handle
   message: string ## rendered at record time; backs jmap_errmsg's borrow
+  wireErrorType: string ## "" unless the outcome carried a typed wire
+                        ## error; backs jmap_errtype's borrow
 
 type JmapClientHandle = object
   ## What a C `jmap_client*` points at. L5-owned; minted with
-  ## create(JmapClientHandle), never with the L4 constructors.
+  ## createShared(JmapClientHandle), never with the L4 constructors.
   client: JmapClient ## the L4 ref; dropping it closes the transport
   err: ErrorSlot ## most recent failure on THIS handle, never shared
 ```
@@ -213,9 +232,15 @@ proc recordError(c: ptr JmapClientHandle, err: JmapError): cint =
   ## returns the status the C caller sees. JmapError.message is already
   ## a bounded, fully rendered projection, so recording cannot fail.
   let status = statusOf(err.kind)
-  c[].err = ErrorSlot(status: status, message: err.message)
+  c[].err = ErrorSlot(status: status, message: err.message,
+                      wireErrorType: wireErrorTypeOf(err))
   cint(ord(status))
 ```
+
+`wireErrorTypeOf` is exhaustive over `JmapErrorKind` for the same reason
+`statusOf` is: it yields the wire `type` string for the two arms that
+carry one and `""` for the rest, so a new arm is a compile error rather
+than a silently absent type.
 
 ### Reading the Diagnostic
 
@@ -224,7 +249,7 @@ next fallible call on that handle or `jmap_client_free`, whichever comes
 first. It never allocates and never fails.
 
 ```nim
-proc jmapErrmsg*(client: pointer): cstring
+proc jmapErrmsg(client: pointer): cstring
     {.exportc: "jmap_errmsg", dynlib, cdecl, raises: [].} =
   ## sqlite3_errmsg semantics -- see the invalidation window documented
   ## on this symbol in include/jmap_client.h.
@@ -234,6 +259,27 @@ proc jmapErrmsg*(client: pointer): cstring
   if c[].err.status == jsOk:
     return cstring"no error"
   c[].err.message.cstring ## borrow: handle-owned, not caller-freed
+```
+
+`jmap_errtype` reads the same slot for code rather than for prose: the
+wire `type` string of the last typed JMAP failure, carried through
+unchanged so a vendor-defined type reaches C intact. It returns NULL for
+every outcome that carried no typed error, and never the empty string, so
+"no type" and "an empty type" cannot be confused. The status the failing
+call returned is what says which vocabulary the string came from -- a
+method-level error type or a `/set` refusal -- because the two overlap.
+
+```nim
+proc jmapErrtype(client: pointer): cstring
+    {.exportc: "jmap_errtype", dynlib, cdecl, raises: [].} =
+  ## Same borrow window as jmap_errmsg: the next fallible call on this
+  ## handle replaces it.
+  if client.isNil:
+    return nil
+  let c = cast[ptr JmapClientHandle](client)
+  if c[].err.wireErrorType.len == 0:
+    return nil
+  c[].err.wireErrorType.cstring
 ```
 
 `jmap_strerror` is static and stateless -- it reads no handle, is
@@ -248,16 +294,16 @@ func statusText(s: JmapStatus): cstring =
   ## safe to hand out forever.
   case s
   of jsOk: cstring"no error"
-  of jsValidation: cstring"invalid argument"
+  of jsValidation: cstring"invalid input"
   of jsTransport: cstring"transport failure"
   of jsRequest: cstring"request rejected by server"
-  of jsSession: cstring"required session capability absent"
+  of jsSession: cstring"session capability absent"
   of jsMisuse: cstring"API misuse"
   of jsProtocol: cstring"malformed server response"
   of jsMethod: cstring"method-level error"
   of jsSet: cstring"set-level error"
 
-proc jmapStrerror*(code: cint): cstring
+proc jmapStrerror(code: cint): cstring
     {.exportc: "jmap_strerror", dynlib, cdecl, raises: [].} =
   ## Total over every cint: a newer header linked against an older
   ## library passes an ordinal this build has never heard of. Matching
@@ -291,7 +337,7 @@ Method errors are **data within a successful response**, not return codes.
 C consumers access them through response handle accessors:
 
 ```nim
-proc jmapResponseInvocationIsError*(
+proc jmapResponseInvocationIsError(
     resp: pointer, idx: cint, outIsError: ptr cint
 ): cint {.exportc: "jmap_response_invocation_is_error", dynlib, cdecl, raises: [].} =
   # Status return + out-param -- never a -1 sentinel folded into the
@@ -307,80 +353,52 @@ Per-invocation errors are not rail errors: they never reach the handle's
 error slot and never become a `jmap_status`. They are read directly from
 the response handle via accessor procs (count, isError, errorType). The
 one-shot easy path is the exception -- it fails fast, so a method or set
-error there arrives as `jsMethod` / `jsSet` on the rail with the detail
-in `jmap_errmsg`.
+error there arrives as `jsMethod` / `jsSet` on the rail, with the prose in
+`jmap_errmsg` and the wire `type` string in `jmap_errtype`.
 
 
 ## C Header
 
-`include/jmap_client.h` is hand-curated and self-contained -- it never
-includes `nimbase.h`, so consumers need no Nim installation on their
-include path, and a CI gate cross-checks it against the `{.exportc.}`
-inventory so the two cannot drift. Handle types are forward-declared
+**`include/jmap_client.h` is the live contract. Read it before writing
+or reviewing an export; nothing here reproduces it.** It is hand-curated
+and self-contained -- it never includes `nimbase.h`, so consumers need no
+Nim installation on their include path. Handle types are forward-declared
 incomplete structs, not `void*` aliases, so the compiler keeps them apart
-and `const` qualification means something:
+and `const` qualification means something.
 
-```c
-/* jmap_client.h -- standalone C header */
-#ifndef JMAP_CLIENT_H
-#define JMAP_CLIENT_H
+Its shape, as a reviewer's checklist:
 
-#include <stdint.h>
+- `extern "C"` guards, an include guard, and `<stddef.h>` / `<stdint.h>`
+  only. The version macros (`JMAP_CLIENT_VERSION_MAJOR` and its siblings)
+  sit near the top; `jmap_version()` is among the first declarations,
+  with `jmap_strerror()` the other function callable before
+  initialisation.
+- A preamble stating the rules that hold across the whole API once --
+  the initialisation call, status-plus-out-parameter, who owns a returned
+  pointer, and handle confinement -- so no per-declaration comment
+  repeats them.
+- Opaque `typedef struct jmap_x jmap_x;` per handle, the struct never
+  defined.
+- A C-native `typedef enum` per enum that crosses the boundary.
+- Every fallible entry point returning `jmap_status` with its output in an
+  out-parameter, never NULL-as-error; a `_new` paired with a `_free`; read
+  accessors returning `const` borrows.
+- The invalidation window spelled out on every accessor whose borrow dies
+  before its owning handle does.
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+Three gates hold the header:
 
-typedef uint8_t jmap_bool;     /* NIM_BOOL: always 1 byte */
+| Gate | What it holds |
+|------|---------------|
+| `just lint-c-header` | The header's function names and the `{.exportc.}` inventory under `src/`, both directions, plus the four mandatory pragmas |
+| `just lint-c-header-snapshot` | The header against `tests/wire_contract/c-header.txt` as an ordered sequence -- parameter types, enum members and ordinals, typedef order, version macros. `just snapshot-c-header` regenerates it for a deliberate change |
+| `just lint-c-header-types` | Each hand-written declaration against the Nim signature it stands for, via the prototypes `nim c --header:` emits |
 
-/* Opaque handles -- incomplete types, never defined here */
-typedef struct jmap_client    jmap_client;
-typedef struct jmap_transport jmap_transport;
-
-/* Status codes -- ordinals locked at v1, additive growth only */
-typedef enum {
-  JMAP_OK           = 0,
-  JMAP_E_VALIDATION = 1,
-  JMAP_E_TRANSPORT  = 2,
-  JMAP_E_REQUEST    = 3,
-  JMAP_E_SESSION    = 4,
-  JMAP_E_MISUSE     = 5,
-  JMAP_E_PROTOCOL   = 6,
-  JMAP_E_METHOD     = 7,
-  JMAP_E_SET        = 8
-} jmap_status;
-
-/* Lifecycle -- jmap_init is required because the library is built
- * --app:lib --noMain, so nothing calls NimMain for the consumer. */
-int  jmap_init(void);
-void jmap_cleanup(void);
-
-/* Client. transport == NULL selects the built-in transport; C has no
- * default arguments, so the selector is an explicit NULL. Every
- * fallible entry point returns jmap_status and writes its output
- * through an out-parameter -- never NULL-as-error. */
-int  jmap_client_new(const char* session_url, const char* username,
-                     const char* password, jmap_transport* transport,
-                     jmap_client** out);
-void jmap_client_free(jmap_client* client);
-
-/* Error introspection.
- * jmap_strerror: static text for a code; reads no state.
- * jmap_errmsg:   diagnostic of the most recent failure on THIS handle,
- *                owned by the handle, valid until the next fallible call
- *                on it or jmap_client_free -- sqlite3_errmsg semantics.
- *                There is no process- or thread-wide last error. */
-const char* jmap_strerror(int code);
-const char* jmap_errmsg(const jmap_client* client);
-
-/* ... remaining exports ... */
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* JMAP_CLIENT_H */
-```
+The third is not redundant. C linkage matches by name alone, so a header
+that misstates a parameter type still compiles, links, and returns right
+answers on the host that wrote it -- a `size_t` written as `int` is wrong
+only on a 32-bit target, and no name inventory or self-snapshot can see
+it.
 
 If distributing `nimbase.h` alongside the library, C consumers add the
 Nim `lib/` directory to their include path (`-I`).

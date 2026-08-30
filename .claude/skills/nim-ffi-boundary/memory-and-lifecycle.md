@@ -1,7 +1,7 @@
 # Memory, Lifecycle, Strings, and Handles
 
 Patterns for implementing the body of exported procs. Consult when writing
-a new create/destroy pair, returning strings, or handling errors.
+a new handle `_new` / `_free` pair, returning strings, or handling errors.
 
 
 ## String Handling
@@ -29,7 +29,7 @@ reports the required size and never truncates silently -- a silently
 truncated buffer is a data-loss bug the caller cannot detect.
 
 ```nim
-proc jmapEmailBodyCopy*(email: pointer, buf: cstring, bufLen: csize_t,
+proc jmapEmailBodyCopy(email: pointer, buf: cstring, bufLen: csize_t,
     required: ptr csize_t): cint
     {.exportc: "jmap_email_body_copy", dynlib, cdecl, raises: [].} =
   if email.isNil or buf.isNil or required.isNil:
@@ -55,6 +55,7 @@ whose window is narrower than the owning handle's lifetime.
 type ErrorSlot = object
   status: JmapStatus
   message: string ## handle-owned storage backing the const char* borrow
+  wireErrorType: string ## likewise, for jmap_errtype
 
 type JmapClientHandle = object
   ## L5-owned wrapper: what a C `jmap_client*` points at. It holds the
@@ -63,7 +64,7 @@ type JmapClientHandle = object
   client: JmapClient
   err: ErrorSlot ## most recent failure on THIS handle -- never a threadvar
 
-proc jmapErrmsg*(client: pointer): cstring
+proc jmapErrmsg(client: pointer): cstring
     {.exportc: "jmap_errmsg", dynlib, cdecl, raises: [].} =
   ## Borrow valid until the next fallible call on this handle or
   ## jmap_client_free -- sqlite3_errmsg semantics.
@@ -86,9 +87,9 @@ produces cross-thread contamination bugs.
 
 ARC = deterministic destruction, no GC pauses, no GC thread.
 
-**`create(T)`** allocates via `alloc0(sizeof(T))` (zero-initialised,
-`c_calloc` on malloc systems or Nim's TLSF allocator). Returns `ptr T` --
-untracked by ARC, no `RefHeader`, no reference count.
+**`createShared(T)`** allocates a zero-initialised block on the shared
+heap and returns `ptr T` -- untracked by ARC, no `RefHeader`, no
+reference count.
 
 **`new(T)`** returns `ref T` with an ARC `RefHeader` (reference count
 field). ARC tracks and frees it when the refcount drops to zero.
@@ -96,28 +97,33 @@ Unsuitable for opaque handles: the only reference lives in C, where ARC
 cannot see it, so the object would be freed while the caller still holds
 the pointer.
 
+**`create(T)` / `dealloc` are the wrong pair here.** Both are documented
+thread-local -- `lib/system/memalloc.nim` says "The allocated memory
+belongs to its allocating thread!" of `create` and "The freed memory must
+belong to its allocating thread!" of `dealloc`, each pointing at the
+`Shared` variant for cross-thread use. The C contract lets a consumer
+hand a handle to another thread and free it there, so a handle box cannot
+live on the thread-local heap. `createShared` and `deallocShared` carry
+no such restriction, and are correct whether or not the build defines
+`-d:useMalloc`.
+
 **Rule: whoever allocates, frees.** Provide `_new`/`_free` pairs.
 
 The `T` is always an L5-owned wrapper object, never an L4 type: the L4
 handles (`JmapClient`, `Transport`) are `ref`s over objects private to
-their defining modules, so `create` cannot name them from
+their defining modules, so `createShared` cannot name them from
 `src/jmap_client.nim`.
 
 ```nim
-let p = create(JmapClientHandle)   # alloc0, zeroed, unmanaged ptr T
-p[].client = connected              # the L4 ref this wrapper owns
+let p = createShared(JmapClientHandle)   # zeroed, unmanaged ptr T
+p[].client = connected                    # the L4 ref this wrapper owns
 ```
 
-**`dealloc`** under ARC calls `rawDealloc` directly on the pointer.
-Before calling `dealloc`, you MUST call `` `=destroy`(p[]) `` to run Nim
-destructors on managed fields (`string` payloads via `deallocShared`,
-`seq` payloads similarly). Forgetting `` `=destroy`(p[]) `` leaks all
-managed fields.
-
-**Thread-local heap:** `create(T)` allocates from the calling thread's
-allocator. Under ARC, `allocShared` = `allocImpl` (there is no separate
-shared heap). For cross-thread handle transfer, use
-`createShared(T)` / `deallocShared()`.
+Before calling `deallocShared`, you MUST call `` `=destroy`(p[]) `` to run
+Nim destructors on managed fields (`string` and `seq` payloads).
+Deallocation releases only the wrapper's own bytes, so forgetting
+`` `=destroy`(p[]) `` leaks every managed field, including the L4 `ref`
+whose drop is what closes the transport.
 
 
 ## Opaque Handle Lifecycle
@@ -133,15 +139,21 @@ out-parameter -- never NULL-as-error, which cannot distinguish "bad
 argument" from "network down".
 
 ```nim
-proc jmapClientNew*(sessionUrl, username, password: cstring,
+proc jmapClientNew(sessionUrl, username, password: cstring,
     transport: pointer, outClient: ptr pointer): cint
     {.exportc: "jmap_client_new", dynlib, cdecl, raises: [].} =
+  # The init latch first: without it the runtime's globals are
+  # uninitialised, so every path below is undefined behaviour rather
+  # than a diagnosable misuse.
+  if not l5Initialised:
+    return cint(ord(jsMisuse))
   if sessionUrl.isNil or username.isNil or password.isNil or
       outClient.isNil:
     return cint(ord(jsMisuse))
   # NULL transport selects the built-in one -- C has no default
   # arguments, so the two Nim `connect` overloads collapse into one C
-  # entry point with an explicit selector.
+  # entry point with an explicit selector. L5 wraps the one-shot; it
+  # never re-assembles what `connect` does.
   let connected =
     if transport.isNil:
       connect($sessionUrl, $username, $password)
@@ -150,11 +162,16 @@ proc jmapClientNew*(sessionUrl, username, password: cstring,
               cast[ptr JmapTransportHandle](transport)[].transport)
   if connected.isErr:
     return cint(ord(statusOf(connected.error.kind)))  # no handle yet
-  let p = create(JmapClientHandle)
+  let p = createShared(JmapClientHandle)
   p[].client = connected.get()
   outClient[] = p
   return cint(ord(jsOk))
 ```
+
+`connect` returns `Result[JmapClient, JmapError]` and fetches nothing:
+the session is fetched lazily on first use, which is why
+`jmap_client_new` does no network IO and an unreachable server surfaces
+on the first operation instead.
 
 ### Accessor (Borrowed Pointer)
 
@@ -164,7 +181,7 @@ valid until that object is freed. There is no status to report and
 nothing for the caller to free.
 
 ```nim
-proc jmapMailboxName*(view: pointer): cstring
+proc jmapMailboxName(view: pointer): cstring
     {.exportc: "jmap_mailbox_name", dynlib, cdecl, raises: [].} =
   ## Borrow into the result object this view belongs to: invalidated by
   ## jmap_mailboxes_free on that result, never freed by the caller.
@@ -176,13 +193,13 @@ proc jmapMailboxName*(view: pointer): cstring
 ### Free
 
 ```nim
-proc jmapClientFree*(handle: pointer)
+proc jmapClientFree(handle: pointer)
     {.exportc: "jmap_client_free", dynlib, cdecl, raises: [].} =
   if handle.isNil: return
   let p = cast[ptr JmapClientHandle](handle)
   `=destroy`(p[])    # drops the L4 ref (closing the transport) and
                      # runs destructors for string/seq fields
-  dealloc(handle)
+  deallocShared(handle)
 ```
 
 
@@ -196,13 +213,13 @@ out of the type system into text no compiler checks and force every
 consumer to link a JSON parser to read a field.
 
 ```nim
-proc jmapMailboxesCount*(res: pointer): csize_t
+proc jmapMailboxesCount(res: pointer): csize_t
     {.exportc: "jmap_mailboxes_count", dynlib, cdecl, raises: [].} =
   if res.isNil: return 0
   let r = cast[ptr JmapMailboxesResult](res)
   return csize_t(r[].items.len)
 
-proc jmapMailboxesAt*(res: pointer, idx: csize_t): pointer
+proc jmapMailboxesAt(res: pointer, idx: csize_t): pointer
     {.exportc: "jmap_mailboxes_at", dynlib, cdecl, raises: [].} =
   ## NULL when out of range -- a bounds miss is never a defect, and the
   ## view it would return is a borrow, so there is no status to report.
@@ -211,7 +228,7 @@ proc jmapMailboxesAt*(res: pointer, idx: csize_t): pointer
   if idx >= csize_t(r[].items.len): return nil
   return addr r[].items[int(idx)]
 
-proc jmapMailboxUnread*(view: pointer): uint32
+proc jmapMailboxUnread(view: pointer): uint32
     {.exportc: "jmap_mailbox_unread", dynlib, cdecl, raises: [].} =
   if view.isNil: return 0
   let mb = cast[ptr JmapMailboxView](view)
@@ -225,7 +242,7 @@ FFI procs pattern-match on `Result` values (not `try/except`) and record
 the failure on the handle the call was made on:
 
 ```nim
-proc jmapDoSomething*(client: pointer, ...): cint
+proc jmapDoSomething(client: pointer, ...): cint
     {.exportc: "jmap_do_something", dynlib, cdecl, raises: [].} =
   if client.isNil:
     return cint(ord(jsMisuse))         # no handle -> code-granular only
@@ -266,28 +283,44 @@ top-level code). No GC to initialise, no stack scanning.
 - Calling it twice re-runs all module top-level code, corrupting state
 - Neither `NimMain()` nor `NimDestroyGlobals()` is thread-safe
 
+The process-wide latch closes the second: it makes `jmap_init`
+idempotent, which is what the header promises a caller, and it is what
+every other export reads to answer `jsMisuse` rather than running
+against an uninitialised runtime. The latch is a plain `bool` with no
+lock, so it does nothing about the third -- call `jmap_init` from the
+main thread before any other thread exists.
+
 ```nim
 proc NimMain() {.importc.}
 proc NimDestroyGlobals() {.importc.}
 
-proc jmapInit*(): cint
+proc jmapInit(): cint
     {.exportc: "jmap_init", dynlib, cdecl, raises: [].} =
-  NimMain()
+  if not l5Initialised:
+    NimMain()
+    l5Initialised = true
   return cint(ord(jsOk))
 
-proc jmapCleanup*()
+proc jmapCleanup()
     {.exportc: "jmap_cleanup", dynlib, cdecl, raises: [].} =
-  NimDestroyGlobals()
+  ## Idempotent too: a caller that never initialised finds this a no-op.
+  if l5Initialised:
+    NimDestroyGlobals()
+    l5Initialised = false
 ```
+
+`NimDestroyGlobals` is emitted only for `--app:lib` and
+`--app:staticlib`, so its `importc` declaration is guarded by
+`when defined(library)`. `src/jmap_client.nim` is compiled both ways --
+as the shared object, and unmodified as the plain executable every test
+module imports -- and without the guard the second build fails to link.
 
 The library is built `--app:lib --noMain` (`justfile`), which suppresses
 the `__attribute__((constructor))` NimMain call Nim would otherwise emit
 for a POSIX shared library -- that is why `jmap_init` exists at all.
-Call it exactly once from the main thread before any other exported
-function; call `jmap_cleanup()` once after all handles are freed. The
-process-wide latch that lets a skipped `jmap_init` be answered with
-`jsMisuse` instead of undefined behaviour is the *only* module-level
-state the library holds.
+Call it once from the main thread before any other exported function;
+call `jmap_cleanup()` once after all handles are freed. That latch is
+the *only* module-level state the library holds.
 
 
 ## Callbacks
@@ -348,7 +381,7 @@ With `--panics:on`, Defects call `rawQuit(1)` which maps to C `exit(1)`:
 Validate all inputs BEFORE operations that could trigger Defects:
 
 ```nim
-proc jmapResponseGetItem*(resp: pointer, idx: cint, outItem: ptr cint): cint
+proc jmapResponseGetItem(resp: pointer, idx: cint, outItem: ptr cint): cint
     {.exportc: "jmap_response_get_item", dynlib, cdecl, raises: [].} =
   if resp.isNil or outItem.isNil:
     return cint(ord(jsMisuse))                    # prevents NilAccessDefect
@@ -365,7 +398,11 @@ proc jmapResponseGetItem*(resp: pointer, idx: cint, outItem: ptr cint): cint
 - [ ] Every exported proc has all 4 pragmas (`exportc`, `dynlib`, `cdecl`, `raises: []`)
 - [ ] No bare Nim `int` in signatures (it is pointer-sized `NI`)
 - [ ] No `cstring` returned from local `string`
-- [ ] Every `create(T)` has matching destroy with `=destroy(p[])` + `dealloc`
+- [ ] No `*` on any exported proc -- the C surface is not the Nim surface
+- [ ] Four pragmas written inline, never bundled into a custom pragma or a
+      `{.push.}` the inventory lint cannot read
+- [ ] Every `createShared(T)` has a matching free with `=destroy(p[])` +
+      `deallocShared` -- never the thread-local `create` / `dealloc` pair
 - [ ] All pointer arguments nil-checked
 - [ ] All index arguments bounds-checked before use
 - [ ] All `Result` values pattern-matched (not `try/except`)
@@ -378,6 +415,8 @@ proc jmapResponseGetItem*(resp: pointer, idx: cint, outItem: ptr cint): cint
 - [ ] `--app:lib` in build command
 - [ ] C header has `extern "C"` guards for C++ consumers
 - [ ] `jmap_init()` documented as required before any other call
+- [ ] `just lint-c-header`, `just lint-c-header-snapshot`,
+      `just lint-c-header-types` and `just test-c` green
 
 
 ## Further Reading
