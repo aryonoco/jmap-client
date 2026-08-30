@@ -26,9 +26,12 @@ RUN mkdir -p /home/vscode/.nimble \
              /home/vscode/.local/share/mise \
              /home/vscode/.local/share/mise/state \
              /home/vscode/.config/gh \
+             /home/vscode/.claude \
     && chown -R vscode:vscode /home/vscode/.nimble \
                                /home/vscode/.local \
-                               /home/vscode/.config
+                               /home/vscode/.config \
+                               /home/vscode/.claude \
+    && chmod 700 /home/vscode/.claude
 
 # Antidote (zsh plugin manager) — pinned tag for reproducibility
 RUN git clone --depth=1 --branch v2.0.3 https://github.com/mattmc3/antidote.git /home/vscode/.antidote \

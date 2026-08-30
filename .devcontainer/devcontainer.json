@@ -44,6 +44,11 @@
       "type": "volume"
     },
     {
+      "source": "jmc-claude-${devcontainerId}",
+      "target": "/home/vscode/.claude",
+      "type": "volume"
+    },
+    {
       "source": "${localEnv:HOME}${localEnv:USERPROFILE}/.ssh",
       "target": "/home/vscode/.ssh",
       "type": "bind"
@@ -55,6 +60,12 @@
     "MISE_STATE_DIR": "/home/vscode/.local/share/mise/state",
     "MISE_TRUSTED_CONFIG_PATHS": "/workspaces",
     "MISE_YES": "1",
+    // Claude Code resolves its global config file to
+    // $CLAUDE_CONFIG_DIR/.claude.json rather than $HOME/.claude.json.
+    // Pointing it at the mounted directory is what brings MCP config and
+    // per-project trust inside the volume; without it they stay on the
+    // container's overlay and die with the next rebuild.
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
     "DO_NOT_TRACK": "1",
     "TZ": "UTC",
     "USE_BUILTIN_RIPGREP": "0",
