@@ -15,9 +15,10 @@
  * last error on a client.
  *
  * The library owns everything its read accessors return. A returned
- * const char * or view is a borrow. It stays valid until the handle
- * that produced it is freed. Do not free a borrow. Objects are released
- * only by their paired jmap_*_free function. The borrows from
+ * const char *, and a returned pointer to an object such as
+ * jmap_mailbox or jmap_email, is a borrow. It stays valid until the
+ * handle that produced it is freed. Do not free a borrow. Objects are
+ * released only by their paired jmap_*_free function. The borrows from
  * jmap_errmsg(), jmap_errtype() and jmap_get_email_state() have a
  * shorter life. The next call that can fail on the same client replaces
  * them.
@@ -27,9 +28,11 @@
  *
  * This header is the ABI. The library is pre-1.0, as the version macros
  * below say. The C ABI may still change, and there is no compatibility
- * promise yet. A render of this file is committed to the repository and
- * compared in CI, so a change to a type, an enum value or a macro is
- * always intentional and never an accident.
+ * promise yet. But nothing here changes by accident. A summary of every
+ * declaration, type and macro in this file is stored with the library's
+ * source code, and an automatic check compares this file against that
+ * summary. A change to a type, an enum value or a macro therefore fails
+ * that check until someone updates the summary on purpose.
  */
 #ifndef JMAP_CLIENT_H
 #define JMAP_CLIENT_H
@@ -53,11 +56,24 @@ typedef enum {
   JMAP_E_SESSION    = 4, /* the session lacks a capability we need */
   JMAP_E_MISUSE     = 5, /* caller bug: NULL argument, wrong handle */
   JMAP_E_PROTOCOL   = 6, /* malformed response, or not valid JMAP */
-  JMAP_E_METHOD     = 7, /* method-level error (one-shot path) */
-  JMAP_E_SET        = 8  /* /set error (one-shot path) */
-  /* These values are not frozen yet. CI compares this file with a
-   * committed render, so a change to them is always intentional. */
+  JMAP_E_METHOD     = 7, /* the whole method call returned an error */
+  JMAP_E_SET        = 8  /* the server refused the one new object */
+  /* These values are not frozen yet, but they never change by
+   * accident. See the note on the ABI at the top of this file. */
 } jmap_status;
+
+/*
+ * JMAP_E_METHOD means the server answered the method call with an error
+ * instead of a result. Call jmap_errtype() to read the error type
+ * string the server sent.
+ *
+ * JMAP_E_SET means a change that creates exactly one object had that
+ * create refused, and the server gave a typed reason (RFC 8620
+ * section 5.3). It comes back as the status of the call, and not as an
+ * entry in a failure list, because only one object was involved, so
+ * there is no list to put it in. jmap_send() is the call in this header
+ * that reports a refusal this way.
+ */
 
 /*
  * jmap_init() prepares the library. Call it once per process, before
@@ -183,8 +199,9 @@ typedef enum {
  * runtimes, or a debug one and a release one, the free() the library
  * makes is undefined behaviour.
  *
- * The callback must not unwind. The library hands userdata back
- * unchanged and never looks inside it.
+ * The callback must return normally. Do not leave it with longjmp(),
+ * and do not let a C++ exception escape it. The library hands userdata
+ * back unchanged and never looks inside it.
  */
 typedef jmap_transport_code (*jmap_send_fn)(void *userdata,
                                             jmap_http_method method,
@@ -268,7 +285,7 @@ typedef enum {
  * client attempts. That is at most two calls per exchange, never more.
  *
  * A send fire does not promise a receive fire after it. The library
- * renders the request and fires the send before it checks the request
+ * builds the request and fires the send before it checks the request
  * size, and before it calls the transport. So an oversized request, a
  * session URL it could not resolve, or a transport failure can leave a
  * send with no matching receive.
@@ -281,10 +298,11 @@ typedef enum {
  * as a C string. The library owns it for the length of the call only.
  * Copy it if you keep it.
  *
- * The callback must not unwind. Like jmap_send_fn, it fires while an
- * exchange is still running. If you free the client from inside the
- * callback, the library reads freed memory once the callback returns.
- * The caller must avoid that. The library does not guard against it.
+ * The callback must return normally, under the same rule as
+ * jmap_send_fn above, and like jmap_send_fn it fires while an exchange
+ * is still running. If you free the client from inside the callback,
+ * the library reads freed memory once the callback returns. The caller
+ * must avoid that. The library does not guard against it.
  */
 typedef void (*jmap_debug_fn)(void *userdata,
                               jmap_wire_direction direction,
@@ -310,8 +328,8 @@ typedef struct jmap_mailbox jmap_mailbox; /* a borrow, never freed */
  * the library does not know. Read the string the server sent with
  * jmap_mailbox_role_identifier().
  *
- * These values are not frozen yet. CI compares this file with a
- * committed render, so a change to them is always intentional.
+ * These values are not frozen yet, but they never change by accident.
+ * See the note on the ABI at the top of this file.
  */
 typedef enum {
   JMAP_ROLE_NONE      = 0,
@@ -428,8 +446,8 @@ typedef enum {
   JMAP_Q_LIMIT      = 2, /* u32: result limit, 0 = server default */
   JMAP_Q_READ_STATE = 3, /* u32: a jmap_read_state value */
   JMAP_Q_SORT       = 4  /* u32: a jmap_sort value */
-  /* These values are not frozen yet. CI compares this file with a
-   * committed render, so a change to them is always intentional. */
+  /* These values are not frozen yet, but they never change by
+   * accident. See the note on the ABI at the top of this file. */
 } jmap_query_opt;
 
 typedef enum {
@@ -565,7 +583,7 @@ typedef struct jmap_set_result jmap_set_result;
  * rejects a repeat.
  *
  * The updated, destroyed and failure lists on the result follow the
- * order of the server's own table, not the order you submitted the ids
+ * order of the server's own answer, not the order you submitted the ids
  * in. That order can differ from one call to the next. To line results
  * up with the array you submitted, match by id. Never match by
  * position.
@@ -603,8 +621,9 @@ size_t jmap_set_result_failure_count(const jmap_set_result *r);
  * jmap_set_result_free(). */
 const char *jmap_set_result_failure_id_at(const jmap_set_result *r, size_t i);
 /* Returns the SetError type the server sent, such as "notFound" or
- * "forbidden". Returns NULL when i is out of range. The borrow lives
- * until jmap_set_result_free(). */
+ * "forbidden". RFC 8620 section 5.3 defines these strings. Returns
+ * NULL when i is out of range. The borrow lives until
+ * jmap_set_result_free(). */
 const char *jmap_set_result_failure_type_at(const jmap_set_result *r,
                                             size_t i);
 
@@ -785,13 +804,13 @@ int jmap_sync_has_more(const jmap_sync *s);
 size_t jmap_sync_destroyed_count(const jmap_sync *s);
 const char *jmap_sync_destroyed_at(const jmap_sync *s, size_t i);
 /*
- * jmap_sync_created() and jmap_sync_updated() return email views the
- * sync object owns. They are valid until jmap_sync_free(). Do not free
- * them.
+ * jmap_sync_created() and jmap_sync_updated() return lists of emails
+ * the sync object owns. They are valid until jmap_sync_free(). Do not
+ * free them.
  *
  * These emails carry metadata only. The library fetched them with no
  * body content, so jmap_email_text_body() returns NULL for every one of
- * them. To read the bodies, take the ids off these views and pass them
+ * them. To read the bodies, take the ids off these emails and pass them
  * to jmap_get_emails().
  */
 const jmap_emails *jmap_sync_created(const jmap_sync *s);
@@ -819,8 +838,8 @@ typedef enum {
   JMAP_MSG_BCC            = 6, /* string, holds a list: a Bcc recipient */
   JMAP_MSG_SUBJECT        = 7, /* string: the Subject header */
   JMAP_MSG_BODY           = 8  /* string: the text/plain body */
-  /* These values are not frozen yet. CI compares this file with a
-   * committed render, so a change to them is always intentional. */
+  /* These values are not frozen yet, but they never change by
+   * accident. See the note on the ABI at the top of this file. */
 } jmap_message_opt;
 
 /*
