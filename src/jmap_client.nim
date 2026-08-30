@@ -2039,6 +2039,15 @@ proc setQueryLimit(query: ptr JmapQueryHandle, value: uint32): cint =
   ## whole-object replacement here would silently reset ``position``,
   ## ``anchor``, ``anchorOffset`` and ``calculateTotal`` too, clobbering
   ## whatever a future option for one of those fields had set.
+  ##
+  ## The validation arm below cannot fire for any value this boundary
+  ## accepts: a ``uint32`` widened to ``int64`` lands inside
+  ## ``UnsignedInt``'s 0..2^53-1 domain for every input. It stays
+  ## because ``parseUnsignedInt`` is the only way to hold an
+  ## ``UnsignedInt`` and its ``Result`` is the whole of its contract —
+  ## unwrapping it unchecked would trade a total projection for a
+  ## ``Defect`` the day either the domain or this parameter's width
+  ## moves.
   if value == 0'u32:
     query[].params.limit = Opt.none(UnsignedInt)
     return asCint(jsOk)
