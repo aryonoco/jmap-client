@@ -103,6 +103,18 @@ proc main() =
   ## lists, and exits non-zero on any divergence.
   let (exported, violations) = exportcInventory(nimSources())
   let declared = declaredFunctions()
+  # Two empty inventories agree, and agreeing on nothing is how a gate
+  # stops being one: a scan that finds no exportc and a parse that finds
+  # no declaration would report a clean match. Neither side is ever
+  # legitimately empty, so an empty one is a broken input, not a result.
+  if exported.len == 0:
+    stderr.writeLine "H18: no exportc found under src/ — with nothing to compare"
+    stderr.writeLine "this gate would pass on nothing."
+    quit(2)
+  if declared.len == 0:
+    stderr.writeLine "H18: include/jmap_client.h declares no functions — with"
+    stderr.writeLine "nothing to compare this gate would pass on nothing."
+    quit(2)
   let missing = toSeq(exported - declared)
   let extra = toSeq(declared - exported)
   if violations.len == 0 and missing.len == 0 and extra.len == 0:

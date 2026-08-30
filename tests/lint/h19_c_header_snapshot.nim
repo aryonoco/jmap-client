@@ -69,6 +69,18 @@ proc main() =
   let committed = loadBody(SnapshotPath)
   let live = loadBody(paramStr(1))
 
+  # Two empty bodies compare equal, and the gate would then pass on
+  # nothing: a truncated snapshot and a render that produced no
+  # declarations agree perfectly. Neither is ever legitimately empty.
+  if committed.len == 0:
+    stderr.writeLine "H19: " & SnapshotPath & " has no body — with nothing to"
+    stderr.writeLine "compare this gate would pass on nothing."
+    quit(2)
+  if live.len == 0:
+    stderr.writeLine "H19: the live render " & paramStr(1) & " has no body —"
+    stderr.writeLine "with nothing to compare this gate would pass on nothing."
+    quit(2)
+
   # Fast path — identical line sequence (the common, passing case).
   if committed == live:
     quit(0)
