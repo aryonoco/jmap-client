@@ -30,9 +30,24 @@ discard """
 ## an ``n - 1`` underflow in C caller code. The rule requires every such
 ## conversion to sit behind a comparison made *in the unsigned domain*
 ## (``if i >= csize_t(xs.len): return nil``), because a comparison that
-## narrows first has already raised. It is deliberately confined to the
-## one file that exports ``cdecl`` symbols declared ``raises: []``, where
-## an escaping defect is ``rawQuit(1)`` rather than a stack unwind.
+## narrows first has already raised. The bound must be a container length
+## or a signed ceiling: comparing against another caller-supplied width
+## discharges nothing. It is deliberately confined to the one file that
+## exports ``cdecl`` symbols declared ``raises: []``, where an escaping
+## defect is ``rawQuit(1)`` rather than a stack unwind.
+##
+## The rule counts what it examines and reports if either count is zero,
+## so a renamed entry point or a signature change cannot leave it
+## silently green over no routines at all. Deleting the last narrowing
+## conversion from the C ABI therefore fails this audit, which is the
+## intended trade: that deletion should be a deliberate edit here too.
+##
+## Its residual blind spot is width: a ``.len`` or ``high(int)`` bound
+## discharges a narrowing to any signed target, including ``cint``, and
+## the rule does not check that the ceiling matches. The caller-driven
+## hazard is closed regardless — the bound is in-tree data, not
+## caller-supplied — but a 32-bit narrowing of a length above 2^31 would
+## pass here.
 ##
 ## What the audit reads
 ## --------------------
@@ -58,6 +73,10 @@ discard """
 ##   end of every statement list, which confines the confusion to one
 ##   routine, but two locals called ``parts`` within one routine still
 ##   share a key and a guard on either satisfies an index on the other.
+##   An anonymous closure is deliberately not a boundary — it shares its
+##   enclosing routine's parameters, and dropping facts there would lose
+##   real ones — so a closure *parameter* shadowing a guarded outer name
+##   inherits that name's discharge.
 ## - Only ``len``-versus-integer-literal comparisons are understood.
 ##   ``if remaining >= 2`` where ``remaining = s.len - i`` proves nothing
 ##   here, and neither does a postcondition of a called function (``split``
@@ -82,11 +101,17 @@ discard """
 import std/[macros, os, strutils]
 
 type FactKind = enum
-  ## What kind of conclusion a guard in scope has established.
+  ## What kind of conclusion a guard or binding in scope has established.
   fkMinLen ## The named collection holds at least ``minLen`` elements.
   fkUnsignedBound
-    ## The named ``csize_t`` parameter was compared against a
-    ## ``csize_t`` bound, so narrowing it cannot overflow.
+    ## The named ``csize_t`` parameter was compared, in the unsigned
+    ## domain, against a bound narrowing cannot overflow.
+  fkSafeBound
+    ## The named local is bound to such a bound, so a comparison against
+    ## the local is as good as one against the expression itself.
+  fkCsizeAlias
+    ## The named local is bound to a ``csize_t`` parameter, or to another
+    ## alias of one, and carries the same exposure.
 
 type Fact = tuple[kind: FactKind, name: string, minLen: int]
   ## A guard's conclusion, valid for the scope that guard encloses.
@@ -251,30 +276,85 @@ proc comparisonBounds(cond: NimNode, holds: bool): seq[Fact] =
   if bound.ok:
     result.add (fkMinLen, name, int(bound.m))
 
-proc isCsizeConv(n: NimNode): bool =
-  ## True for ``csize_t(x)`` — the conversion that keeps a comparison in
-  ## the unsigned domain instead of narrowing the parameter first.
+const SignedInts = [
+  "int", "int8", "int16", "int32", "int64", "cint", "cshort", "clong", "clonglong",
+  "BiggestInt", "Natural", "Positive",
+]
+
+proc hasFact(stack: seq[Fact], kind: FactKind, name: string): bool =
+  ## True when something in scope established ``kind`` for ``name``.
+  for f in stack:
+    if f.kind == kind and f.name == name:
+      return true
+  false
+
+proc isLenExpr(n: NimNode): bool =
+  ## True for ``<anything>.len`` and ``len(<anything>)``. Deliberately
+  ## indifferent to what names the container: a length is in-tree data
+  ## whatever expression produced it, which is the property that matters.
+  if n.kind == nnkDotExpr and n[1].kind in {nnkIdent, nnkSym} and $n[1] == "len":
+    return true
+  n.kind in {nnkCall, nnkCommand} and n.len == 2 and n[0].kind in {nnkIdent, nnkSym} and
+    $n[0] == "len"
+
+proc isSignedCeiling(n: NimNode): bool =
+  ## True for ``high(T)`` with ``T`` a signed integer type — the ceiling
+  ## form of a bound, used where the value being narrowed is a count
+  ## rather than an index.
+  n.kind in {nnkCall, nnkCommand} and n.len == 2 and n[0].kind in {nnkIdent, nnkSym} and
+    $n[0] == "high" and n[1].kind in {nnkIdent, nnkSym} and $n[1] in SignedInts
+
+proc isBoundExpr(n: NimNode): bool =
+  ## A container length or a signed ceiling — the two shapes whose value
+  ## is in-tree and provably inside a narrowing target's range.
+  isLenExpr(n) or isSignedCeiling(n)
+
+proc prefixCsize(n: NimNode): bool =
+  ## True for ``csize_t(x)``.
   n.kind in {nnkCall, nnkCommand} and n.len == 2 and n[0].kind in {nnkIdent, nnkSym} and
     $n[0] == "csize_t"
 
-proc unsignedCompare(cond: NimNode): tuple[name, op: string] =
-  ## Decompose a comparison between a bare identifier and an explicit
-  ## ``csize_t`` conversion into that identifier and the operator read
-  ## with the identifier on the left. Empty name for any other shape.
+proc postfixCsize(n: NimNode): bool =
+  ## True for ``x.csize_t`` — the same conversion the other way round,
+  ## and just as sound, so rejecting it would push authors elsewhere.
+  n.kind == nnkDotExpr and n[1].kind in {nnkIdent, nnkSym} and $n[1] == "csize_t"
+
+proc isSafeBound(n: NimNode, known: seq[Fact]): bool =
+  ## True when ``n`` is a bound a narrowing can be discharged against: a
+  ## ``csize_t`` conversion — prefix or postfix — of a container length or
+  ## a signed ceiling, or a local bound to one.
+  ##
+  ## The ``len``-rooted requirement is the whole point. Accepting any
+  ## ``csize_t(x)`` would discharge ``i >= csize_t(cap)`` where ``cap`` is
+  ## itself caller-supplied, which proves nothing; and because that is
+  ## also the shape a developer reaches for when a stricter rule rejects
+  ## their guard, the loose reading would actively teach the unsafe
+  ## spelling. Both sound spellings — the postfix conversion and the
+  ## hoisted local — are accepted here so no one is pushed towards it.
+  if prefixCsize(n):
+    return isBoundExpr(n[1])
+  if postfixCsize(n):
+    return isBoundExpr(n[0])
+  n.kind in {nnkIdent, nnkSym} and hasFact(known, fkSafeBound, $n)
+
+proc unsignedCompare(cond: NimNode, known: seq[Fact]): tuple[name, op: string] =
+  ## Decompose a comparison between a bare identifier and a safe bound
+  ## into that identifier and the operator read with the identifier on
+  ## the left. Empty name for any other shape.
   if cond.kind != nnkInfix or cond.len != 3:
     return ("", "")
-  if cond[1].kind in {nnkIdent, nnkSym} and isCsizeConv(cond[2]):
+  if cond[1].kind in {nnkIdent, nnkSym} and isSafeBound(cond[2], known):
     return ($cond[1], $cond[0])
-  if cond[2].kind in {nnkIdent, nnkSym} and isCsizeConv(cond[1]):
+  if cond[2].kind in {nnkIdent, nnkSym} and isSafeBound(cond[1], known):
     return ($cond[2], mirrorOp($cond[0]))
   ("", "")
 
-proc unsignedFacts(cond: NimNode, holds: bool): seq[Fact] =
-  ## ``p >= csize_t(n)`` failing, or ``p < csize_t(n)`` holding, keeps
-  ## ``p`` inside the narrowing target's range. The bound must be an
-  ## explicit ``csize_t`` conversion: that is what proves the comparison
-  ## did not itself narrow before comparing.
-  let cmp = unsignedCompare(cond)
+proc unsignedFacts(cond: NimNode, holds: bool, known: seq[Fact]): seq[Fact] =
+  ## ``p >= csize_t(xs.len)`` failing, or ``p < csize_t(xs.len)`` holding,
+  ## keeps ``p`` inside the narrowing target's range — provided the
+  ## comparison itself did not narrow, which the explicit ``csize_t`` on
+  ## the bound is what proves.
+  let cmp = unsignedCompare(cond, known)
   let bounded =
     if holds:
       cmp.op in ["<", "<="]
@@ -285,24 +365,26 @@ proc unsignedFacts(cond: NimNode, holds: bool): seq[Fact] =
   else:
     @[]
 
-proc leafFacts(cond: NimNode, holds: bool): seq[Fact] =
+proc leafFacts(cond: NimNode, holds: bool, known: seq[Fact]): seq[Fact] =
   ## Both readings of one comparison: the length bound it proves, and the
   ## unsigned-domain check that makes a later narrowing safe.
-  comparisonBounds(cond, holds) & unsignedFacts(cond, holds)
+  comparisonBounds(cond, holds) & unsignedFacts(cond, holds, known)
 
-proc condFacts(cond: NimNode, holds: bool): seq[Fact] =
+proc condFacts(cond: NimNode, holds: bool, known: seq[Fact]): seq[Fact] =
   ## Facts implied by ``cond`` evaluating to ``holds``. ``and``
   ## contributes both operands when true and ``or`` both negations when
   ## false — respectively the positive-branch and the early-exit
   ## direction. The converses imply nothing and yield an empty seq.
+  ## ``known`` is the enclosing scope, consulted for locals already bound
+  ## to a bound expression.
   if cond.kind == nnkPrefix and cond.len == 2 and $cond[0] == "not":
-    return condFacts(cond[1], not holds)
+    return condFacts(cond[1], not holds, known)
   if cond.kind == nnkInfix and cond.len == 3 and $cond[0] in ["and", "or"]:
     let conjunction = $cond[0] == "and"
     if conjunction != holds:
       return @[]
-    return condFacts(cond[1], holds) & condFacts(cond[2], holds)
-  leafFacts(cond, holds)
+    return condFacts(cond[1], holds, known) & condFacts(cond[2], holds, known)
+  leafFacts(cond, holds, known)
 
 const IterNames = ["items", "mitems", "pairs", "mpairs", "keys", "values"]
 
@@ -350,14 +432,6 @@ proc satisfied(stack: seq[Fact], name: string, minLen: int): bool =
       return true
   false
 
-proc unsignedChecked(stack: seq[Fact], name: string): bool =
-  ## True when some enclosing guard compared ``name`` in the unsigned
-  ## domain, which is what makes narrowing it safe.
-  for f in stack:
-    if f.kind == fkUnsignedBound and f.name == name:
-      return true
-  false
-
 proc isExit(body: NimNode): bool =
   ## True when the last statement of ``body`` unconditionally leaves the
   ## surrounding scope, which is what makes a preceding ``if`` an early
@@ -383,6 +457,11 @@ type Ctx = object ## Everything the walker threads through one audit run.
   csizeParams*: seq[string]
     ## ``csize_t`` parameters of the enclosing routine; empty outside the
     ## C ABI entry point, which is what confines the narrowing rule to it.
+  l5Routines*: int ## Routines in the entry point carrying a ``csize_t`` parameter.
+  narrowSites*: int
+    ## Narrowing conversions of such a parameter actually judged. Both
+    ## counters exist so the narrowing rule cannot report success over
+    ## nothing the way an unchecked file listing would.
 
 proc exemptIndex(ctx: Ctx, node: NimNode): int =
   ## Position in ``Exempt`` covering this site, or ``-1``. The file half
@@ -414,15 +493,15 @@ proc walkIf(node: NimNode, ctx: var Ctx) =
       walkScoped(branch[^1], ctx, inherited)
       continue
     walkScoped(branch[0], ctx, inherited)
-    walkScoped(branch[1], ctx, inherited & condFacts(branch[0], true))
-    inherited.add condFacts(branch[0], false)
+    walkScoped(branch[1], ctx, inherited & condFacts(branch[0], true, ctx.stack))
+    inherited.add condFacts(branch[0], false, ctx.stack)
 
 proc walkShortCircuit(node: NimNode, ctx: var Ctx) =
   ## ``a and b`` evaluates ``b`` only when ``a`` holds, and ``a or b``
   ## only when ``a`` does not — so the right operand runs under the
   ## bounds the left one implies.
   walk(node[1], ctx)
-  walkScoped(node[2], ctx, condFacts(node[1], $node[0] == "and"))
+  walkScoped(node[2], ctx, condFacts(node[1], $node[0] == "and", ctx.stack))
 
 proc caseBranchBounds(selector: NimNode, branch: NimNode): seq[Fact] =
   ## An ``of`` arm of ``case s.len`` proves the smallest length its labels
@@ -452,16 +531,46 @@ proc walkCase(node: NimNode, ctx: var Ctx) =
       walk(branch[j], ctx)
     walkScoped(branch[^1], ctx, caseBranchBounds(node[0], branch))
 
+proc bindingKinds(defs: NimNode, ctx: Ctx): set[FactKind] =
+  ## Which facts one ``a, b = rhs`` group introduces for every name it
+  ## binds: the right-hand side is read once, the names share the verdict.
+  result = {}
+  let rhs = defs[^1]
+  if isSafeBound(rhs, ctx.stack):
+    result.incl fkSafeBound
+  if rhs.kind in {nnkIdent, nnkSym} and
+      ($rhs in ctx.csizeParams or hasFact(ctx.stack, fkCsizeAlias, $rhs)):
+    result.incl fkCsizeAlias
+
+proc bindingFacts(child: NimNode, ctx: Ctx): seq[Fact] =
+  ## Facts introduced by a ``let``/``var``/``const`` section. Hoisting a
+  ## bound into a local (``let count = csize_t(xs.len)``) is the idiomatic
+  ## spelling and must keep working, and a local bound to a ``csize_t``
+  ## parameter inherits that parameter's exposure rather than escaping it.
+  result = @[]
+  if child.kind notin {nnkLetSection, nnkVarSection, nnkConstSection}:
+    return
+  for defs in child:
+    if defs.kind != nnkIdentDefs or defs.len < 3:
+      continue
+    let kinds = bindingKinds(defs, ctx)
+    for i in 0 ..< defs.len - 2:
+      if defs[i].kind in {nnkIdent, nnkSym}:
+        for kind in kinds:
+          result.add (kind, $defs[i], 0)
+
 proc walkStmtList(node: NimNode, ctx: var Ctx) =
-  ## Visit a statement list, threading the negation of every early-exit
-  ## condition through the statements that follow it.
+  ## Visit a statement list, threading through the statements that follow
+  ## each one the negation of an early-exit condition and the bindings a
+  ## ``let`` introduces.
   var added = 0
   for child in node:
     walk(child, ctx)
-    if not isEarlyExitIf(child):
-      continue
-    for b in condFacts(child[0][0], false):
-      ctx.stack.add b
+    var introduced = bindingFacts(child, ctx)
+    if isEarlyExitIf(child):
+      introduced.add condFacts(child[0][0], false, ctx.stack)
+    for f in introduced:
+      ctx.stack.add f
       inc added
   for _ in 0 ..< added:
     discard ctx.stack.pop
@@ -471,6 +580,7 @@ const L5EntryPoint = "/src/jmap_client.nim"
 const Narrowing = [
   "int", "int8", "int16", "int32", "int64", "cint", "cshort", "clong", "clonglong",
   "uint8", "uint16", "uint32", "cuchar", "cushort", "cuint", "Natural", "Positive",
+  "BiggestInt",
 ]
 
 const RoutineDefs = {
@@ -494,26 +604,31 @@ proc csizeParamNames(routine: NimNode): seq[string] =
       if defs[j].kind in {nnkIdent, nnkSym}:
         result.add $defs[j]
 
-proc namedParam(n: NimNode, params: seq[string]): string =
-  ## First ``csize_t`` parameter appearing anywhere in ``n``, or ``""``.
-  ## A conversion of a derived expression (``int(n - 1)``) is judged on
-  ## the parameter it derives from, which is the conservative reading.
-  if n.kind in {nnkIdent, nnkSym} and $n in params:
+proc narrowedParam(n: NimNode, ctx: Ctx): string =
+  ## First ``csize_t`` parameter — or local alias of one — appearing
+  ## anywhere in ``n``, or ``""``. A conversion of a derived expression
+  ## (``int(n - 1)``) is judged on the parameter it derives from, which is
+  ## the conservative reading.
+  if n.kind in {nnkIdent, nnkSym} and
+      ($n in ctx.csizeParams or hasFact(ctx.stack, fkCsizeAlias, $n)):
     return $n
   for child in n:
-    let hit = namedParam(child, params)
+    let hit = narrowedParam(child, ctx)
     if hit.len > 0:
       return hit
   ""
 
-proc checkNarrowing(node: NimNode, ctx: var Ctx) =
-  ## Judge one ``int(p)``-style conversion of a ``csize_t`` parameter.
-  ## Reachable only inside the C ABI entry point, where ``ctx.csizeParams``
-  ## is non-empty.
-  if node.len != 2 or node[0].kind notin {nnkIdent, nnkSym} or $node[0] notin Narrowing:
+proc checkNarrowing(node, target, operand: NimNode, ctx: var Ctx) =
+  ## Judge one narrowing of a ``csize_t`` parameter, written either
+  ## ``int(p)`` or ``p.int``. Reachable only inside the C ABI entry point,
+  ## where ``ctx.csizeParams`` is non-empty.
+  if target.kind notin {nnkIdent, nnkSym} or $target notin Narrowing:
     return
-  let name = namedParam(node[1], ctx.csizeParams)
-  if name.len == 0 or unsignedChecked(ctx.stack, name):
+  let name = narrowedParam(operand, ctx)
+  if name.len == 0:
+    return
+  inc ctx.narrowSites
+  if hasFact(ctx.stack, fkUnsignedBound, name):
     return
   ctx.problems.add ctx.path & ":" & $node.lineInfoObj.line &
     ": unchecked narrowing of csize_t parameter " & repr(node)
@@ -532,6 +647,8 @@ proc walkRoutine(node: NimNode, ctx: var Ctx) =
       csizeParamNames(node)
     else:
       @[]
+  if ctx.csizeParams.len > 0:
+    inc ctx.l5Routines
   for child in node:
     walk(child, ctx)
   ctx.stack = savedStack
@@ -553,6 +670,18 @@ proc checkIndex(node: NimNode, ctx: var Ctx) =
   ctx.problems.add ctx.path & ":" & $node.lineInfoObj.line & ": unguarded index " &
     repr(node)
 
+proc walkConversion(node: NimNode, ctx: var Ctx) =
+  ## Visit a call or dotted expression, checking it for a narrowing of a
+  ## ``csize_t`` parameter in either spelling — ``int(p)`` or ``p.int`` —
+  ## before descending into it.
+  if node.len == 2:
+    if node.kind == nnkDotExpr:
+      checkNarrowing(node, node[1], node[0], ctx)
+    else:
+      checkNarrowing(node, node[0], node[1], ctx)
+  for child in node:
+    walk(child, ctx)
+
 proc walk(node: NimNode, ctx: var Ctx) =
   ## Recursive AST visitor. Guard-introducing constructs push bounds for
   ## the scope they cover; every other node is traversed unchanged.
@@ -565,7 +694,7 @@ proc walk(node: NimNode, ctx: var Ctx) =
     walkCase(node, ctx)
   of nnkWhileStmt:
     walk(node[0], ctx)
-    walkScoped(node[1], ctx, condFacts(node[0], true))
+    walkScoped(node[1], ctx, condFacts(node[0], true, ctx.stack))
   of nnkForStmt:
     walk(node[^2], ctx)
     walkScoped(node[^1], ctx, loopBounds(node[^2]))
@@ -580,10 +709,8 @@ proc walk(node: NimNode, ctx: var Ctx) =
       checkIndex(node, ctx)
     for child in node:
       walk(child, ctx)
-  of nnkCall, nnkCommand:
-    checkNarrowing(node, ctx)
-    for child in node:
-      walk(child, ctx)
+  of nnkCall, nnkCommand, nnkDotExpr:
+    walkConversion(node, ctx)
   of RoutineDefs:
     walkRoutine(node, ctx)
   else:
@@ -599,6 +726,16 @@ proc reportIndexAudit(ctx: Ctx) =
   for i, e in Exempt:
     if i notin ctx.used:
       lines.add "stale exemption: " & e.file & " " & e.expr & " (" & e.why & ")"
+  if ctx.l5Routines == 0:
+    lines.add(
+      "the narrowing rule entered no routine with a csize_t parameter — `" &
+        L5EntryPoint & "` no longer names a file this walk reached"
+    )
+  elif ctx.narrowSites == 0:
+    lines.add(
+      "the narrowing rule judged no conversion — it ran over nothing, " &
+        "so its silence means nothing"
+    )
   if lines.len > 0:
     error(
       "raw-index audit (" & $lines.len & "):\n" & lines.join("\n") &
@@ -614,7 +751,15 @@ macro auditIndexing(listing: static[string]) =
   ## substitutes ``""``, which would make this audit pass on nothing.
   if listing.strip().len == 0:
     error("raw-index audit received an empty file listing — nothing was audited")
-  var ctx = Ctx(path: "", stack: @[], problems: @[], used: @[], csizeParams: @[])
+  var ctx = Ctx(
+    path: "",
+    stack: @[],
+    problems: @[],
+    used: @[],
+    csizeParams: @[],
+    l5Routines: 0,
+    narrowSites: 0,
+  )
   for line in listing.splitLines():
     let path = line.strip()
     if path.len == 0:

@@ -60,20 +60,39 @@ macro auditAll(listing: static[string]) =
   ## ``src/jmap_client/**`` remains strictly audited. The anchored
   ## ``/src/jmap_client.nim`` suffix prevents a hypothetical nested
   ## ``src/jmap_client/jmap_client.nim`` from being exempted.
+  ##
+  ## An empty listing is rejected before any walking happens, and so is a
+  ## file that reads back empty. Without that, a listing that failed to
+  ## enumerate would walk nothing and report nothing, and an audit that
+  ## ran over zero files is indistinguishable from one that found zero
+  ## violations.
+  if listing.strip().len == 0:
+    error("assert audit received an empty file listing — nothing was audited")
   for line in listing.splitLines():
     let path = line.strip()
     if path.len == 0:
       continue
     if path.endsWith("/src/jmap_client.nim"):
       continue
-    walk(parseStmt(staticRead(path)), path)
+    let source = staticRead(path)
+    if source.len == 0:
+      error("assert audit could not read `" & path & "`")
+    walk(parseStmt(source), path)
 
 static:
-  ## Enumerate every ``.nim`` file under ``src/`` via ``staticExec``,
-  ## anchored on ``currentSourcePath`` so the audit works regardless
-  ## of the compiler's working directory. The resulting listing is
-  ## passed as a single ``static[string]`` to ``auditAll``.
+  ## Enumerate every ``.nim`` file under ``src/``, anchored on
+  ## ``currentSourcePath`` so the audit works regardless of the compiler's
+  ## working directory. ``walkDirRec`` rather than a shelled-out ``find``:
+  ## it is a compiler VM callback, so it returns the same entries under
+  ## ``nim check`` as under ``nim c``, whereas ``staticExec`` runs no
+  ## sub-process under ``nim check`` and hands back an empty string. The
+  ## resulting listing is passed as a single ``static[string]`` to
+  ## ``auditAll``.
   const projectRoot = parentDir(parentDir(parentDir(currentSourcePath())))
-  const srcDir = projectRoot / "src"
-  const listing = staticExec("find " & srcDir & " -type f -name '*.nim'")
+  const listing = block:
+    var paths: seq[string] = @[]
+    for path in walkDirRec(projectRoot / "src"):
+      if path.endsWith(".nim"):
+        paths.add path
+    paths.join("\n")
   auditAll(listing)
