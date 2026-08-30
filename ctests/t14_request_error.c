@@ -18,13 +18,13 @@ static const char *LIMIT_PROBLEM = "{\"type\":\"urn:ietf:params:jmap:error:limit
  * neither a title nor a detail, so the type URI is all the diagnostic
  * can be built from -- which is what makes it visible in jmap_errmsg()
  * below. */
+static const char *BARE_PROBLEM = "{\"type\":\"urn:ietf:params:jmap:error:notRequest\",\"status\":400}";
+
 /* A 4xx whose body is not problem details at all: valid JSON, but with
  * no "type" member for the problem type to be read from. Servers and
  * the proxies in front of them produce error bodies of their own shape
  * all the time. */
 static const char *OPAQUE_ERROR = "{\"error\":\"the gateway refused the request\",\"status\":400}";
-
-static const char *BARE_PROBLEM = "{\"type\":\"urn:ietf:params:jmap:error:notRequest\",\"status\":400}";
 
 int main(void) {
   assert(jmap_init() == JMAP_OK);
@@ -143,8 +143,10 @@ int main(void) {
   assert(msg3 != NULL);
   assert(strcmp(msg3, "no error") != 0);
   /* The status the server sent is what the diagnostic has to offer, so
-   * it is what reaches C. */
-  assert(strstr(msg3, "400") != NULL);
+   * it is what reaches C. Pinned as the leading "HTTP <status>:" the
+   * diagnostic puts it in: the scripted body says 400 as well, so a
+   * bare search for the digits would pass on the body alone. */
+  assert(strstr(msg3, "HTTP 400:") != NULL);
   assert(jmap_errtype(c3) == NULL);
 
   jmap_client_free(c3);
