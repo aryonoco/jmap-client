@@ -24,5 +24,5 @@ ast-grep = "0.38"
 watchexec = "2"
 
 [env]
-NIM_VERSION = "2.2.8"
+NIM_VERSION = "2.2.10"
 USE_BUILTIN_RIPGREP = "0"

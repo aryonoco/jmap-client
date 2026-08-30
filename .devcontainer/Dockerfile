@@ -35,7 +35,7 @@ RUN git clone --depth=1 --branch v2.0.3 https://github.com/mattmc3/antidote.git 
     && chown -R vscode:vscode /home/vscode/.antidote
 
 # Install Nim from source (only tool that requires source build)
-ARG NIM_VERSION=2.2.8
+ARG NIM_VERSION=2.2.10
 USER vscode
 WORKDIR /home/vscode
 RUN curl -LO "https://nim-lang.org/download/nim-${NIM_VERSION}.tar.xz" \
@@ -52,4 +52,11 @@ RUN curl -LO "https://nim-lang.org/download/nim-${NIM_VERSION}.tar.xz" \
 ENV PATH="/home/vscode/.local/bin:/home/vscode/.local/share/mise/shims:/home/vscode/nim/bin:/home/vscode/.nimble/bin:${PATH}"
 
 USER root
+
+# CLAUDE.md points at /.nim-reference for the stdlib and compiler sources
+# that scripts/api_oracle.nim's use of compiler-internal API has to be
+# audited against on every Nim bump. Nothing created it until now, so the
+# audit had no sources to read.
+RUN ln -s /home/vscode/nim /.nim-reference
+
 WORKDIR /workspaces/jmap-client

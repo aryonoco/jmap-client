@@ -178,26 +178,27 @@ system.switch("assertions", "on")
 
 # --- Warnings NOT promoted to errors ---
 #
-#   ResultUsed — compiler bug in Nim 2.2.8 (compiler/semexprs.nim:1388–1401):
+#   ResultUsed — compiler bug, still present in Nim 2.2.10 (the
+#     `hasWarn(c.config, warnResultUsed)` site in compiler/semexprs.nim):
 #     the warning fires inside the `of skVar, skLet, skResult, skForVar:`
 #     branch with no guard on `s.kind == skResult`, so it triggers on every
 #     variable access, not just the implicit `result` variable. Non-functional
-#     until the compiler is patched.
+#     until the compiler is patched. Cited by symbol rather than line number,
+#     which moved between 2.2.8 and 2.2.10 without the bug changing.
 #
 #   ImplicitRangeConversion — detects implicit narrowing conversions to
-#     range types (int -> Natural, int -> Positive, etc.). Triggers live
-#     in stdlib generic bodies that receive int / int-literal arguments
-#     into Natural/Positive-typed parameters — initTable, newSeq,
-#     newStringOfCap, HashSet, strutils.find, strutils.toHex. Specific
-#     firing sites: system.nim, system/seqs_v2.nim, pure/strutils.nim,
-#     pure/collections/{tables, tableimpl, sets, setimpl, sequtils}.nim.
-#     The diagnostic is reported at the stdlib file/line, NOT at the
-#     user's instantiation site, so a
-#     {.push warning[ImplicitRangeConversion]: off.} in user code cannot
-#     reach it. Enabling the flag project-wide therefore requires
-#     upstream Nim to retype those parameters as plain int. Off until
-#     then. The probe gate below lets a developer verify user-code
-#     cleanliness on demand (src/ is known-clean as of 2026-04-23).
+#     range types (int -> Natural, int -> Positive, etc.). Under 2.2.8 this
+#     fired throughout stdlib generic bodies that receive int / int-literal
+#     arguments into Natural/Positive-typed parameters — initTable, newSeq,
+#     newStringOfCap, HashSet, strutils.find, strutils.toHex — and was
+#     reported at the stdlib file/line rather than the user's instantiation
+#     site, so no {.push warning[...]: off.} in user code could reach it.
+#     Nim 2.2.10 stopped the literal cases firing, and the probe below is
+#     now clean end to end: zero diagnostics, stdlib included (verified
+#     2026-08-30, src/ clean since 2026-04-23). The blocker on promoting
+#     this to a permanent warningAsError is therefore gone; it stays behind
+#     the probe only because turning it on is a separate decision from
+#     upgrading the compiler.
 #
 #   ProveField — experimental dataflow analysis for case-object field access.
 #     Extremely noisy; fires on valid patterns in both project and stdlib code.
