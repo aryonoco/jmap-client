@@ -282,7 +282,7 @@ proc comparisonBounds(cond: NimNode, holds: bool): seq[Fact] =
   if bound.ok:
     result.add (fkMinLen, name, int(bound.m))
 
-const IntWidths: seq[tuple[name: string, bits: int]] = @[
+const TargetWidths: seq[tuple[name: string, bits: int]] = @[
   ("int", 64),
   ("int64", 64),
   ("clonglong", 64),
@@ -291,7 +291,7 @@ const IntWidths: seq[tuple[name: string, bits: int]] = @[
   ("Positive", 64),
   ("int32", 32),
   ("cint", 32),
-  ("clong", 32), # LLP64 keeps this 32-bit; the narrow reading is the safe one.
+  ("clong", 32), # LLP64's 32 bits — the smaller a target holds, the safer.
   ("uint32", 32),
   ("cuint", 32),
   ("int16", 16),
@@ -302,11 +302,31 @@ const IntWidths: seq[tuple[name: string, bits: int]] = @[
   ("uint8", 8),
   ("cuchar", 8),
 ]
-  ## Bit width of every type a narrowing can target, and of every type
-  ## whose ``high`` can appear as a ceiling. A bound proves a value fits
-  ## its own width, so it discharges a narrowing only to a target at
-  ## least that wide — which is what stops ``high(int)`` from vouching
-  ## for a ``cint``.
+  ## How many bits each conversion target can hold. Where a type's width
+  ## is platform-dependent the smaller reading is entered, because
+  ## understating what a target holds can only make the audit stricter.
+
+const CeilingWidths: seq[tuple[name: string, bits: int]] = @[
+  ("int", 64),
+  ("int64", 64),
+  ("clonglong", 64),
+  ("BiggestInt", 64),
+  ("Natural", 64),
+  ("Positive", 64),
+  ("clong", 64), # LP64's 64 bits — the more a ceiling admits, the safer.
+  ("int32", 32),
+  ("cint", 32),
+  ("int16", 16),
+  ("cshort", 16),
+  ("int8", 8),
+]
+  ## How many bits a value bounded by ``high(T)`` may still occupy.
+  ## Deliberately not the table above, and deliberately not derived from
+  ## it: conservatism points the opposite way for a ceiling, so the
+  ## platform-dependent ``clong`` is entered wide here and narrow there.
+  ## Unsigned types are absent because they are not sound ceilings at
+  ## all — ``high(cuint)`` leaves a value at 4294967295, which no
+  ## ``cint`` can hold.
 
 const LengthBits = 64
   ## A Nim ``len`` yields ``int``, so a length bound proves ``int`` and
@@ -314,8 +334,16 @@ const LengthBits = 64
   ## value below ``int``; if one appears, the audit will say so.
 
 proc widthOf(name: string): int =
-  ## Bit width of the named integer type, or 0 when it is not one.
-  for entry in IntWidths:
+  ## Bits the named conversion target holds, or 0 when it is not one.
+  for entry in TargetWidths:
+    if entry.name == name:
+      return entry.bits
+  0
+
+proc ceilingBitsOf(name: string): int =
+  ## Bits a value bounded by ``high(name)`` may occupy, or 0 when
+  ## ``name`` is not a type whose ``high`` bounds anything usefully.
+  for entry in CeilingWidths:
     if entry.name == name:
       return entry.bits
   0
@@ -359,12 +387,14 @@ proc ceilingWidth(n: NimNode): int =
   ## Width ``high(T)`` proves, or 0 when ``n`` is not such a ceiling.
   ## Used where the value being narrowed is a count rather than an index,
   ## and the reason a ``high(int)`` ceiling cannot vouch for a ``cint``
-  ## narrowing: it leaves the value caller-controlled up to 2^63-1.
+  ## narrowing: it leaves the value caller-controlled up to 2^63-1. Only
+  ## signed ``T`` qualifies; an unsigned ceiling admits values the
+  ## same-width signed target cannot hold.
   if n.kind notin {nnkCall, nnkCommand} or n.len != 2 or
       n[0].kind notin {nnkIdent, nnkSym} or $n[0] != "high" or
       n[1].kind notin {nnkIdent, nnkSym}:
     return 0
-  widthOf($n[1])
+  ceilingBitsOf($n[1])
 
 proc boundWidth(n: NimNode): int =
   ## Width a bound expression proves: a container length or a ceiling.
