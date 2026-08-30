@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /* Copyright (c) 2026 Aryan Ameri */
 /*
- * Canned C transport for the compliance tests: replays scripted
+ * Canned C transports for the compliance tests: each replays scripted
  * responses in order, captures the last request body for wire-shape
  * assertions, and counts close calls. The library COPIES response
  * buffers and frees them with free(), so every buffer handed back is
@@ -22,24 +22,29 @@ typedef struct {
   int closes;            /* how many times close fired */
 } canned_state;
 
-static jmap_transport_code canned_send(void *userdata,
-                                       jmap_http_method method,
-                                       const char *url,
-                                       const char *body,
-                                       const char *authorization,
-                                       int *out_http_status,
-                                       char **out_content_type,
-                                       char **out_body) {
+static inline void canned_capture(char **last_request, char **last_url,
+                                  const char *url, const char *body) {
+  /* jmap_client.h guarantees url and body are non-NULL borrows (a GET
+   * body is "", never NULL), so no defensive NULL check is needed
+   * before strdup here. */
+  free(*last_request);
+  free(*last_url);
+  *last_request = strdup(body);
+  *last_url = strdup(url);
+}
+
+static inline jmap_transport_code canned_send(void *userdata,
+                                              jmap_http_method method,
+                                              const char *url,
+                                              const char *body,
+                                              const char *authorization,
+                                              int *out_http_status,
+                                              char **out_content_type,
+                                              char **out_body) {
   canned_state *st = (canned_state *)userdata;
   (void)method;
   (void)authorization;
-  /* jmap_client.h guarantees url/body/authorization are non-NULL
-   * borrows (a GET body is "", never NULL), so no defensive NULL
-   * check is needed before strdup here. */
-  free(st->last_request);
-  free(st->last_url);
-  st->last_request = strdup(body);
-  st->last_url = strdup(url);
+  canned_capture(&st->last_request, &st->last_url, url, body);
   if (st->next >= st->count) return JMAP_TRANSPORT_NETWORK;
   *out_http_status = 200;
   *out_content_type = strdup("application/json");
@@ -61,13 +66,70 @@ static inline jmap_transport_code canned_fail_send(void *userdata,
   return JMAP_TRANSPORT_NETWORK;
 }
 
-static void canned_close(void *userdata) {
+static inline void canned_close(void *userdata) {
   if (userdata) ((canned_state *)userdata)->closes++;
 }
 
-static jmap_transport *canned_make_transport(canned_state *st) {
+static inline jmap_transport *canned_make_transport(canned_state *st) {
   jmap_transport *t = NULL;
   if (jmap_transport_new(canned_send, canned_close, st, &t) != JMAP_OK)
+    return NULL;
+  return t;
+}
+
+/*
+ * The same replay, for a test that needs the HTTP status line or the
+ * Content-Type to be something other than a 200 carrying JSON -- the
+ * two the library classifies a response by before it ever looks at the
+ * body. A zero http_status means 200 and a NULL content_type means
+ * "application/json", so a scripted reply that cares about neither is
+ * written { .body = ... } and replays exactly as canned_send would.
+ */
+typedef struct {
+  const char *body;
+  int http_status;
+  const char *content_type;
+} canned_reply;
+
+typedef struct {
+  const canned_reply *replies; /* scripted responses, replayed in order */
+  int count;
+  int next;
+  char *last_request;    /* strdup of the most recent request body */
+  char *last_url;
+  int closes;            /* how many times close fired */
+} canned_reply_state;
+
+static inline jmap_transport_code canned_reply_send(void *userdata,
+                                                    jmap_http_method method,
+                                                    const char *url,
+                                                    const char *body,
+                                                    const char *authorization,
+                                                    int *out_http_status,
+                                                    char **out_content_type,
+                                                    char **out_body) {
+  canned_reply_state *st = (canned_reply_state *)userdata;
+  (void)method;
+  (void)authorization;
+  canned_capture(&st->last_request, &st->last_url, url, body);
+  if (st->next >= st->count) return JMAP_TRANSPORT_NETWORK;
+  const canned_reply *reply = &st->replies[st->next++];
+  *out_http_status = reply->http_status ? reply->http_status : 200;
+  *out_content_type = strdup(reply->content_type ? reply->content_type
+                                                 : "application/json");
+  *out_body = strdup(reply->body);
+  return JMAP_TRANSPORT_OK;
+}
+
+static inline void canned_reply_close(void *userdata) {
+  if (userdata) ((canned_reply_state *)userdata)->closes++;
+}
+
+static inline jmap_transport *canned_reply_make_transport(
+    canned_reply_state *st) {
+  jmap_transport *t = NULL;
+  if (jmap_transport_new(canned_reply_send, canned_reply_close, st, &t)
+      != JMAP_OK)
     return NULL;
   return t;
 }
