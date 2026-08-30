@@ -16,9 +16,13 @@
  *     are released only via their paired jmap_*_free.
  *   - A handle is confined to one thread at a time; hand a handle to
  *     another thread by ceasing to use it on the old one.
- *   - This header is the ABI: symbols are appended, ordinals never
- *     reused, nothing removed after v1 (additive-only until a SemVer
- *     policy document supersedes this note).
+ *   - This header is the ABI. The library is pre-1.0 (see the version
+ *     macros below): the C ABI may still change, and no compatibility
+ *     promise is made to consumers yet. Ordinals are not renumbered
+ *     casually all the same — a render of this file is checked in as
+ *     a snapshot and compared in CI, so a change to a type, an
+ *     ordinal or a macro here is a deliberate act rather than an
+ *     accidental one.
  */
 #ifndef JMAP_CLIENT_H
 #define JMAP_CLIENT_H
@@ -44,7 +48,9 @@ typedef enum {
   JMAP_E_PROTOCOL   = 6, /* malformed or non-conforming response */
   JMAP_E_METHOD     = 7, /* method-level error (one-shot path) */
   JMAP_E_SET        = 8  /* /set error (one-shot path) */
-  /* additive growth only — existing ordinals never change */
+  /* Pre-1.0: these ordinals are not frozen. CI compares this file
+   * against a committed snapshot, so a change to them is deliberate
+   * rather than accidental. */
 } jmap_status;
 
 /* Once per process, before any other call except jmap_strerror and
@@ -217,7 +223,8 @@ jmap_status jmap_set_debug_callback(jmap_client *client,
 typedef struct jmap_mailboxes jmap_mailboxes;
 typedef struct jmap_mailbox jmap_mailbox; /* a borrow, never freed */
 
-/* Locked ordinals; additive only. NONE = the mailbox has no role;
+/* Pre-1.0: these ordinals are not frozen, but CI snapshots this file,
+ * so a change to them is deliberate. NONE = the mailbox has no role;
  * UNKNOWN = a role this library version does not recognise (read the
  * raw wire string via jmap_mailbox_role_identifier). */
 typedef enum {
@@ -320,7 +327,8 @@ typedef enum {
   JMAP_Q_LIMIT      = 2, /* u32: max results, 0 = server default */
   JMAP_Q_READ_STATE = 3, /* u32: a jmap_read_state ordinal */
   JMAP_Q_SORT       = 4  /* u32: a jmap_sort ordinal */
-  /* additive growth only */
+  /* Pre-1.0: these members are not frozen, but CI snapshots this
+   * file, so a change to them is deliberate. */
 } jmap_query_opt;
 
 typedef enum {
@@ -497,8 +505,7 @@ const char *jmap_vacation_text_body(const jmap_vacation *v);
  * indefinitely" to a null fromDate/toDate ON THE RECORD, not to a
  * property a patch says nothing about, so the response is immediate
  * and indefinite only when the record's own fromDate and toDate are
- * already null. A later version adds setters; existing signatures do
- * not change. */
+ * already null. A later version may add setters for them. */
 jmap_status jmap_vacation_update_new(jmap_vacation_update **out);
 jmap_status jmap_vacation_update_set_enabled(jmap_vacation_update *update,
                                              jmap_vacation_state state);
@@ -616,7 +623,8 @@ typedef enum {
   JMAP_MSG_BCC            = 6, /* string, list-valued: a Bcc recipient */
   JMAP_MSG_SUBJECT        = 7, /* string: the Subject header */
   JMAP_MSG_BODY           = 8  /* string: the text/plain body */
-  /* additive growth only */
+  /* Pre-1.0: these members are not frozen, but CI snapshots this
+   * file, so a change to them is deliberate. */
 } jmap_message_opt;
 
 jmap_status jmap_message_new(jmap_message **out);
@@ -625,8 +633,8 @@ jmap_status jmap_message_new(jmap_message **out);
 void jmap_message_free(jmap_message *message);
 
 /* Typed option setter (the sqlite3_bind_* discipline): every option
- * above is a string, so one setter covers the surface and a future
- * option of another type arrives as its own setter without disturbing
+ * above is a string, so one setter covers the surface; an option of
+ * another type would arrive as its own setter rather than widening
  * this one. An unrecognised option or a NULL value is JMAP_E_MISUSE; a
  * value of the right type that is not a legal JMAP value -- an id that
  * is not an id -- is JMAP_E_VALIDATION and leaves the message

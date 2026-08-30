@@ -5,7 +5,9 @@
 #include <stdio.h>
 #include "jmap_client.h"
 
-/* The status ordinals are the ABI: locked at v1, additive-only. */
+/* The status ordinals are the ABI. Pre-1.0 they are not frozen, so
+ * these assertions exist to make a renumber a deliberate act: the
+ * value beside each name has to be edited here too. */
 _Static_assert(JMAP_OK == 0, "ordinal locked");
 _Static_assert(JMAP_E_VALIDATION == 1, "ordinal locked");
 _Static_assert(JMAP_E_TRANSPORT == 2, "ordinal locked");
