@@ -133,7 +133,9 @@ Rules:
 C has no `Result` types. Error handling projects to C as:
 - **Rail errors** (`JmapError`): a `jmap_status` return code, with the
   diagnostic recorded on the handle the call was made on
-- **Per-invocation method errors**: data in the response handle
+- **Method and set errors**: data on the response below L5. The
+  exported one-shots fail fast, so they reach C on the rail as
+  `jsMethod` / `jsSet`
 
 Three error-reporting shapes are common in C ABIs: an integer status code
 returned from every call; a thread-local last error fetched by a separate
@@ -354,30 +356,28 @@ proc jmapStrerror(code: cint): cstring
   the error slot race-free.
 
 
-## Per-Invocation Results via Response Handles
+## Method and Set Errors
 
-Method errors are **data within a successful response**, not return codes.
-C consumers access them through response handle accessors:
+Below L5, a method error is **data within a successful response**, not a
+return code: an invocation that came back as `error` is a value on the
+response, and the round trip that carried it succeeded.
 
-```nim
-proc jmapResponseInvocationIsError(
-    resp: pointer, idx: cint, outIsError: ptr cint
-): cint {.exportc: "jmap_response_invocation_is_error", dynlib, cdecl, raises: [].} =
-  # Status return + out-param -- never a -1 sentinel folded into the
-  # answer, which would be unreadable from a boolean out-value.
-  if resp.isNil or outIsError.isNil: return cint(ord(jsMisuse))
-  let r = cast[ptr JmapResponseObj](resp)
-  if idx < 0 or idx >= cint(r[].invocations.len): return cint(ord(jsMisuse))
-  outIsError[] = if r[].invocations[idx].isErr: 1 else: 0
-  return cint(ord(jsOk))
-```
+The exported surface is the one-shot easy path, and a one-shot fails
+fast. A method or set error therefore reaches a C consumer on the rail,
+as `jsMethod` or `jsSet`, with the prose in `jmap_errmsg` and the wire
+`type` string in `jmap_errtype`. That is the only shape the C surface
+has for one.
 
-Per-invocation errors are not rail errors: they never reach the handle's
-error slot and never become a `jmap_status`. They are read directly from
-the response handle via accessor procs (count, isError, errorType). The
-one-shot easy path is the exception -- it fails fast, so a method or set
-error there arrives as `jsMethod` / `jsSet` on the rail, with the prose in
-`jmap_errmsg` and the wire `type` string in `jmap_errtype`.
+The builder-to-send-to-extract pipeline is reserved for a later additive
+layer and exports nothing. If it is projected, a response becomes a
+handle of its own and per-invocation errors are read off it through
+accessors -- count, is-error, error type -- rather than through the
+rail. The reason is that one send answers with several invocations: no
+single status can speak for all of them, and an error on one is not a
+failure of the request that carried it. Such an accessor takes the shape
+every export takes -- a `jmap_status` return with the answer in an
+out-parameter, never a sentinel folded into the value, which a boolean
+out-value has no room for.
 
 
 ## C Header
