@@ -122,5 +122,17 @@ jobs:
       - name: Static analysis
         run: just analyse
 
+      - name: Build shared library
+        run: just build
+
+      - name: Lint (C header inventory)
+        run: just lint-c-header
+
+      - name: Lint (C header drift)
+        run: just lint-c-header-snapshot
+
+      - name: Run C compliance tests
+        run: just test-c
+
       - name: Run tests
         run: just test

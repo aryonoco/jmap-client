@@ -534,6 +534,38 @@ lint-type-shapes: _api-oracle
     nim r --hints:off --warnings:off tests/lint/h17_type_shape_snapshot.nim /tmp/jmap_shapes_live.txt
     @echo "H17 type-shape snapshot lint passed"
 
+# H18 C-header inventory lint. Every {.exportc.} in src/jmap_client.nim
+# must be declared in include/jmap_client.h and vice versa, and every
+# exportc pragma must carry dynlib, cdecl and raises: [].
+lint-c-header:
+    @echo "Running H18 C header inventory lint..."
+    nim r --hints:off --warnings:off tests/lint/h18_c_header_inventory.nim
+    @echo "H18 C header inventory lint passed"
+
+# Regenerate the C-header snapshot. Developer convenience for a
+# deliberate header change — review the diff before committing and tag
+# the PR [C-ABI-CHANGE]. CI does not run this recipe.
+snapshot-c-header:
+    @echo "Regenerating tests/wire_contract/c-header.txt..."
+    @mkdir -p tests/wire_contract
+    @nim r --hints:off --warnings:off scripts/render_c_header.nim \
+      > tests/wire_contract/c-header.txt.new
+    @mv tests/wire_contract/c-header.txt.new tests/wire_contract/c-header.txt
+    @echo "Snapshot regenerated. Review the diff before committing."
+
+# H19 C-header snapshot lint. A change detector, not a compatibility
+# promise: the library is pre-1.0 and its C ABI may still change, but a
+# change to a parameter type, an enum ordinal or a version macro must be
+# deliberate, so it fails here until tests/wire_contract/c-header.txt is
+# regenerated.
+lint-c-header-snapshot:
+    @echo "Running H19 C-header snapshot lint..."
+    @nim r --hints:off --warnings:off scripts/render_c_header.nim \
+      > /tmp/jmap_c_header_live.txt
+    nim r --hints:off --warnings:off tests/lint/h19_c_header_snapshot.nim \
+      /tmp/jmap_c_header_live.txt
+    @echo "H19 C-header snapshot lint passed"
+
 # Static analysis with nimalyzer
 analyse:
     @echo "Running static analysis..."
@@ -544,7 +576,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse
+check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes lint-c-header lint-c-header-snapshot analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -558,7 +590,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse test
+ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse build lint-c-header lint-c-header-snapshot test-c test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"

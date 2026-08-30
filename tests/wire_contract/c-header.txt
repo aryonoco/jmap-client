@@ -1,0 +1,210 @@
+# Canonical render of the C ABI contract in include/jmap_client.h,
+# produced by scripts/render_c_header.nim and locked by
+# tests/lint/h19_c_header_snapshot.nim. The library is pre-1.0, so this
+# is a change detector rather than a compatibility promise: it makes a
+# change to a parameter type, an enum ordinal or a version macro
+# deliberate instead of accidental.
+# Regenerate with: just snapshot-c-header
+# Update PR label: [C-ABI-CHANGE]
+
+## macros
+JMAP_CLIENT_VERSION_MAJOR 0
+JMAP_CLIENT_VERSION_MINOR 1
+JMAP_CLIENT_VERSION_PATCH 0
+
+## types
+typedef struct jmap_client jmap_client
+typedef struct jmap_transport jmap_transport
+typedef jmap_transport_code (*jmap_send_fn)(void *, jmap_http_method, const char *, const char *, const char *, int *, char **, char **)
+typedef void (*jmap_close_fn)(void *)
+typedef void (*jmap_debug_fn)(void *, jmap_wire_direction, const uint8_t *, size_t)
+typedef struct jmap_mailboxes jmap_mailboxes
+typedef struct jmap_mailbox jmap_mailbox
+typedef struct jmap_emails jmap_emails
+typedef struct jmap_email jmap_email
+typedef struct jmap_query jmap_query
+typedef struct jmap_threads jmap_threads
+typedef struct jmap_thread jmap_thread
+typedef struct jmap_identities jmap_identities
+typedef struct jmap_identity jmap_identity
+typedef struct jmap_set_result jmap_set_result
+typedef struct jmap_vacation jmap_vacation
+typedef struct jmap_vacation_update jmap_vacation_update
+typedef struct jmap_sync jmap_sync
+typedef struct jmap_message jmap_message
+typedef struct jmap_send_result jmap_send_result
+
+## enums
+enum jmap_status
+  JMAP_OK = 0
+  JMAP_E_VALIDATION = 1
+  JMAP_E_TRANSPORT = 2
+  JMAP_E_REQUEST = 3
+  JMAP_E_SESSION = 4
+  JMAP_E_MISUSE = 5
+  JMAP_E_PROTOCOL = 6
+  JMAP_E_METHOD = 7
+  JMAP_E_SET = 8
+enum jmap_http_method
+  JMAP_HTTP_GET = 0
+  JMAP_HTTP_POST = 1
+enum jmap_transport_code
+  JMAP_TRANSPORT_OK = 0
+  JMAP_TRANSPORT_NETWORK = 1
+  JMAP_TRANSPORT_TLS = 2
+  JMAP_TRANSPORT_TIMEOUT = 3
+enum jmap_wire_direction
+  JMAP_WIRE_SEND = 0
+  JMAP_WIRE_RECEIVE = 1
+enum jmap_mailbox_role
+  JMAP_ROLE_NONE = 0
+  JMAP_ROLE_INBOX = 1
+  JMAP_ROLE_DRAFTS = 2
+  JMAP_ROLE_SENT = 3
+  JMAP_ROLE_TRASH = 4
+  JMAP_ROLE_JUNK = 5
+  JMAP_ROLE_ARCHIVE = 6
+  JMAP_ROLE_IMPORTANT = 7
+  JMAP_ROLE_ALL = 8
+  JMAP_ROLE_FLAGGED = 9
+  JMAP_ROLE_UNKNOWN = 10
+enum jmap_mailbox_right
+  JMAP_RIGHT_READ_ITEMS = 0
+  JMAP_RIGHT_ADD_ITEMS = 1
+  JMAP_RIGHT_REMOVE_ITEMS = 2
+  JMAP_RIGHT_SET_SEEN = 3
+  JMAP_RIGHT_SET_KEYWORDS = 4
+  JMAP_RIGHT_CREATE_CHILD = 5
+  JMAP_RIGHT_RENAME = 6
+  JMAP_RIGHT_DELETE = 7
+  JMAP_RIGHT_SUBMIT = 8
+enum jmap_query_opt
+  JMAP_Q_IN_MAILBOX = 0
+  JMAP_Q_TEXT = 1
+  JMAP_Q_LIMIT = 2
+  JMAP_Q_READ_STATE = 3
+  JMAP_Q_SORT = 4
+enum jmap_read_state
+  JMAP_READ_ANY = 0
+  JMAP_READ_UNREAD = 1
+  JMAP_READ_READ = 2
+enum jmap_sort
+  JMAP_SORT_RECEIVED_AT_DESC = 0
+  JMAP_SORT_RECEIVED_AT_ASC = 1
+enum jmap_vacation_state
+  JMAP_VACATION_DISABLED = 0
+  JMAP_VACATION_ENABLED = 1
+enum jmap_message_opt
+  JMAP_MSG_IDENTITY_ID = 0
+  JMAP_MSG_DRAFTS_MAILBOX = 1
+  JMAP_MSG_SENT_MAILBOX = 2
+  JMAP_MSG_FROM = 3
+  JMAP_MSG_TO = 4
+  JMAP_MSG_CC = 5
+  JMAP_MSG_BCC = 6
+  JMAP_MSG_SUBJECT = 7
+  JMAP_MSG_BODY = 8
+
+## functions
+jmap_status jmap_init(void)
+void jmap_cleanup(void)
+const char * jmap_strerror(jmap_status)
+const char * jmap_version(void)
+jmap_status jmap_client_new(const char *, const char *, const char *, jmap_transport *, jmap_client **)
+void jmap_client_free(jmap_client *)
+const char * jmap_errmsg(const jmap_client *)
+const char * jmap_errtype(const jmap_client *)
+jmap_status jmap_transport_new(jmap_send_fn, jmap_close_fn, void *, jmap_transport **)
+void jmap_transport_free(jmap_transport *)
+jmap_status jmap_client_primary_account(jmap_client *, const char **)
+jmap_status jmap_client_account_count(jmap_client *, size_t *)
+const char * jmap_client_account_at(const jmap_client *, size_t)
+jmap_status jmap_set_debug_callback(jmap_client *, jmap_debug_fn, void *)
+jmap_status jmap_get_mailboxes(jmap_client *, const char *, jmap_mailboxes **)
+void jmap_mailboxes_free(jmap_mailboxes *)
+size_t jmap_mailboxes_count(const jmap_mailboxes *)
+const jmap_mailbox * jmap_mailboxes_at(const jmap_mailboxes *, size_t)
+const char * jmap_mailbox_id(const jmap_mailbox *)
+const char * jmap_mailbox_name(const jmap_mailbox *)
+jmap_mailbox_role jmap_mailbox_role_get(const jmap_mailbox *)
+const char * jmap_mailbox_role_identifier(const jmap_mailbox *)
+const char * jmap_mailbox_parent_id(const jmap_mailbox *)
+int64_t jmap_mailbox_total_emails(const jmap_mailbox *)
+int64_t jmap_mailbox_unread_emails(const jmap_mailbox *)
+int jmap_mailbox_is_subscribed(const jmap_mailbox *)
+int jmap_mailbox_has_right(const jmap_mailbox *, jmap_mailbox_right)
+jmap_status jmap_get_emails(jmap_client *, const char *, const char * const *, size_t, jmap_emails **)
+void jmap_emails_free(jmap_emails *)
+size_t jmap_emails_count(const jmap_emails *)
+const jmap_email * jmap_emails_at(const jmap_emails *, size_t)
+size_t jmap_emails_notfound_count(const jmap_emails *)
+const char * jmap_emails_notfound_at(const jmap_emails *, size_t)
+const char * jmap_email_id(const jmap_email *)
+const char * jmap_email_thread_id(const jmap_email *)
+const char * jmap_email_subject(const jmap_email *)
+const char * jmap_email_from_email(const jmap_email *)
+const char * jmap_email_from_name(const jmap_email *)
+const char * jmap_email_preview(const jmap_email *)
+const char * jmap_email_received_at(const jmap_email *)
+const char * jmap_email_text_body(const jmap_email *)
+int jmap_email_has_attachment(const jmap_email *)
+jmap_status jmap_query_new(jmap_query **)
+void jmap_query_free(jmap_query *)
+jmap_status jmap_query_set_str(jmap_query *, jmap_query_opt, const char *)
+jmap_status jmap_query_set_u32(jmap_query *, jmap_query_opt, uint32_t)
+jmap_status jmap_query_emails(jmap_client *, const char *, const jmap_query *, jmap_emails **)
+jmap_status jmap_get_threads(jmap_client *, const char *, const char * const *, size_t, jmap_threads **)
+void jmap_threads_free(jmap_threads *)
+size_t jmap_threads_count(const jmap_threads *)
+const jmap_thread * jmap_threads_at(const jmap_threads *, size_t)
+const char * jmap_thread_id(const jmap_thread *)
+size_t jmap_thread_email_count(const jmap_thread *)
+const char * jmap_thread_email_at(const jmap_thread *, size_t)
+jmap_status jmap_get_identities(jmap_client *, const char *, jmap_identities **)
+void jmap_identities_free(jmap_identities *)
+size_t jmap_identities_count(const jmap_identities *)
+const jmap_identity * jmap_identities_at(const jmap_identities *, size_t)
+const char * jmap_identity_id(const jmap_identity *)
+const char * jmap_identity_name(const jmap_identity *)
+const char * jmap_identity_email(const jmap_identity *)
+jmap_status jmap_mark_read(jmap_client *, const char *, const char * const *, size_t, jmap_set_result **)
+jmap_status jmap_mark_unread(jmap_client *, const char *, const char * const *, size_t, jmap_set_result **)
+jmap_status jmap_move_emails(jmap_client *, const char *, const char * const *, size_t, const char *, jmap_set_result **)
+jmap_status jmap_destroy_emails(jmap_client *, const char *, const char * const *, size_t, jmap_set_result **)
+void jmap_set_result_free(jmap_set_result *)
+size_t jmap_set_result_updated_count(const jmap_set_result *)
+const char * jmap_set_result_updated_at(const jmap_set_result *, size_t)
+size_t jmap_set_result_destroyed_count(const jmap_set_result *)
+const char * jmap_set_result_destroyed_at(const jmap_set_result *, size_t)
+size_t jmap_set_result_failure_count(const jmap_set_result *)
+const char * jmap_set_result_failure_id_at(const jmap_set_result *, size_t)
+const char * jmap_set_result_failure_type_at(const jmap_set_result *, size_t)
+jmap_status jmap_get_vacation(jmap_client *, const char *, jmap_vacation **)
+void jmap_vacation_free(jmap_vacation *)
+int jmap_vacation_is_enabled(const jmap_vacation *)
+const char * jmap_vacation_subject(const jmap_vacation *)
+const char * jmap_vacation_text_body(const jmap_vacation *)
+jmap_status jmap_vacation_update_new(jmap_vacation_update **)
+jmap_status jmap_vacation_update_set_enabled(jmap_vacation_update *, jmap_vacation_state)
+jmap_status jmap_vacation_update_set_subject(jmap_vacation_update *, const char *)
+jmap_status jmap_vacation_update_set_text_body(jmap_vacation_update *, const char *)
+void jmap_vacation_update_free(jmap_vacation_update *)
+jmap_status jmap_set_vacation(jmap_client *, const char *, const jmap_vacation_update *, jmap_set_result **)
+jmap_status jmap_get_email_state(jmap_client *, const char *, const char **)
+jmap_status jmap_sync_emails(jmap_client *, const char *, const char *, jmap_sync **)
+void jmap_sync_free(jmap_sync *)
+const char * jmap_sync_old_state(const jmap_sync *)
+const char * jmap_sync_new_state(const jmap_sync *)
+int jmap_sync_has_more(const jmap_sync *)
+size_t jmap_sync_destroyed_count(const jmap_sync *)
+const char * jmap_sync_destroyed_at(const jmap_sync *, size_t)
+const jmap_emails * jmap_sync_created(const jmap_sync *)
+const jmap_emails * jmap_sync_updated(const jmap_sync *)
+jmap_status jmap_message_new(jmap_message **)
+void jmap_message_free(jmap_message *)
+jmap_status jmap_message_set_str(jmap_message *, jmap_message_opt, const char *)
+jmap_status jmap_message_add_str(jmap_message *, jmap_message_opt, const char *)
+jmap_status jmap_send(jmap_client *, const char *, const jmap_message *, jmap_send_result **)
+void jmap_send_result_free(jmap_send_result *)
+const char * jmap_send_result_email_id(const jmap_send_result *)
+const char * jmap_send_result_submission_id(const jmap_send_result *)
