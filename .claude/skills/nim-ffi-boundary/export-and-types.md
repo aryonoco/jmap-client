@@ -240,7 +240,7 @@ The three siblings of `recordError` exist because their messages are
 authored in L5 rather than carried from the rail; each returns the
 `jmap_status` its export hands straight back, so the one-error-rail rule
 holds either way. A cached failure may also be replayed into the slot
-verbatim — the lazy session's primary-account failure is — but that
+verbatim -- the lazy session's primary-account failure is -- but that
 copies a slot rather than adding a sixth shape.
 
 Each writer overwrites unconditionally: `sqlite3_errmsg` semantics are

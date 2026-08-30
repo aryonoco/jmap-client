@@ -634,12 +634,14 @@ never compiles is indistinguishable from an audit that passes.
 The C compliance suite is fourteen plain-C programs, and every one of
 the eight `JMAP_E_*` statuses is the return value of a real call in at
 least one of them — not merely a name the header declares.
-`JMAP_E_REQUEST` was the last to earn that, and it took a second replay
-transport in `ctests/canned.h`. The first hard-codes a 200 carrying
-`application/json`, and the library classifies a response by status and
-Content-Type before it reads the body, so the ordinary shape of RFC 8620
-§3.6.1's whole-request rejection — an HTTP error status carrying RFC 7807
-problem details — could not be produced at all.
+`JMAP_E_REQUEST` was the last to earn that. Nothing asserted it, because
+no test scripted a body the classifier would read as a rejection. One of
+the two shapes that rejection arrives in also needed harness work: the
+ordinary one — an HTTP error status carrying the RFC 7807 problem details
+RFC 8620 §3.6.1 asks for — cannot be produced by a replay that hard-codes
+a 200 carrying `application/json`, because the library classifies a
+response by status and Content-Type before it reads the body. Hence the
+second replay transport in `ctests/canned.h`.
 `ctests/t14_request_error.c` drives it three ways: the rejection as a
 server sends it, the same rejection arriving on a 200 (which the older
 transport could have produced but no test asked for), and, as the
