@@ -524,6 +524,27 @@ beside them in that row, so the object belongs in their names for the
 reason it belongs in the others'. Nothing else about the row moves; the
 Nim substrate was already `markEmailsRead` / `markEmailsUnread`.
 
+*Amendment (2026-08-30).* "Complete for an email client" overstates the
+"Read email (bodies)" row. A C consumer holding a `jmap_email` reads
+id, threadId, subject, the first From address and name, preview,
+receivedAt, the text body and hasAttachment. It cannot read `keywords`,
+so it cannot tell a read message from an unread one; nor can it read
+`mailboxIds`, `to`, `cc`, `size` or `sentAt`. `JMAP_Q_READ_STATE` lets
+a caller filter a query by read state, which is not the same as
+rendering it — a list view that greys its read rows has no way to know
+which they are. Read the table as the easy path for fetching and
+displaying a message's text, not as the whole of an email client.
+
+The omission is in the L5 projection alone. `Email`
+(`src/jmap_client/internal/mail/email.nim`) carries every one of those
+fields, and the `getEmails` one-shot sends no `properties` argument, so
+the server returns RFC 8621 §4.2's default set — which names
+`mailboxIds`, `keywords`, `size`, `to`, `cc` and `sentAt` among others.
+The values reach L4 and are dropped where the flat snapshot the C
+getters borrow from is built. Closing the gap is additive: more
+presence bits, more slots on that snapshot, more getters, nothing below
+L5 and no new handle type.
+
 ## 9. Versioning
 
 - `include/jmap_client.h` carries `JMAP_CLIENT_VERSION_MAJOR/MINOR/
@@ -657,9 +678,17 @@ second replay transport in `ctests/canned.h`.
 server sends it, the same rejection arriving on a 200 (which the older
 transport could have produced but no test asked for), and, as the
 negative that earns the other two, a 4xx whose body is not problem
-details, which is `JMAP_E_TRANSPORT` instead. The suite runs under
-AddressSanitizer and UndefinedBehaviorSanitizer unconditionally, not
-"where available". What it does not do is double-free or
+details, which is `JMAP_E_TRANSPORT` instead. Those fourteen programs
+compile under AddressSanitizer and UndefinedBehaviorSanitizer
+unconditionally, not "where available" — but the programs are what
+carries the instrumentation. `just test-c` builds
+`bin/libjmap_client.so` without `-fsanitize`, so an overflow inside Nim
+code is not caught. What it reaches is wider than that sounds: ASan
+interposes `malloc` process-wide and the library is built
+`-d:useMalloc` (`justfile`), which routes every Nim allocation through
+libc, so a block the library allocates and never frees is visible to
+LeakSanitizer even though the code that allocated it carries no
+instrumentation of its own. What it does not do is double-free or
 use-after-free: both are undefined behaviour no library can define
 away, so the suite pins the contracts standing around them instead —
 freeing NULL is a no-op, an out-of-range index answers NULL rather than
