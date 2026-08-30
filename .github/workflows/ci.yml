@@ -36,6 +36,12 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
 
+      # Before the grep below trusts mise.toml, confirm the other three
+      # sites agree with it — otherwise CI silently builds and tests a
+      # compiler that neither the devcontainer nor consumers will use.
+      - name: Lint (Nim version drift)
+        run: just lint-nim-version
+
       - name: Read NIM_VERSION from mise.toml
         run: |
           NIM_VERSION=$(grep 'NIM_VERSION' mise.toml | sed 's/.*= *"\(.*\)"/\1/')

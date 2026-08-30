@@ -203,7 +203,8 @@ srcDir = "src"
 #     in config.nims behind -d:probeImplicitRange.
 #   ProveField / ProveIndex — experimental, extremely noisy
 #   GcUnsafe — fires from proc callback parameters in generics; GcUnsafe2 suffices
-#   ResultUsed — compiler bug in Nim 2.2.8 (compiler/semexprs.nim:1388–1401):
+#   ResultUsed — compiler bug, still present in Nim 2.2.10 (the
+#     `hasWarn(c.config, warnResultUsed)` site in compiler/semexprs.nim):
 #     fires on every variable access, not just implicit `result`. Non-functional.
 
 --hintAsError:
@@ -273,7 +274,7 @@ when not defined(release):
 
 # Dependencies
 
-requires "nim >= 2.2.8"
+requires "nim >= 2.2.10"
 # Temporarily vendored at vendor/nim-results/ with strictCaseObjects
 # compatibility fixes. Re-enable this line once upstream nim-results
 # ships the pr1/pr2 fixes tracked at

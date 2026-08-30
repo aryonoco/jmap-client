@@ -494,6 +494,42 @@ freeze-module-paths:
      } | sort -u > tests/wire_contract/module-paths.txt
     @echo "Snapshot regenerated. Review the diff before committing."
 
+# The Nim version is written in four places that nothing reconciles:
+# mise.toml's NIM_VERSION (which CI greps to decide what to build), the
+# Dockerfile ARG and the Compose build arg (which decide what the
+# devcontainer gets), and the nimble `requires` floor (which decides what
+# a consumer must have). They drifted apart silently before this gate
+# existed — a bump landing in three of the four leaves developers and CI
+# on different compilers, or the declared floor below the only compiler
+# anyone has tested.
+lint-nim-version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    declare -A found=(
+      [mise.toml]="$(sed -n 's/^NIM_VERSION = "\(.*\)"$/\1/p' mise.toml)"
+      [.devcontainer/Dockerfile]="$(sed -n 's/^ARG NIM_VERSION=\(.*\)$/\1/p' .devcontainer/Dockerfile)"
+      [.devcontainer/docker-compose.yml]="$(sed -n 's/^ *NIM_VERSION: "\(.*\)"$/\1/p' .devcontainer/docker-compose.yml)"
+      [jmap_client.nimble]="$(sed -n 's/^requires "nim >= \(.*\)"$/\1/p' jmap_client.nimble)"
+    )
+    echo "Running Nim version drift lint..."
+    status=0
+    for file in "${!found[@]}"; do
+        if [ -z "${found[$file]}" ]; then
+            echo "  ERROR: no Nim version found in $file" >&2
+            status=1
+        fi
+    done
+    [ "$status" -eq 0 ] || exit 1
+    expected="${found[mise.toml]}"
+    for file in "${!found[@]}"; do
+        if [ "${found[$file]}" != "$expected" ]; then
+            echo "  ERROR: $file says ${found[$file]}, mise.toml says $expected" >&2
+            status=1
+        fi
+    done
+    [ "$status" -eq 0 ] || exit 1
+    echo "Nim version drift lint passed (all four sites agree on $expected)"
+
 # H13 module-path lock lint. Backs A10a/A10b (P1, P5, P6, P20,
 # P23). Bidirectional comparison: top-level .nim files under
 # src/jmap_client/ must match tests/wire_contract/module-paths.txt
@@ -651,7 +687,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated lint-style lint-defect-audits lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes lint-c-header lint-c-header-snapshot lint-c-header-types analyse
+check: fmt-check lint-nim-version lint lint-isolated lint-style lint-defect-audits lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes lint-c-header lint-c-header-snapshot lint-c-header-types analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -665,7 +701,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style lint-defect-audits lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse build lint-c-header lint-c-header-snapshot lint-c-header-types test-c build-c-bench test
+ci: reuse lint-nim-version fmt-check lint lint-isolated lint-style lint-defect-audits lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse build lint-c-header lint-c-header-snapshot lint-c-header-types test-c build-c-bench test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"
