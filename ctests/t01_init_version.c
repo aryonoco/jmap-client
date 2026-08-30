@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /* Copyright (c) 2026 Aryan Ameri */
-#include <assert.h>
-#include <string.h>
-#include <stdio.h>
 #include "jmap_client.h"
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
 
 /* The status ordinals are the ABI. Pre-1.0 they are not frozen, so
  * these assertions exist to make a renumber a deliberate act: the
@@ -28,10 +28,10 @@ _Static_assert(JMAP_CLIENT_VERSION_PATCH == 0, "version macro");
  * runtime string answer to them. */
 #define JMAP_STRINGIFY_(x) #x
 #define JMAP_STRINGIFY(x) JMAP_STRINGIFY_(x)
-#define JMAP_EXPECTED_VERSION                     \
-  JMAP_STRINGIFY(JMAP_CLIENT_VERSION_MAJOR) "."   \
-  JMAP_STRINGIFY(JMAP_CLIENT_VERSION_MINOR) "."   \
-  JMAP_STRINGIFY(JMAP_CLIENT_VERSION_PATCH)
+#define JMAP_EXPECTED_VERSION                                                  \
+  JMAP_STRINGIFY(JMAP_CLIENT_VERSION_MAJOR)                                    \
+  "." JMAP_STRINGIFY(JMAP_CLIENT_VERSION_MINOR) "." JMAP_STRINGIFY(            \
+      JMAP_CLIENT_VERSION_PATCH)
 
 int main(void) {
   /* strerror and version are static and callable BEFORE jmap_init. */

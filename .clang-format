@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2026 Aryan Ameri
+#
+# Stock LLVM style, deliberately unmodified. LLVM's defaults already give
+# a 2-space indent and an 80-column limit, which is what .editorconfig and
+# editor.rulers ask for; anything further would be a house style nobody
+# outside this repository can predict.
+---
+BasedOnStyle: LLVM

@@ -24,6 +24,11 @@ echo "  Done"
 echo ""
 echo "Installing Python tools via uv..."
 uv tool install reuse==6.2.0
+# clang-format comes from PyPI rather than apt so that the devcontainer and
+# the CI runner get a byte-identical binary; the distro packages diverge by
+# major version, and clang-format's output is not stable across those.
+# Keep in sync with .github/workflows/ci.yml.
+uv tool install clang-format==23.1.0
 echo "  Done"
 
 echo ""
@@ -70,7 +75,7 @@ echo ""
 echo "Verifying CLI tool availability..."
 failed=0
 for cmd in nim nimble nph nimlangserver nimalyzer just cspell reuse \
-           rg bat delta shellcheck shfmt sd python3 \
+           clang-format rg bat delta shellcheck shfmt sd python3 \
            eza dust hyperfine tokei bwrap socat \
            yq sg watchexec docker; do
     if ! command -v "${cmd}" &>/dev/null; then

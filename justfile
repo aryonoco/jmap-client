@@ -350,14 +350,20 @@ test-full:
 # CODE QUALITY
 # =============================================================================
 
-# Format all source files with nph
-fmt:
+# Every C file in the tree. The header is included deliberately: it is
+# hand-curated prose around generated-looking declarations, and leaving it
+# out would mean the one file most often edited by hand is the one file
+# with no mechanical check on its layout.
+c_sources := "include/*.h ctests/*.c ctests/*.h examples/jmap-c-cli/*.c"
+
+# Format all source files (Nim via nph, C via clang-format)
+fmt: fmt-c
     @echo "Formatting source files..."
     nph src/ tests/
     @echo "Formatting complete"
 
 # Check formatting without modifying (CI-friendly)
-fmt-check:
+fmt-check: fmt-c-check
     @echo "Checking formatting..."
     nph --check src/ tests/
     @echo "Formatting check passed"
@@ -366,6 +372,18 @@ fmt-check:
 fmt-diff:
     @echo "Showing formatting diff..."
     nph --diff src/ tests/
+
+# Format C sources against the stock LLVM style in .clang-format
+fmt-c:
+    @echo "Formatting C sources..."
+    clang-format -i {{ c_sources }}
+    @echo "C formatting complete"
+
+# Check C formatting without modifying (CI-friendly)
+fmt-c-check:
+    @echo "Checking C formatting..."
+    clang-format --dry-run --Werror {{ c_sources }}
+    @echo "C formatting check passed"
 
 # Lint source files (Nim compile-time checks)
 lint:
