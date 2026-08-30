@@ -504,10 +504,9 @@ proc sendPlainText*(
   ## draft in ``mailboxes.drafts`` with the ``$draft`` keyword and an inline
   ## text/plain body, then submit it from ``identityId``; on success the server
   ## moves the message into ``mailboxes.sent`` and drops ``$draft`` (RFC 8621
-  ## §7.5 ¶3). Addresses are taken as strings and parsed
-  ## internally onto the rail — ``message.fromAddr``/``to``/``cc``/``bcc``
-  ## populate the Email headers, and their RFC 5321 forms populate the
-  ## submission envelope.
+  ## §7.5 ¶3). Addresses are taken as strings and parsed internally onto the
+  ## rail — ``message.fromAddr``/``to``/``cc``/``bcc`` populate the Email
+  ## headers, and their RFC 5321 forms populate the submission envelope.
   let draftCid = ?parseCreationId("draft").lift
   let subCid = ?parseCreationId("sub").lift
   let draftBp = ?buildDraftBlueprint(mailboxes.drafts, message)
