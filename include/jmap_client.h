@@ -596,6 +596,103 @@ const char *jmap_sync_destroyed_at(const jmap_sync *s, size_t i);
 const jmap_emails *jmap_sync_created(const jmap_sync *s);
 const jmap_emails *jmap_sync_updated(const jmap_sync *s);
 
+/* --- Send --------------------------------------------------------------- */
+
+typedef struct jmap_message jmap_message;
+typedef struct jmap_send_result jmap_send_result;
+
+/* A message is built one named value at a time, so no two values can
+ * be transposed at the call site and a value the surface learns to
+ * carry later costs one enum member rather than one more entry point.
+ * Every option here is a value the send itself accepts; there is no
+ * placeholder for a field it cannot carry. */
+typedef enum {
+  JMAP_MSG_IDENTITY_ID    = 0, /* string: the sending Identity id */
+  JMAP_MSG_DRAFTS_MAILBOX = 1, /* string: mailbox the draft is made in */
+  JMAP_MSG_SENT_MAILBOX   = 2, /* string: mailbox it moves to once sent */
+  JMAP_MSG_FROM           = 3, /* string: the sender's address */
+  JMAP_MSG_TO             = 4, /* string, list-valued: a To recipient */
+  JMAP_MSG_CC             = 5, /* string, list-valued: a Cc recipient */
+  JMAP_MSG_BCC            = 6, /* string, list-valued: a Bcc recipient */
+  JMAP_MSG_SUBJECT        = 7, /* string: the Subject header */
+  JMAP_MSG_BODY           = 8  /* string: the text/plain body */
+  /* additive growth only */
+} jmap_message_opt;
+
+jmap_status jmap_message_new(jmap_message **out);
+/* NULL is a no-op. Freeing after jmap_send has consumed the message is
+ * correct: the call copies what it needs. */
+void jmap_message_free(jmap_message *message);
+
+/* Typed option setter (the sqlite3_bind_* discipline): every option
+ * above is a string, so one setter covers the surface and a future
+ * option of another type arrives as its own setter without disturbing
+ * this one. An unrecognised option or a NULL value is JMAP_E_MISUSE; a
+ * value of the right type that is not a legal JMAP value -- an id that
+ * is not an id -- is JMAP_E_VALIDATION and leaves the message
+ * unchanged. Calling this twice for the SAME option replaces the
+ * earlier value outright -- on the three list-valued roles that means
+ * the WHOLE list is replaced by the single address supplied. This verb
+ * never accumulates; jmap_message_add_str is how a list grows.
+ *
+ * Ids are parsed here; addresses are not. The send owns the address
+ * parse (the headers and the RFC 5321 envelope are built from the same
+ * strings), so re-parsing them here would duplicate a check the
+ * library already performs: a malformed address is JMAP_E_VALIDATION
+ * from jmap_send, not from this call.
+ *
+ * The message carries no error slot of its own, so this status is the
+ * whole diagnosis for which setter failed -- attribution is
+ * code-granular, exactly as it is for jmap_query_set_str. */
+jmap_status jmap_message_set_str(jmap_message *message,
+                                 jmap_message_opt opt,
+                                 const char *value);
+
+/* Appends one address to a list-valued role. Append is its own verb,
+ * as curl_slist_append is its own function beside curl_easy_setopt,
+ * so neither verb changes meaning depending on the option it was
+ * handed: set always replaces, add always extends. Only JMAP_MSG_TO,
+ * JMAP_MSG_CC and JMAP_MSG_BCC hold lists; add_str on any of the six
+ * single-valued options is JMAP_E_MISUSE, as are an unrecognised
+ * option, a NULL message and a NULL value. Appending to a role no
+ * setter has named yet starts that role's list with this address, so
+ * a caller need not seed it with a set first. */
+jmap_status jmap_message_add_str(jmap_message *message,
+                                 jmap_message_opt opt,
+                                 const char *value);
+
+/* Creates the draft in JMAP_MSG_DRAFTS_MAILBOX with the $draft keyword
+ * and an inline text/plain body, submits it from JMAP_MSG_IDENTITY_ID,
+ * and asks the server to move it into JMAP_MSG_SENT_MAILBOX and drop
+ * $draft once the submission succeeds (RFC 8621 section 7.5). That is
+ * one request, not three.
+ *
+ * message must not be NULL, and JMAP_MSG_IDENTITY_ID,
+ * JMAP_MSG_DRAFTS_MAILBOX, JMAP_MSG_SENT_MAILBOX, JMAP_MSG_FROM and at
+ * least one of JMAP_MSG_TO / JMAP_MSG_CC / JMAP_MSG_BCC must be set. A
+ * message missing any of them is JMAP_E_MISUSE, refused before any
+ * network traffic; the message has no error slot, so jmap_errmsg on
+ * the CLIENT names the option that is unset. JMAP_MSG_SUBJECT and
+ * JMAP_MSG_BODY are optional and default to empty.
+ *
+ * The submission envelope's recipients are the union of To, Cc and Bcc,
+ * and the server removes the Bcc header field during delivery
+ * (RFC 8621 section 7.5).
+ *
+ * Unlike jmap_query_emails, a NULL message is not a legal default: an
+ * unfiltered query is a real request, an unaddressed send is not. */
+jmap_status jmap_send(jmap_client *client, const char *account_id,
+                      const jmap_message *message,
+                      jmap_send_result **out);
+void jmap_send_result_free(jmap_send_result *result);
+
+/* Both are non-NULL on a live handle: a send that could not report both
+ * server-assigned ids did not return JMAP_OK. NULL for a NULL handle,
+ * as every other pure-read accessor in this file. The borrows live
+ * until jmap_send_result_free. */
+const char *jmap_send_result_email_id(const jmap_send_result *r);
+const char *jmap_send_result_submission_id(const jmap_send_result *r);
+
 #ifdef __cplusplus
 }
 #endif

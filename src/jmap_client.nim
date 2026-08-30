@@ -2176,3 +2176,269 @@ proc jmapQueryEmails(
   clearError(client)
   outEmails[] = p
   asCint(jsOk)
+
+type JmapMessageHandle {.ruleOff: "objects".} = object
+  ## The message in the library's OWN types wherever one exists: the
+  ## three server-issued ids are parsed by their setter, so an id that
+  ## is not an Id is refused where the caller supplied it. The address
+  ## strings stay strings because the send parses them itself, into both
+  ## the headers and the RFC 5321 envelope; parsing them here as well
+  ## would duplicate a validation the substrate owns.
+  ##
+  ## Each address slot is optional so that "never set" stays distinct
+  ## from "set to something unusable": the first is caller misuse, the
+  ## second is a validation failure only the substrate can pronounce.
+  ## The three recipient roles hold LISTS because the substrate takes
+  ## lists, and the list itself sits inside the Opt so that a role no
+  ## verb has named stays distinguishable from one a caller named with
+  ## a single unusable address — a bare empty seq would flatten the two
+  ## together and turn a validation failure into a misuse. Subject and
+  ## body need no such distinction — absent and empty travel identically
+  ## — so they are plain strings with one representation.
+  identity: Opt[Id]
+  drafts: Opt[Id]
+  sent: Opt[Id]
+  fromAddr: Opt[string]
+  to: Opt[seq[string]]
+  cc: Opt[seq[string]]
+  bcc: Opt[seq[string]]
+  subject: string
+  body: string
+
+proc jmapMessageNew(
+    outMessage: ptr ptr JmapMessageHandle
+): cint {.exportc: "jmap_message_new", dynlib, cdecl, raises: [].} =
+  ## Every slot starts unset; a send names what it needs and nothing is
+  ## assumed on the caller's behalf. The latch is checked before the
+  ## allocation, not after: with --noMain the allocator's globals are
+  ## not up until jmap_init has run NimMain.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if outMessage.isNil:
+    return asCint(jsMisuse)
+  outMessage[] = createShared(JmapMessageHandle)
+  asCint(jsOk)
+
+proc jmapMessageFree(
+    handle: ptr JmapMessageHandle
+) {.exportc: "jmap_message_free", dynlib, cdecl, raises: [].} =
+  ## Drops the message; safe to free either before or after a send has
+  ## consumed it, since the send copies what it needs into the
+  ## substrate's own records.
+  if handle.isNil:
+    return
+  `=destroy`(handle[])
+  deallocShared(handle)
+
+func recipientList(slot: Opt[seq[string]]): seq[string] =
+  ## A role no verb has named contributes no header and no envelope
+  ## recipient, which is exactly what the substrate makes of an empty
+  ## list — so the two collapse here, at the boundary with the one-shot,
+  ## rather than inside the slot where the distinction still earns its
+  ## keep.
+  for addresses in slot:
+    return addresses
+  @[]
+
+func appended(slot: Opt[seq[string]], value: string): Opt[seq[string]] =
+  ## The role's addresses with one more at the end. A role no verb has
+  ## named yet becomes a one-address list, so an append needs no set to
+  ## work from.
+  for addresses in slot:
+    return Opt.some(addresses & @[value])
+  Opt.some(@[value])
+
+func sendArguments(
+    message: ptr JmapMessageHandle
+): Result[
+    tuple[identity: Id, mailboxes: SendMailboxes, plain: PlainTextMessage], string
+] =
+  ## Either the complete argument set the send takes, or the name of the
+  ## first required option the message left unset. One function states
+  ## what a send needs, so the readiness check and the diagnosis the
+  ## caller reads back cannot disagree, and nothing is unwrapped that
+  ## was not proven present.
+  let identity = message[].identity.valueOr:
+    return err("JMAP_MSG_IDENTITY_ID")
+  let drafts = message[].drafts.valueOr:
+    return err("JMAP_MSG_DRAFTS_MAILBOX")
+  let sent = message[].sent.valueOr:
+    return err("JMAP_MSG_SENT_MAILBOX")
+  let fromAddr = message[].fromAddr.valueOr:
+    return err("JMAP_MSG_FROM")
+  let to = recipientList(message[].to)
+  let cc = recipientList(message[].cc)
+  let bcc = recipientList(message[].bcc)
+  if to.len + cc.len + bcc.len == 0:
+    # The envelope's rcptTo is the To ∪ Cc ∪ Bcc union and cannot be
+    # empty (RFC 8621 §7.5), so one recipient in ANY role is the real
+    # requirement — naming To here is the diagnosis a caller acts on.
+    return err("JMAP_MSG_TO")
+  ok(
+    (
+      identity: identity,
+      mailboxes: SendMailboxes(drafts: drafts, sent: sent),
+      plain: PlainTextMessage(
+        fromAddr: fromAddr,
+        to: to,
+        cc: cc,
+        bcc: bcc,
+        subject: message[].subject,
+        body: message[].body,
+      ),
+    )
+  )
+
+proc setMessageId(message: ptr JmapMessageHandle, opt: cint, value: cstring): cint =
+  ## The three server-issued ids, parsed at the boundary and assigned to
+  ## exactly one slot, so a second call for the same option replaces the
+  ## first rather than leaving a sibling behind.
+  let parsed = parseIdFromServer($value)
+  if parsed.isErr:
+    return asCint(jsValidation)
+  let id = parsed.get()
+  case opt
+  of cint(0): # JMAP_MSG_IDENTITY_ID
+    message[].identity = Opt.some(id)
+  of cint(1): # JMAP_MSG_DRAFTS_MAILBOX
+    message[].drafts = Opt.some(id)
+  of cint(2): # JMAP_MSG_SENT_MAILBOX
+    message[].sent = Opt.some(id)
+  else:
+    return asCint(jsMisuse)
+  asCint(jsOk)
+
+proc setMessageText(message: ptr JmapMessageHandle, opt: cint, value: cstring): cint =
+  ## The address and content slots. One assignment per call: an option
+  ## set twice keeps the second value only, and on a list-valued role
+  ## the assignment replaces the whole list rather than growing it —
+  ## which is what keeps this verb meaning one thing whichever ordinal
+  ## it is handed.
+  let text = $value
+  case opt
+  of cint(3): # JMAP_MSG_FROM
+    message[].fromAddr = Opt.some(text)
+  of cint(4): # JMAP_MSG_TO
+    message[].to = Opt.some(@[text])
+  of cint(5): # JMAP_MSG_CC
+    message[].cc = Opt.some(@[text])
+  of cint(6): # JMAP_MSG_BCC
+    message[].bcc = Opt.some(@[text])
+  of cint(7): # JMAP_MSG_SUBJECT
+    message[].subject = text
+  of cint(8): # JMAP_MSG_BODY
+    message[].body = text
+  else:
+    return asCint(jsMisuse)
+  asCint(jsOk)
+
+proc jmapMessageSetStr(
+    message: ptr JmapMessageHandle, opt: cint, value: cstring
+): cint {.exportc: "jmap_message_set_str", dynlib, cdecl, raises: [].} =
+  ## Two families, split by how the value is validated rather than by
+  ## how it is spelled in C: an id is parsed here, a free-text value is
+  ## not. The latch is checked before ``$value`` allocates. Neither
+  ## helper recognises the other's ordinals, so an option outside the
+  ## enum falls out of whichever it reaches as misuse.
+  if not l5Initialised or message.isNil or value.isNil:
+    return asCint(jsMisuse)
+  if opt <= cint(2):
+    setMessageId(message, opt, value)
+  else:
+    setMessageText(message, opt, value)
+
+proc addMessageRecipient(
+    message: ptr JmapMessageHandle, opt: cint, value: cstring
+): cint =
+  ## Only the three recipient roles hold lists. Appending to a slot with
+  ## room for one value would have to mean "replace", which is the other
+  ## verb's job, so it is refused rather than quietly reinterpreted.
+  let text = $value
+  case opt
+  of cint(4): # JMAP_MSG_TO
+    message[].to = appended(message[].to, text)
+  of cint(5): # JMAP_MSG_CC
+    message[].cc = appended(message[].cc, text)
+  of cint(6): # JMAP_MSG_BCC
+    message[].bcc = appended(message[].bcc, text)
+  else:
+    return asCint(jsMisuse)
+  asCint(jsOk)
+
+proc jmapMessageAddStr(
+    message: ptr JmapMessageHandle, opt: cint, value: cstring
+): cint {.exportc: "jmap_message_add_str", dynlib, cdecl, raises: [].} =
+  ## Append is a verb of its own so that neither verb's meaning depends
+  ## on which ordinal it was handed: set replaces a role outright, add
+  ## extends one. Same guard order as the setter, and the latch is
+  ## checked before ``$value`` allocates.
+  if not l5Initialised or message.isNil or value.isNil:
+    return asCint(jsMisuse)
+  addMessageRecipient(message, opt, value)
+
+type JmapSendResultHandle {.ruleOff: "objects".} = object
+  ## The two server-assigned ids a successful send yields, flattened to
+  ## strings so every getter is a stable borrow.
+  emailId: string
+  submissionId: string
+
+proc jmapSend(
+    client: ptr JmapClientHandle,
+    accountId: cstring,
+    message: ptr JmapMessageHandle,
+    outResult: ptr ptr JmapSendResultHandle,
+): cint {.exportc: "jmap_send", dynlib, cdecl, raises: [].} =
+  ## A projection over the sendPlainText one-shot: composing the draft,
+  ## filing it in Drafts and submitting it are its business (RFC 8621
+  ## §7.5), so this reads the message's slots and records the outcome.
+  ## An incomplete message is refused here, before any request is built,
+  ## and the client's error slot carries the name the message handle has
+  ## nowhere to put.
+  if not l5Initialised:
+    return asCint(jsMisuse)
+  if client.isNil:
+    return asCint(jsMisuse)
+  if outResult.isNil:
+    return recordMisuse(client, "out parameter must not be NULL")
+  if message.isNil:
+    return recordMisuse(client, "message must not be NULL")
+  var acct = default(AccountId)
+  let parsedAcct = parseAccountArg(client, accountId, acct)
+  if parsedAcct != asCint(jsOk):
+    return parsedAcct
+  let args = sendArguments(message)
+  if args.isErr:
+    return recordMisuse(client, "message option not set: " & args.error)
+  let ready = args.get()
+  let resp =
+    sendPlainText(client[].client, acct, ready.identity, ready.mailboxes, ready.plain)
+  if resp.isErr:
+    return recordError(client, resp.error)
+  let sent = resp.get()
+  let p = createShared(JmapSendResultHandle)
+  p[].emailId = $sent.emailId
+  p[].submissionId = $sent.submissionId
+  clearError(client)
+  outResult[] = p
+  asCint(jsOk)
+
+proc jmapSendResultFree(
+    handle: ptr JmapSendResultHandle
+) {.exportc: "jmap_send_result_free", dynlib, cdecl, raises: [].} =
+  ## Drops the last reference to the send outcome.
+  if handle.isNil:
+    return
+  `=destroy`(handle[])
+  deallocShared(handle)
+
+proc jmapSendResultEmailId(
+    r: ptr JmapSendResultHandle
+): cstring {.exportc: "jmap_send_result_email_id", dynlib, cdecl, raises: [].} =
+  ## Always populated: the id of the drafted email that was submitted.
+  if r.isNil: nil else: r[].emailId.cstring
+
+proc jmapSendResultSubmissionId(
+    r: ptr JmapSendResultHandle
+): cstring {.exportc: "jmap_send_result_submission_id", dynlib, cdecl, raises: [].} =
+  ## Always populated: the id of the EmailSubmission this send created.
+  if r.isNil: nil else: r[].submissionId.cstring

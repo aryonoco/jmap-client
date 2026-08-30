@@ -56,7 +56,7 @@ int main(void) {
   assert(jmap_get_threads(c, acct, tids, SIZE_MAX, &huge) == JMAP_E_MISUSE);
   jmap_threads_free(ths);
 
-  /* Identities: what a sender enumerates before jmap_send_plain_text. */
+  /* Identities: what a sender enumerates before jmap_send. */
   jmap_identities *ids = NULL;
   assert(jmap_get_identities(c, acct, &ids) == JMAP_OK);
   assert(jmap_identities_count(ids) >= 1);
