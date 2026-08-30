@@ -2292,20 +2292,26 @@ func sendArguments(
 proc setMessageId(message: ptr JmapMessageHandle, opt: cint, value: cstring): cint =
   ## The three server-issued ids, parsed at the boundary and assigned to
   ## exactly one slot, so a second call for the same option replaces the
-  ## first rather than leaving a sibling behind.
+  ## first rather than leaving a sibling behind. Dispatches on the
+  ## ordinal FIRST, as jmapQuerySetStr does, so an option this build
+  ## does not recognise is refused before the value is ever parsed.
+  let slot =
+    case opt
+    # JMAP_MSG_IDENTITY_ID
+    of cint(0):
+      addr message[].identity
+    # JMAP_MSG_DRAFTS_MAILBOX
+    of cint(1):
+      addr message[].drafts
+    # JMAP_MSG_SENT_MAILBOX
+    of cint(2):
+      addr message[].sent
+    else:
+      return asCint(jsMisuse)
   let parsed = parseIdFromServer($value)
   if parsed.isErr:
     return asCint(jsValidation)
-  let id = parsed.get()
-  case opt
-  of cint(0): # JMAP_MSG_IDENTITY_ID
-    message[].identity = Opt.some(id)
-  of cint(1): # JMAP_MSG_DRAFTS_MAILBOX
-    message[].drafts = Opt.some(id)
-  of cint(2): # JMAP_MSG_SENT_MAILBOX
-    message[].sent = Opt.some(id)
-  else:
-    return asCint(jsMisuse)
+  slot[] = Opt.some(parsed.get())
   asCint(jsOk)
 
 proc setMessageText(message: ptr JmapMessageHandle, opt: cint, value: cstring): cint =
