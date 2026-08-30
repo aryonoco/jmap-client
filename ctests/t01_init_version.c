@@ -21,6 +21,18 @@ _Static_assert(JMAP_CLIENT_VERSION_MAJOR == 0, "version macro");
 _Static_assert(JMAP_CLIENT_VERSION_MINOR == 1, "version macro");
 _Static_assert(JMAP_CLIENT_VERSION_PATCH == 0, "version macro");
 
+/* The macros and jmap_version() are two statements of one version, and
+ * a literal on each side holds neither to the other: bump the macros
+ * and both assertions still pass while the header and the library
+ * disagree. Building the expected string from the macros makes the
+ * runtime string answer to them. */
+#define JMAP_STRINGIFY_(x) #x
+#define JMAP_STRINGIFY(x) JMAP_STRINGIFY_(x)
+#define JMAP_EXPECTED_VERSION                     \
+  JMAP_STRINGIFY(JMAP_CLIENT_VERSION_MAJOR) "."   \
+  JMAP_STRINGIFY(JMAP_CLIENT_VERSION_MINOR) "."   \
+  JMAP_STRINGIFY(JMAP_CLIENT_VERSION_PATCH)
+
 int main(void) {
   /* strerror and version are static and callable BEFORE jmap_init. */
   for (int c = 0; c <= 8; c++) {
@@ -28,7 +40,7 @@ int main(void) {
     assert(m != NULL && strlen(m) > 0);
   }
   assert(strcmp(jmap_strerror((jmap_status)999), "unknown status code") == 0);
-  assert(strcmp(jmap_version(), "0.1.0") == 0);
+  assert(strcmp(jmap_version(), JMAP_EXPECTED_VERSION) == 0);
 
   assert(jmap_init() == JMAP_OK);
   assert(jmap_init() == JMAP_OK); /* idempotent */
