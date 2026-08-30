@@ -593,21 +593,21 @@ const char *jmap_identity_email(const jmap_identity *ident);
 typedef struct jmap_set_result jmap_set_result;
 
 /*
- * jmap_mark_read(), jmap_mark_unread(), jmap_move_emails() and
- * jmap_destroy_emails() each take an array of n email ids. Each hands
- * back a jmap_set_result that must be freed with
+ * jmap_mark_emails_read(), jmap_mark_emails_unread(),
+ * jmap_move_emails() and jmap_destroy_emails() each take an array of n
+ * email ids. Each hands back a jmap_set_result that must be freed with
  * jmap_set_result_free().
  *
  * A refusal of one id is data on the result object, not an error. The
  * returned status reports failure of the whole call only.
  *
- * jmap_mark_read(), jmap_mark_unread() and jmap_move_emails() reject an
- * empty array and duplicate ids with JMAP_E_VALIDATION, before they
- * send anything. jmap_destroy_emails() accepts both. An empty array is
- * legal on the wire and destroys nothing. Duplicate ids go to the
- * server as given, and the server answers each one on its own, as
- * RFC 8620 section 5.3 requires. Destroy has no client-side check that
- * rejects a repeat.
+ * jmap_mark_emails_read(), jmap_mark_emails_unread() and
+ * jmap_move_emails() reject an empty array and duplicate ids with
+ * JMAP_E_VALIDATION, before they send anything. jmap_destroy_emails()
+ * accepts both. An empty array is legal on the wire and destroys
+ * nothing. Duplicate ids go to the server as given, and the server
+ * answers each one on its own, as RFC 8620 section 5.3 requires.
+ * Destroy has no client-side check that rejects a repeat.
  *
  * The updated, destroyed and failure lists on the result follow the
  * order of the server's own answer, not the order you submitted the ids
@@ -615,12 +615,14 @@ typedef struct jmap_set_result jmap_set_result;
  * up with the array you submitted, match by id. Never match by
  * position.
  */
-jmap_status jmap_mark_read(jmap_client *client, const char *account_id,
-                           const char *const *ids, size_t n,
-                           jmap_set_result **out);
-jmap_status jmap_mark_unread(jmap_client *client, const char *account_id,
-                             const char *const *ids, size_t n,
-                             jmap_set_result **out);
+jmap_status jmap_mark_emails_read(jmap_client *client,
+                                  const char *account_id,
+                                  const char *const *ids, size_t n,
+                                  jmap_set_result **out);
+jmap_status jmap_mark_emails_unread(jmap_client *client,
+                                    const char *account_id,
+                                    const char *const *ids, size_t n,
+                                    jmap_set_result **out);
 /*
  * jmap_move_emails() replaces the whole mailbox membership of every
  * email it is given. Afterwards each email is in mailbox_id and in no

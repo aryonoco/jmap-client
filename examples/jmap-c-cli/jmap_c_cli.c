@@ -189,7 +189,7 @@ static int print_set_result(jmap_set_result *r, const char *verb) {
 static int cmd_flag(const char *id) {
   const char *ids[] = { id };
   jmap_set_result *r = NULL;
-  jmap_status s = jmap_mark_read(g_client, g_account, ids, 1, &r);
+  jmap_status s = jmap_mark_emails_read(g_client, g_account, ids, 1, &r);
   if (s != JMAP_OK) return die("Email/set", s);
   return print_set_result(r, "flagged");
 }

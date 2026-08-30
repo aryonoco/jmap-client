@@ -82,11 +82,11 @@ Every awkward call site recorded here is a bug against the C API design
   truncation, as `copy_borrow()` does, or calls `strlen()` and
   `malloc()` for every field it keeps.
 - **Two different shapes for one refused write.** A refusal of an id in
-  `jmap_mark_read()` or `jmap_move_emails()` is data on the result, read
-  with `jmap_set_result_failure_type_at()`. A refusal of the one object
-  `jmap_send()` creates is the status `JMAP_E_SET` instead, read with
-  `jmap_errtype()`. It is a wire type string either way, so the bench
-  writes two code paths to reach one value.
+  `jmap_mark_emails_read()` or `jmap_move_emails()` is data on the
+  result, read with `jmap_set_result_failure_type_at()`. A refusal of
+  the one object `jmap_send()` creates is the status `JMAP_E_SET`
+  instead, read with `jmap_errtype()`. It is a wire type string either
+  way, so the bench writes two code paths to reach one value.
 - **Naming a well-known mailbox costs a round trip.** There is no lookup
   by role, so `find_role_mailbox()` fetches every mailbox in the account
   and walks the list — twice per `send`, once for Drafts and once for

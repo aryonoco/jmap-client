@@ -1567,24 +1567,24 @@ proc runEmailWrite(
   outResult[] = p
   asCint(jsOk)
 
-proc jmapMarkRead(
+proc jmapMarkEmailsRead(
     client: ptr JmapClientHandle,
     accountId: cstring,
     ids: ptr cstring,
     n: csize_t,
     outResult: ptr ptr JmapSetResultHandle,
-): cint {.exportc: "jmap_mark_read", dynlib, cdecl, raises: [].} =
+): cint {.exportc: "jmap_mark_emails_read", dynlib, cdecl, raises: [].} =
   ## A thin op-selecting wrapper; runEmailWrite carries the boundary
   ## checks shared by every unary email write.
   runEmailWrite(client, accountId, ids, n, ewMarkRead, outResult)
 
-proc jmapMarkUnread(
+proc jmapMarkEmailsUnread(
     client: ptr JmapClientHandle,
     accountId: cstring,
     ids: ptr cstring,
     n: csize_t,
     outResult: ptr ptr JmapSetResultHandle,
-): cint {.exportc: "jmap_mark_unread", dynlib, cdecl, raises: [].} =
+): cint {.exportc: "jmap_mark_emails_unread", dynlib, cdecl, raises: [].} =
   ## A thin op-selecting wrapper; runEmailWrite carries the boundary
   ## checks shared by every unary email write.
   runEmailWrite(client, accountId, ids, n, ewMarkUnread, outResult)

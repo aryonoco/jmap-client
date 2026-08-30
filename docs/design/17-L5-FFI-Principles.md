@@ -513,6 +513,17 @@ carry no error slot of their own (the status a setter returns is its
 only report), and are copied by the call that consumes them, so freeing
 one immediately after use is correct.
 
+*Amendment (2026-08-30).* The flag row of the map above names
+`jmap_mark_read` and `jmap_mark_unread`. What ships is
+`jmap_mark_emails_read` and `jmap_mark_emails_unread` (owner decision
+2026-08-30). Every other multi-object call on this surface names the
+object it acts on — `jmap_get_emails`, `jmap_query_emails`,
+`jmap_move_emails`, `jmap_destroy_emails` — and the two mark verbs take
+the identical `(client, account_id, ids, n, out)` shape as the two
+beside them in that row, so the object belongs in their names for the
+reason it belongs in the others'. Nothing else about the row moves; the
+Nim substrate was already `markEmailsRead` / `markEmailsUnread`.
+
 ## 9. Versioning
 
 - `include/jmap_client.h` carries `JMAP_CLIENT_VERSION_MAJOR/MINOR/
