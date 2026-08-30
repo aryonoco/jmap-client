@@ -670,10 +670,15 @@ jmap_status jmap_message_add_str(jmap_message *message,
  * message must not be NULL, and JMAP_MSG_IDENTITY_ID,
  * JMAP_MSG_DRAFTS_MAILBOX, JMAP_MSG_SENT_MAILBOX, JMAP_MSG_FROM and at
  * least one of JMAP_MSG_TO / JMAP_MSG_CC / JMAP_MSG_BCC must be set. A
- * message missing any of them is JMAP_E_MISUSE, refused before any
- * network traffic; the message has no error slot, so jmap_errmsg on
- * the CLIENT names the option that is unset. JMAP_MSG_SUBJECT and
- * JMAP_MSG_BODY are optional and default to empty.
+ * message missing any of them is JMAP_E_MISUSE, refused before any network
+ * traffic; the message has no error slot, so jmap_errmsg on the CLIENT
+ * names the option that is unset.
+ *
+ * When none of JMAP_MSG_TO / JMAP_MSG_CC / JMAP_MSG_BCC is set, that name
+ * is JMAP_MSG_TO, standing for the whole group -- not a claim that
+ * JMAP_MSG_TO alone would satisfy the requirement.
+ *
+ * JMAP_MSG_SUBJECT and JMAP_MSG_BODY are optional and default to empty.
  *
  * The submission envelope's recipients are the union of To, Cc and Bcc,
  * and the server removes the Bcc header field during delivery

@@ -86,7 +86,15 @@ int main(void) {
          == JMAP_OK);
   assert(jmap_message_set_str(m, JMAP_MSG_FROM, "me@example.com")
          == JMAP_OK);
-  assert(jmap_message_set_str(m, JMAP_MSG_BCC, "dana@example.com")
+  /* BCC receives no set_str call at all here, only two add_str calls:
+   * the first names a role no setter has touched yet (the fallback arm
+   * that starts its list, rather than refusing or silently doing
+   * nothing), and the second extends it. Both addresses are asserted
+   * on the wire below, so either arm failing to produce a real list
+   * entry fails here. */
+  assert(jmap_message_add_str(m, JMAP_MSG_BCC, "dana@example.com")
+         == JMAP_OK);
+  assert(jmap_message_add_str(m, JMAP_MSG_BCC, "erin@example.com")
          == JMAP_OK);
   /* Set twice: the second value replaces the first outright. The stale
    * values are asserted ABSENT from the wire below, so a setter that
@@ -132,8 +140,12 @@ int main(void) {
   assert(r == NULL);
 
   assert(jmap_send(c, acct, m, &r) == JMAP_OK);
-  assert(jmap_send_result_email_id(r) != NULL);
-  assert(jmap_send_result_submission_id(r) != NULL);
+  /* The fixture's two created ids, not merely "some non-NULL string":
+   * a transposed assignment between the two output fields would still
+   * pass a bare NULL check but fails strcmp against the id that
+   * belongs to each accessor. */
+  assert(strcmp(jmap_send_result_email_id(r), "em-1") == 0);
+  assert(strcmp(jmap_send_result_submission_id(r), "sub-1") == 0);
   assert(jmap_send_result_email_id(NULL) == NULL);
   assert(jmap_send_result_submission_id(NULL) == NULL);
 
@@ -151,6 +163,7 @@ int main(void) {
   assert(role_carries(st.last_request, "\"to\"", "also@example.com"));
   assert(role_carries(st.last_request, "\"cc\"", "carol@example.com"));
   assert(role_carries(st.last_request, "\"bcc\"", "dana@example.com"));
+  assert(role_carries(st.last_request, "\"bcc\"", "erin@example.com"));
   assert(strstr(st.last_request, "stale@example.com") == NULL);
   assert(strstr(st.last_request, "stale subject") == NULL);
   assert(strstr(st.last_request, "collapsed@example.com") == NULL);
