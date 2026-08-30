@@ -166,8 +166,12 @@ type DateViolation = enum
   dvRequiresZ
 
 func detectDatePortion(raw: string): Result[void, DateViolation] =
-  ## YYYY-MM-DD at positions 0..9. Precondition: raw.len >= 20
-  ## (enforced by detectDate before this detector is reached).
+  ## YYYY-MM-DD at positions 0..9. Total in its own right: the length
+  ## floor the positional reads below need is checked here rather than
+  ## left to the composer, so no caller can turn a short string into an
+  ## ``IndexDefect`` — which under ``--panics:on`` is a process kill.
+  if raw.len < 20:
+    return err(dvTooShort)
   if not (
     allDigits(raw, idx(0), idx(3)) and raw[4] == '-' and allDigits(raw, idx(5), idx(6)) and
     raw[7] == '-' and allDigits(raw, idx(8), idx(9))
@@ -177,7 +181,10 @@ func detectDatePortion(raw: string): Result[void, DateViolation] =
 
 func detectTimePortion(raw: string): Result[void, DateViolation] =
   ## HH:MM:SS at positions 11..18, with uppercase 'T' separator at 10.
-  ## Precondition: raw.len >= 20 (enforced by detectDate).
+  ## Carries its own length floor for the same reason
+  ## ``detectDatePortion`` does.
+  if raw.len < 20:
+    return err(dvTooShort)
   if raw[10] != 'T':
     return err(dvLowercaseT)
   elif not (

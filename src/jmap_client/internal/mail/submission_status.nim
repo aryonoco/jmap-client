@@ -226,10 +226,14 @@ func toValidationError(v: SmtpReplyViolation, raw: string): ValidationError =
 # --- Atomic detectors ------------------------------------------------------
 
 func detectReplyCodeGrammar*(line: string): Result[ReplyCode, SmtpReplyViolation] =
-  ## Three-digit Reply-code grammar (RFC 5321 §4.2.3). Precondition
-  ## ``line.len >= 3`` (caller-enforced). Returns the numeric Reply-
-  ## code; the ``StatusCodeClass`` is derivable from the first digit
-  ## when the caller needs it.
+  ## Three-digit Reply-code grammar (RFC 5321 §4.2.3). Returns the
+  ## numeric Reply-code; the ``StatusCodeClass`` is derivable from the
+  ## first digit when the caller needs it. The length floor is checked
+  ## here rather than assumed of the caller: an unguarded positional
+  ## read is an ``IndexDefect``, and under ``--panics:on`` that kills
+  ## the host process instead of returning a violation.
+  if line.len < 3:
+    return err(srLineTooShort)
   if line[0] notin {'2' .. '5'}:
     return err(srBadReplyCodeDigit1)
   if line[1] notin {'0' .. '5'}:
@@ -244,8 +248,12 @@ func detectReplyCodeGrammar*(line: string): Result[ReplyCode, SmtpReplyViolation
 func detectSeparator*(line: string, isFinal: bool): Result[void, SmtpReplyViolation] =
   ## Byte after the Reply-code: SP/HT on the final line, ``'-'`` on a
   ## continuation. A bare 3-char line with no separator is legal only
-  ## as the final line.
-  if line.len == 3:
+  ## as the final line; anything shorter has no Reply-code at all. Both
+  ## short cases are settled before the separator byte is read, so the
+  ## read cannot raise ``IndexDefect``.
+  if line.len <= 3:
+    if line.len < 3:
+      return err(srLineTooShort)
     if isFinal:
       return ok()
     return err(srMultilineContinuation)
