@@ -378,19 +378,36 @@ With `--panics:on`, Defects call `rawQuit(1)` which maps to C `exit(1)`:
 
 ## Input Validation
 
-Validate all inputs BEFORE operations that could trigger Defects:
+Validate all inputs BEFORE operations that could trigger Defects. Every
+indexed accessor on the surface takes the same two guards -- a nil
+handle and an out-of-range index -- and answers the absent value rather
+than the caller's mistake:
 
 ```nim
-proc jmapResponseGetItem(resp: pointer, idx: cint, outItem: ptr cint): cint
-    {.exportc: "jmap_response_get_item", dynlib, cdecl, raises: [].} =
-  if resp.isNil or outItem.isNil:
-    return cint(ord(jsMisuse))                    # prevents NilAccessDefect
-  let r = cast[ptr ResponseObj](resp)
-  if idx < 0 or idx >= cint(r[].items.len):
-    return cint(ord(jsMisuse))                    # prevents IndexDefect
-  outItem[] = cint(r[].items[idx])                # now safe to index
-  return cint(ord(jsOk))
+proc jmapEmailsAt(
+    handle: ptr JmapEmailsHandle, i: csize_t
+): ptr EmailItem {.exportc: "jmap_emails_at", dynlib, cdecl, raises: [].} =
+  ## Out-of-range is NULL, not a defect: pure reads never fail. ``i`` is
+  ## compared against the count while both are still ``csize_t``
+  ## (unsigned), so a caller's ``SIZE_MAX`` answers NULL instead of
+  ## narrowing to ``int`` first and raising a RangeDefect across this
+  ## ``raises: []`` boundary.
+  if handle.isNil or i >= csize_t(handle[].items.len):
+    return nil
+  addr handle[].items[int(i)]
 ```
+
+The width of the comparison is the part that is easy to lose. `SIZE_MAX`
+is the ordinary result of an `n - 1` underflow in C caller code, and
+narrowing it to `int` before the bounds test raises `RangeDefect` before
+the test can reject it -- a Defect no `raises: []` annotation tracks and
+no C frame can unwind. Compare while both sides are still unsigned, then
+narrow only the index that survived.
+
+A read accessor reports absence by returning NULL, because it has no
+status to return and a borrow has no sentinel to spare. A call that
+returns `jmap_status` reports the same misuse as `jsMisuse`, with the
+answer left untouched in its out-parameter.
 
 
 ## Pre-Ship Checklist

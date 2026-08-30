@@ -519,10 +519,13 @@ one immediately after use is correct.
 2026-08-30). Every other multi-object call on this surface names the
 object it acts on — `jmap_get_emails`, `jmap_query_emails`,
 `jmap_move_emails`, `jmap_destroy_emails` — and the two mark verbs take
-the identical `(client, account_id, ids, n, out)` shape as the two
-beside them in that row, so the object belongs in their names for the
-reason it belongs in the others'. Nothing else about the row moves; the
-Nim substrate was already `markEmailsRead` / `markEmailsUnread`.
+the identical `(client, account_id, ids, n, out)` shape as
+`jmap_destroy_emails`, which sits beside them in that row.
+`jmap_move_emails` shares the row but not the shape: it carries a sixth
+parameter naming the destination mailbox. The object belongs in the two
+mark verbs' names for the reason it belongs in the others'. Nothing
+else about the row moves; the Nim substrate was already
+`markEmailsRead` / `markEmailsUnread`.
 
 *Amendment (2026-08-30).* "Complete for an email client" overstates the
 "Read email (bodies)" row. A C consumer holding a `jmap_email` reads
@@ -663,17 +666,18 @@ never compiles is indistinguishable from an audit that passes.
 `just lint-defect-audits` compiles all four and runs in `check`, in
 `ci`, and in the hosted workflow.
 
-The C compliance suite is fourteen plain-C programs, and every one of
-the eight `JMAP_E_*` statuses is the return value of a real call in at
-least one of them — not merely a name the header declares.
-`JMAP_E_REQUEST` was the last to earn that. Nothing asserted it, because
-no test scripted a body the classifier would read as a rejection. One of
-the two shapes that rejection arrives in also needed harness work: the
-ordinary one — an HTTP error status carrying the RFC 7807 problem details
-RFC 8620 §3.6.1 asks for — cannot be produced by a replay that hard-codes
-a 200 carrying `application/json`, because the library classifies a
-response by status and Content-Type before it reads the body. Hence the
-second replay transport in `ctests/canned.h`.
+*Amendment (2026-08-30).* The C compliance suite is fourteen plain-C
+programs, and every one of the eight `JMAP_E_*` statuses is the return
+value of a real call in at least one of them — not merely a name the
+header declares. `JMAP_E_REQUEST` was the last to earn that. Nothing
+asserted it, because no test scripted a body the classifier would read
+as a rejection. One of the two shapes that rejection arrives in also
+needed harness work: the ordinary one — an HTTP error status carrying
+the RFC 7807 problem details RFC 8620 §3.6.1 asks for — cannot be
+produced by a replay that hard-codes a 200 carrying
+`application/json`, because the library classifies a response by status
+and Content-Type before it reads the body. Hence the second replay
+transport in `ctests/canned.h`.
 `ctests/t14_request_error.c` drives it three ways: the rejection as a
 server sends it, the same rejection arriving on a 200 (which the older
 transport could have produced but no test asked for), and, as the
