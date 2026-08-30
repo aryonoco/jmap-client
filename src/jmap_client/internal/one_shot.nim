@@ -12,10 +12,10 @@
 ## a single-method shortcut, not a reclassification of the data semantics).
 ## The query-then-get compound dispatches a back-reference chain (RFC 8620
 ## §3.7) and extracts both halves via the uniform ``getBoth`` before each is
-## fulfilled. The send compound dispatches a §5.4 implicit-call pair but
-## consumes only the primary EmailSubmission/set outcome: the implicit
-## Drafts -> Sent Email/set is a server-side best-effort move (RFC 8621 §7.5 ¶3)
-## whose response does not gate send success.
+## fulfilled. The send compound dispatches an implicit-call pair (RFC 8621
+## §7.5) but consumes only the primary EmailSubmission/set outcome: the
+## implicit Drafts -> Sent Email/set is a server-side best-effort move
+## (RFC 8621 §7.5 ¶3) whose response does not gate send success.
 ##
 ## ``connect`` folds the endpoint + credential constructors and
 ## ``initJmapClient`` onto the rail; the RFC 8620 §2 session stays lazy
@@ -365,7 +365,7 @@ proc setVacationResponse*(
 
 # =============================================================================
 # sendPlainText — create a draft and submit it, moving it to Sent on success
-# (RFC 8621 §7.5/§7.5.1, RFC 8620 §5.3/§5.4)
+# (RFC 8621 §7.5/§7.5.1, RFC 8620 §5.3)
 # =============================================================================
 
 type SendMailboxes* {.ruleOff: "objects".} = object
@@ -504,7 +504,7 @@ proc sendPlainText*(
   ## draft in ``mailboxes.drafts`` with the ``$draft`` keyword and an inline
   ## text/plain body, then submit it from ``identityId``; on success the server
   ## moves the message into ``mailboxes.sent`` and drops ``$draft`` (RFC 8621
-  ## §7.5 ¶3, RFC 8620 §5.3/§5.4). Addresses are taken as strings and parsed
+  ## §7.5 ¶3). Addresses are taken as strings and parsed
   ## internally onto the rail — ``message.fromAddr``/``to``/``cc``/``bcc``
   ## populate the Email headers, and their RFC 5321 forms populate the
   ## submission envelope.
