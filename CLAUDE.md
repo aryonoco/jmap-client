@@ -56,13 +56,18 @@ You are running in the  devcontainer. Tooling is managed by `mise.toml` - single
 ## Commands
 
 - `just` - Show all available commands
-- `just build` - Build shared library
+- `just setup` - Install dependencies and git hooks (`core.hooksPath` → `.githooks/`)
+- `just build` / `just build-release` - Build `bin/libjmap_client.so`
 - `just test` - Run fast suite (skips slow files in `tests/testament_skip.txt`); agents should use this for validation and leave `just test-full` (runs everything) for the user.
+- `just test-file <path>` - Run a single testament file
+- `just test-c` - Build, then compile and run every `ctests/*.c` under ASan/UBSan
+- `just build-c-bench` - Build `examples/jmap-c-cli` against `include/jmap_client.h` alone
 - `just fmt` - Format all source files with nph
 - `just fmt-check` - Verify formatting
 - `just lint` - Run lint checks
 - `just analyse` - Run nimalyzer static analysis
-- `just ci` - Run full CI pipeline: reuse, fmt-check, the full lint battery (`lint`, `lint-isolated`, `lint-style`, the H1/H1b/H10/H11/H12/H13 boundary lints, the H15/H16/H17 snapshot locks), analyse, `test`
+- `just check` - Every quality gate except reuse, build and tests
+- `just ci` - Full pipeline (mirrors `.github/workflows/ci.yml`): reuse, fmt-check, the lint battery (`lint`, `lint-isolated`, `lint-style`, `lint-defect-audits`, the boundary lints, the H13/H15/H16/H17 snapshot locks), analyse, `build`, the H18/H19/H20 C-header gates, `test-c`, `build-c-bench`, `test`. Requires a C toolchain, not just Nim.
 - `just stalwart-up` / `stalwart-down` / `stalwart-reset` — Stalwart only
 - `just james-up` / `james-down` / `james-reset` — Apache James only
 - `just cyrus-up` / `cyrus-down` / `cyrus-reset` — Cyrus IMAP only
@@ -113,6 +118,12 @@ Access the Nim source code at /.nim-reference
 - `src/jmap_client/internal/mail/` — RFC 8621 JMAP Mail entities, including `combinators.nim` (the per-entity pipeline combinators, always-on — re-exported from `src/jmap_client.nim`)
 - `src/jmap_client/internal/{push,websocket}.nim` — Type stubs for RFC 8620 §7 Push and RFC 8887 WebSocket; types re-exported from root, no separate public module paths (A10c per P5 + P23)
 - `tests/` — Test modules (categories: `unit/`, `serde/`, `property/`, `compliance/`, `stress/`, `protocol/`, `integration/`, `wire_contract/`, `compile/`, `lint/`)
+- `tests/wire_contract/` — Checked-in snapshots (see Snapshot Locks)
+- `include/jmap_client.h` — The hand-curated C header; the C API's source of truth
+- `ctests/` — Plain-C ABI compliance tests, run by `just test-c`. Deliberately outside `tests/`: testament's `all` mode asserts on a category with no `.nim` files
+- `examples/jmap-cli` (Nim) and `examples/jmap-c-cli` (C) — Consumer benches, compiled against the public surface only
+- `docs/design/14-Nim-API-Principles.md`, `docs/design/17-L5-FFI-Principles.md` — Where the A/P/D ledger numbers cited in justfile and code comments are defined
+- `docs/TODO/` — Registers of deferred work
 
 ## Coding Conventions
 
@@ -132,13 +143,20 @@ Access the Nim source code at /.nim-reference
 
 ## C ABI
 
-  - Export C ABI functions with `{.exportc: "jmap_name", dynlib, cdecl, raises: [].}` pragmas
-  - Layer 5 C ABI pattern-matches on Result values to produce C error codes
+- Every export lives in `src/jmap_client.nim` as `{.exportc: "jmap_name", dynlib, cdecl, raises: [].}`; nothing else in the tree exports to C
+- `include/jmap_client.h` is hand-curated, not generated. Changing an export means editing it by hand, then passing H18 (`lint-c-header`, inventory both ways), H19 (`lint-c-header-snapshot`) and H20 (`lint-c-header-types`, cross-checks declarations against `nim c --header` output)
+- Error model follows SQLite: a `jmap_status` ordinal returned per call, `recordError(handle, err)` filling a per-handle slot that `jmap_errmsg` (borrowed message) and `jmap_errtype` (wire error type) read back. `jmap_strerror` is static and handle-free. No thread-local last-error state
+- `jmap_init` runs `NimMain()` behind a process-wide latch. The library is `--app:lib --noMain`, so module globals are uninitialised until it runs; every export that allocates or returns a status checks the latch first. `jmap_strerror` and `jmap_version` are the only pre-init entry points
+- `docs/design/17-L5-FFI-Principles.md` is authoritative for the C ABI and supersedes `.claude/rules/nim-ffi-boundary.md` and `docs/design/00-architecture.md` §5 where they disagree
 
 ## Comments
 
 - Comments should explain _why_, never _what_. The _what_ belongs in the types.
 - Comments and docstrings: British English spelling
+
+## Licensing
+
+Every new file needs an inline SPDX header (a `BSD-2-Clause` licence identifier plus a copyright line) or a matching annotation in `REUSE.toml`, or `just reuse` — the first step of `just ci` — fails. `ctests/`, `include/` and `examples/` match no `REUSE.toml` path glob and rely entirely on inline headers. REUSE scans this file too, so never spell a literal SPDX tag out in prose here — it gets parsed as a real one.
 
 ## Nim Coding Rules
 
@@ -152,7 +170,22 @@ Detailed Nim patterns are in `.claude/rules/`:
 
 - Never suppress or relax nimalyzer rules (e.g. `ruleOff: "complexity"`). Always restructure code to comply. To reduce complexity decompose into sub-helpers, extract field-group comparisons, use generics for shared logic.
 
+## Snapshot Locks
+
+Five gates compare live output against a checked-in snapshot under
+`tests/wire_contract/` and fail closed on drift. Never hand-edit a
+snapshot — regenerate it, review the diff, and tag the PR.
+
+| Snapshot | Lint | Regenerate | PR tag |
+|---|---|---|---|
+| `module-paths.txt` | H13 `lint-module-paths` | `just freeze-module-paths` | `[MODULE-PATH-CHANGE]` |
+| `error-messages.txt` | H15 `lint-error-messages` | `just freeze-error-messages` | `[ERR-MSG-CHANGE]` |
+| `public-api.txt` | H16 `lint-public-api` | `just freeze-api` | `[API-CHANGE]` |
+| `type-shapes.txt` | H17 `lint-type-shapes` | `just freeze-type-shapes` | `[TYPE-SHAPE-CHANGE]` |
+| `c-header.txt` | H19 `lint-c-header-snapshot` | `just snapshot-c-header` | `[C-ABI-CHANGE]` |
+
 ## Workflow
 
-- Run `just ci` before committing (reuse + fmt-check + the full lint battery, incl. the H15/H16/H17 snapshot locks + analyse + the fast test suite)
+- Run `just ci` before committing — the full gate list above, including the C-header gates and the C compliance suite
+- The four compile-time defect audits are skip-listed from `just test` (each needs its own compile). They run only via `just lint-defect-audits`. An audit that never compiles is silent, not green.
 - Use nph for formatting

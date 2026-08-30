@@ -223,6 +223,7 @@ docs/superpowers/*
 .codeium*
 .tabnine*
 .kite/
+.serena/
 
 # AI Agents
 .auto-gpt/
