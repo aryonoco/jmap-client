@@ -36,6 +36,14 @@
 ## rule maps onto ``jmap_mailbox`` without a hand-kept table that would
 ## drift. ``const`` goes with it, being no part of the ABI.
 ##
+## **What therefore passes this gate.** Two declarations that differ only
+## inside a reduction are equal here. ``jmap_status`` written as ``int``
+## passes, because both reduce to ``i32``. ``const jmap_mailbox *``
+## written as ``const jmap_email *`` passes, because both reduce to
+## ``ptr1``. Neither is an ABI lie — a caller compiled against either
+## spelling links and runs correctly — but both are documentation lies,
+## and nothing in this repository catches them.
+##
 ## **What it does not reach.** Only function prototypes are compared.
 ## The three callback typedefs' own parameter lists are not: Nim emits
 ## them under hash-mangled ``tyProc__…`` names, and pairing those with
@@ -161,6 +169,30 @@ proc describe(signature: Signature, canonical: proc(s: string): string): string 
     signature.paramTypes.mapIt(canonical(it)).join(", ") & ")"
   written & "   ⇒ " & shape
 
+proc compare(
+    functions: seq[Declaration],
+    emitted: Table[string, Signature],
+    hand: proc(s: string): string,
+    nim: proc(s: string): string,
+): seq[string] =
+  ## One report line per declaration whose canonical shape differs from
+  ## the prototype Nim emits for it, or that Nim emits no prototype for.
+  result = @[]
+  for declaration in functions:
+    let declared: Signature =
+      (returnType: declaration.returnType, paramTypes: declaration.paramTypes)
+    if declaration.name notin emitted:
+      result.add(declaration.name & ": no prototype emitted for this symbol")
+      continue
+    let exported = emitted[declaration.name]
+    if declared.paramTypes.mapIt(hand(it)) == exported.paramTypes.mapIt(nim(it)) and
+        hand(declared.returnType) == nim(exported.returnType):
+      continue
+    result.add(
+      declaration.name & ":\n      header: " & describe(declared, hand) &
+        "\n      nim:    " & describe(exported, nim)
+    )
+
 proc main() =
   ## Compares every function the header declares against the prototype
   ## Nim emits for it, and exits non-zero on any difference.
@@ -179,23 +211,14 @@ proc main() =
   let nim = proc(s: string): string =
     nimAbi(s)
 
-  var mismatches: seq[string] = @[]
   let functions = declarations.filterIt(it.section == secFunctions)
-  for declaration in functions:
-    let declared: Signature =
-      (returnType: declaration.returnType, paramTypes: declaration.paramTypes)
-    if declaration.name notin emitted:
-      mismatches.add(declaration.name & ": no prototype emitted for this symbol")
-      continue
-    let exported = emitted[declaration.name]
-    if declared.paramTypes.mapIt(hand(it)) == exported.paramTypes.mapIt(nim(it)) and
-        hand(declared.returnType) == nim(exported.returnType):
-      continue
-    mismatches.add(
-      declaration.name & ":\n      header: " & describe(declared, hand) &
-        "\n      nim:    " & describe(exported, nim)
+  if functions.len == 0:
+    abort(
+      "include/jmap_client.h declares no functions — with nothing to compare " &
+        "this gate would pass on nothing"
     )
 
+  let mismatches = compare(functions, emitted, hand, nim)
   if mismatches.len == 0:
     echo "H20 C header types: ", functions.len, " declarations match the Nim exports"
     return

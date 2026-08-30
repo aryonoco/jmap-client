@@ -73,17 +73,24 @@ lock:
 # shared heap with libc malloc/free, which also puts every Nim
 # allocation in view of Valgrind, ASan and LeakSanitizer, not just the
 # C side of the boundary.
+#
+# Every recipe that codegens the shared object reads these from here.
+# lint-c-header-types compares Nim's emitted prototypes against the
+# hand-written header, so it has to emit under the flags the shipped
+# library is built with: a -d: added to one site and not the other would
+# have it check a configuration nobody ships.
+shared_lib_flags := "--app:lib --noMain -d:ssl -d:useMalloc"
 
 # Build shared library
 build:
     @echo "Building shared library..."
-    nim c --app:lib --noMain -d:ssl -d:useMalloc -o:bin/libjmap_client.so src/jmap_client.nim
+    nim c {{ shared_lib_flags }} -o:bin/libjmap_client.so src/jmap_client.nim
     @echo "Built: bin/libjmap_client.so"
 
 # Build shared library with release optimisations
 build-release:
     @echo "Building shared library (release)..."
-    nim c -d:release --app:lib --noMain -d:ssl -d:useMalloc -o:bin/libjmap_client.so src/jmap_client.nim
+    nim c -d:release {{ shared_lib_flags }} -o:bin/libjmap_client.so src/jmap_client.nim
     @echo "Built: bin/libjmap_client.so (release)"
 
 # Compile and run every C compliance test against the built library.
@@ -534,9 +541,9 @@ lint-type-shapes: _api-oracle
     nim r --hints:off --warnings:off tests/lint/h17_type_shape_snapshot.nim /tmp/jmap_shapes_live.txt
     @echo "H17 type-shape snapshot lint passed"
 
-# H18 C-header inventory lint. Every {.exportc.} in src/jmap_client.nim
-# must be declared in include/jmap_client.h and vice versa, and every
-# exportc pragma must carry dynlib, cdecl and raises: [].
+# H18 C-header inventory lint. Every {.exportc.} under src/ must be
+# declared in include/jmap_client.h and vice versa, and every exportc
+# pragma must carry dynlib, cdecl and raises: [].
 lint-c-header:
     @echo "Running H18 C header inventory lint..."
     nim r --hints:off --warnings:off tests/lint/h18_c_header_inventory.nim
@@ -576,7 +583,7 @@ lint-c-header-snapshot:
 lint-c-header-types:
     @echo "Running H20 C-header type cross-check..."
     @rm -rf /tmp/jmap_c_header_emit
-    @nim c --compileOnly --app:lib --noMain -d:ssl -d:useMalloc \
+    @nim c --compileOnly {{ shared_lib_flags }} \
       --header:jmap_emitted.h --nimcache:/tmp/jmap_c_header_emit \
       --hints:off --warnings:off src/jmap_client.nim
     nim r --hints:off --warnings:off tests/lint/h20_c_header_types.nim \
