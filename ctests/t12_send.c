@@ -259,6 +259,13 @@ int main(void) {
   /* The prose is still there for a person to read; the type is the
    * value the code compares. */
   assert(strlen(jmap_errmsg(c2)) > 0);
+  /* And the sentinel in the other direction, on the same handle that
+   * just held a type: the canned script is exhausted, so this send
+   * fails without one. The slot is replaced by each outcome, not
+   * written once and left holding a stale type. */
+  assert(jmap_send(c2, acct2, refused, &no_result) == JMAP_E_TRANSPORT);
+  assert(no_result == NULL);
+  assert(jmap_errtype(c2) == NULL);
   jmap_message_free(refused);
   jmap_client_free(c2);
   free(st2.last_request); free(st2.last_url);

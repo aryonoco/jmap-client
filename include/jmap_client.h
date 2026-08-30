@@ -57,8 +57,7 @@ typedef enum {
   JMAP_E_MISUSE     = 5, /* caller bug: NULL argument, wrong handle */
   JMAP_E_PROTOCOL   = 6, /* malformed response, or not valid JMAP */
   JMAP_E_METHOD     = 7, /* the whole method call returned an error */
-  JMAP_E_SET        = 8  /* the server refused the one new object, and
-                          * named the reason */
+  JMAP_E_SET        = 8  /* the server refused the one new object */
   /* These values are not frozen yet, but they never change by
    * accident. See the note on the ABI at the top of this file. */
 } jmap_status;
@@ -75,8 +74,14 @@ typedef enum {
  * entry in a failure list, because only one object was involved, so
  * there is no list to put it in. jmap_send() is the call in this header
  * that reports a refusal this way. Call jmap_errtype() for that reason
- * too. The two statuses draw their strings from different lists, and
- * the status you got is what tells you which list you are reading.
+ * too.
+ *
+ * The two statuses draw their strings from different lists, and the
+ * lists overlap. "forbidden" is a method error type in RFC 8620
+ * section 3.6.2 and a SetError type in section 5.3, and it means a
+ * different thing in each. So the status is not a convenience here.
+ * Read it before you compare the string, or you cannot tell which of
+ * the two you are holding.
  */
 
 /*
@@ -155,22 +160,24 @@ const char *jmap_errmsg(const jmap_client *client);
  * typed error on this client. Two statuses carry one.
  *
  * After JMAP_E_METHOD it is a method error type, for example
- * "cannotCalculateChanges". RFC 8620 section 3.6.2 gives the shape of
- * these errors and the types any method may return; individual methods
- * define more of their own.
+ * "unknownMethod". RFC 8620 section 3.6.2 gives the shape of these
+ * errors and the types any method may return; individual methods define
+ * more of their own, such as the "cannotCalculateChanges" that
+ * jmap_sync_emails() can meet.
  *
  * After JMAP_E_SET it is the reason the one create was refused, for
  * example "overQuota" or "tooLarge". RFC 8620 section 5.3 does the same
  * for these: a list any record type may draw on, which individual
  * methods extend.
  *
- * Read the status first, because it is what says which of the two the
- * string came from. Use jmap_errmsg() for text a person reads, and this
- * function for a value your code compares. The library carries the type
- * off the wire without changing it, so a type one vendor invented
- * reaches C intact. jmap_set_result_failure_type_at() works the same
- * way, for the refusals that come back as data on a result instead of
- * as a status.
+ * Read the status first. It is what says which of the two lists the
+ * string came from, and the lists overlap: "forbidden" is on both, and
+ * means a different thing on each, so the string alone will not tell
+ * you. Use jmap_errmsg() for text a person reads, and this function for
+ * a value your code compares. The library carries the type off the wire
+ * without changing it, so a type one vendor invented reaches C intact.
+ * jmap_set_result_failure_type_at() works the same way, for the
+ * refusals that come back as data on a result instead of as a status.
  *
  * It returns NULL when the last call did not fail with either of those
  * two statuses. That covers a NULL client, no error at all, and a

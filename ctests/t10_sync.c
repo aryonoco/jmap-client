@@ -48,8 +48,8 @@ int main(void) {
   assert(state != NULL && strlen(state) > 0);
   /* The bootstrap request fetched no email payload. */
   assert(strstr(st.last_request, "\"ids\":[]") != NULL);
-  /* No error survives a success: jmap_errtype reads "not a method
-   * error" the same way "no error at all" does. */
+  /* No error survives a success: jmap_errtype reads "no typed error"
+   * the same way "no error at all" does. */
   assert(jmap_errtype(c) == NULL);
   /* Snapshot the borrow's content now: the header documents it as
    * invalidated by the next fallible call on this handle, so holding
@@ -136,8 +136,8 @@ int main(void) {
    * never silently set to an empty string standing in for "no cursor". */
   assert(bad_state == NULL);
   assert(strlen(jmap_errmsg(c2)) > 0);
-  /* A decode fault is not a method-level error: jmap_errtype reads
-   * "not a method error" here too, same as the success case above. */
+  /* A decode fault carries no wire type at all: jmap_errtype reads
+   * "no typed error" here too, same as the success case above. */
   assert(jmap_errtype(c2) == NULL);
   jmap_client_free(c2);
   free(st2.last_request); free(st2.last_url);
@@ -160,7 +160,7 @@ int main(void) {
   const char *unused_state = NULL;
   assert(jmap_get_email_state(NULL, acct3, &unused_state) == JMAP_E_MISUSE);
   assert(jmap_get_email_state(c3, acct3, NULL) == JMAP_E_MISUSE);
-  assert(jmap_errtype(c3) == NULL); /* misuse is not a method error */
+  assert(jmap_errtype(c3) == NULL); /* misuse carries no wire type */
 
   jmap_sync *unused_sync = NULL;
   assert(jmap_sync_emails(NULL, acct3, "s1", &unused_sync) == JMAP_E_MISUSE);
@@ -212,7 +212,7 @@ int main(void) {
    * shared constant. */
   assert(strcmp(jmap_errtype(c4), jmap_errtype(c5)) != 0);
 
-  /* NULL handle: not a method error either. */
+  /* NULL handle: no typed error to read either. */
   assert(jmap_errtype(NULL) == NULL);
 
   jmap_client_free(c4);
