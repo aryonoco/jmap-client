@@ -1,30 +1,53 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /* Copyright (c) 2026 Aryan Ameri */
-#include <assert.h>
-#include <string.h>
-#include <stdio.h>
-#include "jmap_client.h"
 #include "canned.h"
+#include "jmap_client.h"
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
 
-static const char *SESSION_JSON = "{\"username\":\"test@example.com\",\"apiUrl\":\"https://jmap.example.com/api/\",\"downloadUrl\":\"https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}\",\"uploadUrl\":\"https://jmap.example.com/upload/{accountId}/\",\"eventSourceUrl\":\"https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}\",\"state\":\"s1\",\"capabilities\":{\"urn:ietf:params:jmap:core\":{\"maxSizeUpload\":50000000,\"maxConcurrentUpload\":4,\"maxSizeRequest\":10000000,\"maxConcurrentRequests\":8,\"maxCallsInRequest\":32,\"maxObjectsInGet\":1000,\"maxObjectsInSet\":500,\"collationAlgorithms\":[\"i;ascii-casemap\",\"i;unicode-casemap\"]}},\"accounts\":{\"A1\":{\"name\":\"test\",\"isPersonal\":true,\"isReadOnly\":false,\"accountCapabilities\":{\"urn:ietf:params:jmap:mail\":{\"maxMailboxesPerEmail\":100,\"maxSizeMailboxName\":490,\"maxSizeAttachmentsPerEmail\":50000000,\"emailQuerySortOptions\":[\"receivedAt\",\"from\"],\"mayCreateTopLevelMailbox\":true}}},\"Z9\":{\"name\":\"test\",\"isPersonal\":true,\"isReadOnly\":false,\"accountCapabilities\":{}}},\"primaryAccounts\":{\"urn:ietf:params:jmap:mail\":\"A1\"}}";
+static const char *SESSION_JSON =
+    "{\"username\":\"test@example.com\",\"apiUrl\":\"https://jmap.example.com/"
+    "api/\",\"downloadUrl\":\"https://jmap.example.com/download/{accountId}/"
+    "{blobId}/{name}?accept={type}\",\"uploadUrl\":\"https://jmap.example.com/"
+    "upload/{accountId}/\",\"eventSourceUrl\":\"https://jmap.example.com/"
+    "eventsource/"
+    "?types={types}&closeafter={closeafter}&ping={ping}\",\"state\":\"s1\","
+    "\"capabilities\":{\"urn:ietf:params:jmap:core\":{\"maxSizeUpload\":"
+    "50000000,\"maxConcurrentUpload\":4,\"maxSizeRequest\":10000000,"
+    "\"maxConcurrentRequests\":8,\"maxCallsInRequest\":32,\"maxObjectsInGet\":"
+    "1000,\"maxObjectsInSet\":500,\"collationAlgorithms\":[\"i;ascii-casemap\","
+    "\"i;unicode-casemap\"]}},\"accounts\":{\"A1\":{\"name\":\"test\","
+    "\"isPersonal\":true,\"isReadOnly\":false,\"accountCapabilities\":{\"urn:"
+    "ietf:params:jmap:mail\":{\"maxMailboxesPerEmail\":100,"
+    "\"maxSizeMailboxName\":490,\"maxSizeAttachmentsPerEmail\":50000000,"
+    "\"emailQuerySortOptions\":[\"receivedAt\",\"from\"],"
+    "\"mayCreateTopLevelMailbox\":true}}},\"Z9\":{\"name\":\"test\","
+    "\"isPersonal\":true,\"isReadOnly\":false,\"accountCapabilities\":{}}},"
+    "\"primaryAccounts\":{\"urn:ietf:params:jmap:mail\":\"A1\"}}";
 
 /* RFC 8620 section 3.6.1: the server rejects the whole request rather
  * than any method in it, and says so with an RFC 7807 problem details
  * object. Taken from that section's second example. */
-static const char *LIMIT_PROBLEM = "{\"type\":\"urn:ietf:params:jmap:error:limit\",\"limit\":\"maxSizeRequest\",\"status\":400,\"detail\":\"The request is larger than the server is willing to process.\"}";
+static const char *LIMIT_PROBLEM =
+    "{\"type\":\"urn:ietf:params:jmap:error:limit\",\"limit\":"
+    "\"maxSizeRequest\",\"status\":400,\"detail\":\"The request is larger than "
+    "the server is willing to process.\"}";
 
 /* The same class of rejection from a server that answers it with a 200
  * instead of the HTTP error status section 3.6.1 asks for. It offers
  * neither a title nor a detail, so the type URI is all the diagnostic
  * can be built from -- which is what makes it visible in jmap_errmsg()
  * below. */
-static const char *BARE_PROBLEM = "{\"type\":\"urn:ietf:params:jmap:error:notRequest\",\"status\":400}";
+static const char *BARE_PROBLEM =
+    "{\"type\":\"urn:ietf:params:jmap:error:notRequest\",\"status\":400}";
 
 /* A 4xx whose body is not problem details at all: valid JSON, but with
  * no "type" member for the problem type to be read from. Servers and
  * the proxies in front of them produce error bodies of their own shape
  * all the time. */
-static const char *OPAQUE_ERROR = "{\"error\":\"the gateway refused the request\",\"status\":400}";
+static const char *OPAQUE_ERROR =
+    "{\"error\":\"the gateway refused the request\",\"status\":400}";
 
 int main(void) {
   assert(jmap_init() == JMAP_OK);
@@ -33,16 +56,17 @@ int main(void) {
    * problem details, which the library classifies by status and
    * Content-Type before it reads the body. */
   const canned_reply replies[] = {
-    { .body = SESSION_JSON },
-    { .body = LIMIT_PROBLEM, .http_status = 400,
-      .content_type = "application/problem+json" },
+      {.body = SESSION_JSON},
+      {.body = LIMIT_PROBLEM,
+       .http_status = 400,
+       .content_type = "application/problem+json"},
   };
-  canned_reply_state st = { replies, 2, 0, NULL, NULL, 0 };
+  canned_reply_state st = {replies, 2, 0, NULL, NULL, 0};
   jmap_transport *t = canned_reply_make_transport(&st);
   assert(t != NULL);
   jmap_client *c = NULL;
-  assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t, &c)
-         == JMAP_OK);
+  assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t, &c) ==
+         JMAP_OK);
   jmap_transport_free(t);
 
   const char *acct = NULL;
@@ -79,15 +103,15 @@ int main(void) {
    * a server that answered with the wrong status still reaches C as
    * JMAP_E_REQUEST rather than as a malformed response. */
   const canned_reply replies2[] = {
-    { .body = SESSION_JSON },
-    { .body = BARE_PROBLEM },
+      {.body = SESSION_JSON},
+      {.body = BARE_PROBLEM},
   };
-  canned_reply_state st2 = { replies2, 2, 0, NULL, NULL, 0 };
+  canned_reply_state st2 = {replies2, 2, 0, NULL, NULL, 0};
   jmap_transport *t2 = canned_reply_make_transport(&st2);
   assert(t2 != NULL);
   jmap_client *c2 = NULL;
-  assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t2, &c2)
-         == JMAP_OK);
+  assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t2, &c2) ==
+         JMAP_OK);
   jmap_transport_free(t2);
 
   const char *acct2 = NULL;
@@ -118,16 +142,17 @@ int main(void) {
    * details, and a body that does not is a plain transport failure
    * carrying the status the server sent. */
   const canned_reply replies3[] = {
-    { .body = SESSION_JSON },
-    { .body = OPAQUE_ERROR, .http_status = 400,
-      .content_type = "application/problem+json" },
+      {.body = SESSION_JSON},
+      {.body = OPAQUE_ERROR,
+       .http_status = 400,
+       .content_type = "application/problem+json"},
   };
-  canned_reply_state st3 = { replies3, 2, 0, NULL, NULL, 0 };
+  canned_reply_state st3 = {replies3, 2, 0, NULL, NULL, 0};
   jmap_transport *t3 = canned_reply_make_transport(&st3);
   assert(t3 != NULL);
   jmap_client *c3 = NULL;
-  assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t3, &c3)
-         == JMAP_OK);
+  assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t3, &c3) ==
+         JMAP_OK);
   jmap_transport_free(t3);
 
   const char *acct3 = NULL;

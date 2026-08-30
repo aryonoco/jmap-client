@@ -86,6 +86,7 @@
         "NimLang.nimlang",
         "arnetheduck.vscode-nph",
         "vadimcn.vscode-lldb",
+        "ms-vscode.cpptools-extension-pack",
 
         "eamodio.gitlens",
         "mhutchie.git-graph",
@@ -153,8 +154,33 @@
         "files.associations": {
           "*.nim": "nim",
           "*.nims": "nim",
-          "*.nimble": "nim"
+          "*.nimble": "nim",
+          "*.h": "c"
         },
+
+        // Mirrors the gcc invocations in the justfile's test-c and
+        // build-c-bench recipes. _POSIX_C_SOURCE is what ctests compile
+        // with; the example does not, but it only uses C89 headers, so a
+        // single configuration models both without misleading either.
+        "C_Cpp.default.compilerPath": "/usr/bin/gcc",
+        "C_Cpp.default.cStandard": "c99",
+        "C_Cpp.default.includePath": ["${workspaceFolder}/include"],
+        "C_Cpp.default.defines": ["_POSIX_C_SOURCE=200809L"],
+        // cpptools bundles its own clang-format. Pointing it at the pinned
+        // one keeps the editor and `just fmt-c-check` on the same binary.
+        "C_Cpp.clang_format_path": "/home/vscode/.local/bin/clang-format",
+        "[c]": {
+          "editor.defaultFormatter": "ms-vscode.cpptools",
+          "editor.formatOnSave": true
+        },
+
+        // The extension pack drags in CMake Tools, and this project builds
+        // C from the justfile with no CMakeLists.txt anywhere. Stop it
+        // offering to configure a project that does not exist.
+        "cmake.configureOnOpen": false,
+        "cmake.automaticReconfigure": false,
+        "cmake.showOptionsMovedNotification": false,
+        "cmake.showNotAllDocumentsSavedQuestion": false,
 
         "[nim]": {
           "editor.tabSize": 2,
@@ -201,7 +227,8 @@
           "yaml": true,
           "json": true,
           "shellscript": true,
-          "toml": true
+          "toml": true,
+          "c": true
         },
         "cSpell.customDictionaries": {
           "project-words": {

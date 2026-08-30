@@ -9,17 +9,17 @@
  */
 #ifndef JMAP_CANNED_H
 #define JMAP_CANNED_H
+#include "jmap_client.h"
 #include <stdlib.h>
 #include <string.h>
-#include "jmap_client.h"
 
 typedef struct {
-  const char **bodies;   /* scripted response bodies, replayed in order */
+  const char **bodies; /* scripted response bodies, replayed in order */
   int count;
   int next;
-  char *last_request;    /* strdup of the most recent request body */
+  char *last_request; /* strdup of the most recent request body */
   char *last_url;
-  int closes;            /* how many times close fired */
+  int closes; /* how many times close fired */
 } canned_state;
 
 static inline void canned_capture(char **last_request, char **last_url,
@@ -45,41 +45,41 @@ static inline void canned_capture(char **last_request, char **last_url,
  * the set you want; that is where the pairing is made, and it takes
  * the state by its own type.
  */
-static inline jmap_transport_code canned_send(void *userdata,
-                                              jmap_http_method method,
-                                              const char *url,
-                                              const char *body,
-                                              const char *authorization,
-                                              int *out_http_status,
-                                              char **out_content_type,
-                                              char **out_body) {
+static inline jmap_transport_code
+canned_send(void *userdata, jmap_http_method method, const char *url,
+            const char *body, const char *authorization, int *out_http_status,
+            char **out_content_type, char **out_body) {
   canned_state *st = (canned_state *)userdata;
   (void)method;
   (void)authorization;
   canned_capture(&st->last_request, &st->last_url, url, body);
-  if (st->next >= st->count) return JMAP_TRANSPORT_NETWORK;
+  if (st->next >= st->count)
+    return JMAP_TRANSPORT_NETWORK;
   *out_http_status = 200;
   *out_content_type = strdup("application/json");
   *out_body = strdup(st->bodies[st->next++]);
   return JMAP_TRANSPORT_OK;
 }
 
-static inline jmap_transport_code canned_fail_send(void *userdata,
-                                            jmap_http_method method,
-                                            const char *url,
-                                            const char *body,
-                                            const char *authorization,
-                                            int *out_http_status,
-                                            char **out_content_type,
-                                            char **out_body) {
-  (void)userdata; (void)method; (void)url; (void)body;
-  (void)authorization; (void)out_http_status; (void)out_content_type;
+static inline jmap_transport_code
+canned_fail_send(void *userdata, jmap_http_method method, const char *url,
+                 const char *body, const char *authorization,
+                 int *out_http_status, char **out_content_type,
+                 char **out_body) {
+  (void)userdata;
+  (void)method;
+  (void)url;
+  (void)body;
+  (void)authorization;
+  (void)out_http_status;
+  (void)out_content_type;
   (void)out_body;
   return JMAP_TRANSPORT_NETWORK;
 }
 
 static inline void canned_close(void *userdata) {
-  if (userdata) ((canned_state *)userdata)->closes++;
+  if (userdata)
+    ((canned_state *)userdata)->closes++;
 }
 
 static inline jmap_transport *canned_make_transport(canned_state *st) {
@@ -107,45 +107,44 @@ typedef struct {
   const canned_reply *replies; /* scripted responses, replayed in order */
   int count;
   int next;
-  char *last_request;    /* strdup of the most recent request body */
+  char *last_request; /* strdup of the most recent request body */
   char *last_url;
-  int closes;            /* how many times close fired */
+  int closes; /* how many times close fired */
 } canned_reply_state;
 
 /*
  * The second set, under the same rule as the first: this send, this
  * close and this make_transport go together.
  */
-static inline jmap_transport_code canned_reply_send(void *userdata,
-                                                    jmap_http_method method,
-                                                    const char *url,
-                                                    const char *body,
-                                                    const char *authorization,
-                                                    int *out_http_status,
-                                                    char **out_content_type,
-                                                    char **out_body) {
+static inline jmap_transport_code
+canned_reply_send(void *userdata, jmap_http_method method, const char *url,
+                  const char *body, const char *authorization,
+                  int *out_http_status, char **out_content_type,
+                  char **out_body) {
   canned_reply_state *st = (canned_reply_state *)userdata;
   (void)method;
   (void)authorization;
   canned_capture(&st->last_request, &st->last_url, url, body);
-  if (st->next >= st->count) return JMAP_TRANSPORT_NETWORK;
+  if (st->next >= st->count)
+    return JMAP_TRANSPORT_NETWORK;
   const canned_reply *reply = &st->replies[st->next++];
   *out_http_status = reply->http_status ? reply->http_status : 200;
-  *out_content_type = strdup(reply->content_type ? reply->content_type
-                                                 : "application/json");
+  *out_content_type =
+      strdup(reply->content_type ? reply->content_type : "application/json");
   *out_body = strdup(reply->body);
   return JMAP_TRANSPORT_OK;
 }
 
 static inline void canned_reply_close(void *userdata) {
-  if (userdata) ((canned_reply_state *)userdata)->closes++;
+  if (userdata)
+    ((canned_reply_state *)userdata)->closes++;
 }
 
-static inline jmap_transport *canned_reply_make_transport(
-    canned_reply_state *st) {
+static inline jmap_transport *
+canned_reply_make_transport(canned_reply_state *st) {
   jmap_transport *t = NULL;
-  if (jmap_transport_new(canned_reply_send, canned_reply_close, st, &t)
-      != JMAP_OK)
+  if (jmap_transport_new(canned_reply_send, canned_reply_close, st, &t) !=
+      JMAP_OK)
     return NULL;
   return t;
 }

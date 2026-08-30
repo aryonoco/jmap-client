@@ -1,12 +1,30 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /* Copyright (c) 2026 Aryan Ameri */
-#include <assert.h>
-#include <string.h>
-#include <stdio.h>
-#include "jmap_client.h"
 #include "canned.h"
+#include "jmap_client.h"
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
 
-static const char *SESSION_JSON = "{\"username\":\"test@example.com\",\"apiUrl\":\"https://jmap.example.com/api/\",\"downloadUrl\":\"https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}\",\"uploadUrl\":\"https://jmap.example.com/upload/{accountId}/\",\"eventSourceUrl\":\"https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}\",\"state\":\"s1\",\"capabilities\":{\"urn:ietf:params:jmap:core\":{\"maxSizeUpload\":50000000,\"maxConcurrentUpload\":4,\"maxSizeRequest\":10000000,\"maxConcurrentRequests\":8,\"maxCallsInRequest\":32,\"maxObjectsInGet\":1000,\"maxObjectsInSet\":500,\"collationAlgorithms\":[\"i;ascii-casemap\",\"i;unicode-casemap\"]}},\"accounts\":{\"A1\":{\"name\":\"test\",\"isPersonal\":true,\"isReadOnly\":false,\"accountCapabilities\":{\"urn:ietf:params:jmap:mail\":{\"maxMailboxesPerEmail\":100,\"maxSizeMailboxName\":490,\"maxSizeAttachmentsPerEmail\":50000000,\"emailQuerySortOptions\":[\"receivedAt\",\"from\"],\"mayCreateTopLevelMailbox\":true}}},\"Z9\":{\"name\":\"test\",\"isPersonal\":true,\"isReadOnly\":false,\"accountCapabilities\":{}}},\"primaryAccounts\":{\"urn:ietf:params:jmap:mail\":\"A1\"}}";
+static const char *SESSION_JSON =
+    "{\"username\":\"test@example.com\",\"apiUrl\":\"https://jmap.example.com/"
+    "api/\",\"downloadUrl\":\"https://jmap.example.com/download/{accountId}/"
+    "{blobId}/{name}?accept={type}\",\"uploadUrl\":\"https://jmap.example.com/"
+    "upload/{accountId}/\",\"eventSourceUrl\":\"https://jmap.example.com/"
+    "eventsource/"
+    "?types={types}&closeafter={closeafter}&ping={ping}\",\"state\":\"s1\","
+    "\"capabilities\":{\"urn:ietf:params:jmap:core\":{\"maxSizeUpload\":"
+    "50000000,\"maxConcurrentUpload\":4,\"maxSizeRequest\":10000000,"
+    "\"maxConcurrentRequests\":8,\"maxCallsInRequest\":32,\"maxObjectsInGet\":"
+    "1000,\"maxObjectsInSet\":500,\"collationAlgorithms\":[\"i;ascii-casemap\","
+    "\"i;unicode-casemap\"]}},\"accounts\":{\"A1\":{\"name\":\"test\","
+    "\"isPersonal\":true,\"isReadOnly\":false,\"accountCapabilities\":{\"urn:"
+    "ietf:params:jmap:mail\":{\"maxMailboxesPerEmail\":100,"
+    "\"maxSizeMailboxName\":490,\"maxSizeAttachmentsPerEmail\":50000000,"
+    "\"emailQuerySortOptions\":[\"receivedAt\",\"from\"],"
+    "\"mayCreateTopLevelMailbox\":true}}},\"Z9\":{\"name\":\"test\","
+    "\"isPersonal\":true,\"isReadOnly\":false,\"accountCapabilities\":{}}},"
+    "\"primaryAccounts\":{\"urn:ietf:params:jmap:mail\":\"A1\"}}";
 /* Generated: built as three JsonNode method-response entries (Email/set
  * c0 creating the draft, EmailSubmission/set c1 creating the submission,
  * and the implicit Email/set c1 the server MUST emit after it per RFC
@@ -14,13 +32,31 @@ static const char *SESSION_JSON = "{\"username\":\"test@example.com\",\"apiUrl\"
  * (which itself decodes via the SetResponse[Email] / SetResponse[
  * EmailSubmission] decoders) against the account SESSION_JSON names,
  * then echoed as this literal. */
-static const char *SEND_JSON = "{\"methodResponses\":[[\"Email/set\",{\"accountId\":\"A1\",\"newState\":\"s2\",\"created\":{\"draft\":{\"id\":\"em-1\",\"blobId\":\"b1\",\"threadId\":\"th-1\",\"size\":42}}},\"c0\"],[\"EmailSubmission/set\",{\"accountId\":\"A1\",\"newState\":\"s3\",\"created\":{\"sub\":{\"id\":\"sub-1\"}}},\"c1\"],[\"Email/set\",{\"accountId\":\"A1\",\"newState\":\"s4\",\"updated\":{\"em-1\":null}},\"c1\"]],\"sessionState\":\"s1\"}";
+static const char *SEND_JSON =
+    "{\"methodResponses\":[[\"Email/"
+    "set\",{\"accountId\":\"A1\",\"newState\":\"s2\",\"created\":{\"draft\":{"
+    "\"id\":\"em-1\",\"blobId\":\"b1\",\"threadId\":\"th-1\",\"size\":42}}},"
+    "\"c0\"],[\"EmailSubmission/"
+    "set\",{\"accountId\":\"A1\",\"newState\":\"s3\",\"created\":{\"sub\":{"
+    "\"id\":\"sub-1\"}}},\"c1\"],[\"Email/"
+    "set\",{\"accountId\":\"A1\",\"newState\":\"s4\",\"updated\":{\"em-1\":"
+    "null}},\"c1\"]],\"sessionState\":\"s1\"}";
 /* The draft is filed but the submission is refused: the create the
  * client asked for comes back under notCreated carrying a "type", the
  * shape RFC 8621 section 7.5 shows for a rejected EmailSubmission. The
  * implicit Email/set still follows, changing nothing, because the
  * submission it was conditional on never happened. */
-static const char *REFUSED_JSON = "{\"methodResponses\":[[\"Email/set\",{\"accountId\":\"A1\",\"newState\":\"s2\",\"created\":{\"draft\":{\"id\":\"em-1\",\"blobId\":\"b1\",\"threadId\":\"th-1\",\"size\":42}}},\"c0\"],[\"EmailSubmission/set\",{\"accountId\":\"A1\",\"newState\":\"s3\",\"notCreated\":{\"sub\":{\"type\":\"forbiddenToSend\",\"description\":\"sending is disabled for this account\"}}},\"c1\"],[\"Email/set\",{\"accountId\":\"A1\",\"newState\":\"s3\"},\"c1\"]],\"sessionState\":\"s1\"}";
+static const char *REFUSED_JSON =
+    "{\"methodResponses\":[[\"Email/"
+    "set\",{\"accountId\":\"A1\",\"newState\":\"s2\",\"created\":{\"draft\":{"
+    "\"id\":\"em-1\",\"blobId\":\"b1\",\"threadId\":\"th-1\",\"size\":42}}},"
+    "\"c0\"],[\"EmailSubmission/"
+    "set\",{\"accountId\":\"A1\",\"newState\":\"s3\",\"notCreated\":{\"sub\":{"
+    "\"type\":\"forbiddenToSend\",\"description\":\"sending is disabled for "
+    "this "
+    "account\"}}},\"c1\"],[\"Email/"
+    "set\",{\"accountId\":\"A1\",\"newState\":\"s3\"},\"c1\"]],"
+    "\"sessionState\":\"s1\"}";
 
 /* True when the JSON key `key` is followed by `needle` before the
  * bracket that closes that key's address array. Every recipient also
@@ -29,8 +65,7 @@ static const char *REFUSED_JSON = "{\"methodResponses\":[[\"Email/set\",{\"accou
  * binds an address to its own header without parsing JSON, and spans
  * the whole array rather than the first object, so a role carrying two
  * addresses answers for both. */
-static int role_carries(const char *req, const char *key,
-                        const char *needle) {
+static int role_carries(const char *req, const char *key, const char *needle) {
   const char *at = strstr(req, key);
   const char *end = at ? strchr(at, ']') : NULL;
   const char *hit = at ? strstr(at, needle) : NULL;
@@ -49,10 +84,10 @@ int main(void) {
   /* NULL out-parameter, NULL handle, NULL value: all misuse, all
    * detected before any dereference. */
   assert(jmap_message_new(NULL) == JMAP_E_MISUSE);
-  assert(jmap_message_set_str(NULL, JMAP_MSG_TO, "a@example.com")
-         == JMAP_E_MISUSE);
-  assert(jmap_message_add_str(NULL, JMAP_MSG_TO, "a@example.com")
-         == JMAP_E_MISUSE);
+  assert(jmap_message_set_str(NULL, JMAP_MSG_TO, "a@example.com") ==
+         JMAP_E_MISUSE);
+  assert(jmap_message_add_str(NULL, JMAP_MSG_TO, "a@example.com") ==
+         JMAP_E_MISUSE);
 
   jmap_message *m = NULL;
   assert(jmap_message_new(&m) == JMAP_OK);
@@ -62,79 +97,68 @@ int main(void) {
   /* An option this build does not know is refused by either verb,
    * never a no-op. Both rejected values are asserted ABSENT from the
    * wire below, so a refusal that quietly wrote somewhere fails. */
-  assert(jmap_message_set_str(m, (jmap_message_opt)99, "rejected-ordinal")
-         == JMAP_E_MISUSE);
-  assert(jmap_message_add_str(m, (jmap_message_opt)99, "rejected-ordinal")
-         == JMAP_E_MISUSE);
+  assert(jmap_message_set_str(m, (jmap_message_opt)99, "rejected-ordinal") ==
+         JMAP_E_MISUSE);
+  assert(jmap_message_add_str(m, (jmap_message_opt)99, "rejected-ordinal") ==
+         JMAP_E_MISUSE);
   /* Appending is defined only for a list-valued role; the other six
    * options hold one value each, and growing one has no meaning. */
-  assert(jmap_message_add_str(m, JMAP_MSG_IDENTITY_ID, "rejected-append")
-         == JMAP_E_MISUSE);
-  assert(jmap_message_add_str(m, JMAP_MSG_DRAFTS_MAILBOX, "rejected-append")
-         == JMAP_E_MISUSE);
-  assert(jmap_message_add_str(m, JMAP_MSG_SENT_MAILBOX, "rejected-append")
-         == JMAP_E_MISUSE);
-  assert(jmap_message_add_str(m, JMAP_MSG_FROM, "rejected-append")
-         == JMAP_E_MISUSE);
-  assert(jmap_message_add_str(m, JMAP_MSG_SUBJECT, "rejected-append")
-         == JMAP_E_MISUSE);
-  assert(jmap_message_add_str(m, JMAP_MSG_BODY, "rejected-append")
-         == JMAP_E_MISUSE);
+  assert(jmap_message_add_str(m, JMAP_MSG_IDENTITY_ID, "rejected-append") ==
+         JMAP_E_MISUSE);
+  assert(jmap_message_add_str(m, JMAP_MSG_DRAFTS_MAILBOX, "rejected-append") ==
+         JMAP_E_MISUSE);
+  assert(jmap_message_add_str(m, JMAP_MSG_SENT_MAILBOX, "rejected-append") ==
+         JMAP_E_MISUSE);
+  assert(jmap_message_add_str(m, JMAP_MSG_FROM, "rejected-append") ==
+         JMAP_E_MISUSE);
+  assert(jmap_message_add_str(m, JMAP_MSG_SUBJECT, "rejected-append") ==
+         JMAP_E_MISUSE);
+  assert(jmap_message_add_str(m, JMAP_MSG_BODY, "rejected-append") ==
+         JMAP_E_MISUSE);
   /* An id that is not an id is refused where the caller supplied it. */
-  assert(jmap_message_set_str(m, JMAP_MSG_DRAFTS_MAILBOX, "")
-         == JMAP_E_VALIDATION);
+  assert(jmap_message_set_str(m, JMAP_MSG_DRAFTS_MAILBOX, "") ==
+         JMAP_E_VALIDATION);
 
-  assert(jmap_message_set_str(m, JMAP_MSG_IDENTITY_ID, "identity-1")
-         == JMAP_OK);
-  assert(jmap_message_set_str(m, JMAP_MSG_DRAFTS_MAILBOX, "mb-drafts")
-         == JMAP_OK);
-  assert(jmap_message_set_str(m, JMAP_MSG_SENT_MAILBOX, "mb-sent")
-         == JMAP_OK);
-  assert(jmap_message_set_str(m, JMAP_MSG_FROM, "me@example.com")
-         == JMAP_OK);
+  assert(jmap_message_set_str(m, JMAP_MSG_IDENTITY_ID, "identity-1") ==
+         JMAP_OK);
+  assert(jmap_message_set_str(m, JMAP_MSG_DRAFTS_MAILBOX, "mb-drafts") ==
+         JMAP_OK);
+  assert(jmap_message_set_str(m, JMAP_MSG_SENT_MAILBOX, "mb-sent") == JMAP_OK);
+  assert(jmap_message_set_str(m, JMAP_MSG_FROM, "me@example.com") == JMAP_OK);
   /* BCC receives no set_str call at all here, only two add_str calls:
    * the first names a role no setter has touched yet (the fallback arm
    * that starts its list, rather than refusing or silently doing
    * nothing), and the second extends it. Both addresses are asserted
    * on the wire below, so either arm failing to produce a real list
    * entry fails here. */
-  assert(jmap_message_add_str(m, JMAP_MSG_BCC, "dana@example.com")
-         == JMAP_OK);
-  assert(jmap_message_add_str(m, JMAP_MSG_BCC, "erin@example.com")
-         == JMAP_OK);
+  assert(jmap_message_add_str(m, JMAP_MSG_BCC, "dana@example.com") == JMAP_OK);
+  assert(jmap_message_add_str(m, JMAP_MSG_BCC, "erin@example.com") == JMAP_OK);
   /* Set twice: the second value replaces the first outright. The stale
    * values are asserted ABSENT from the wire below, so a setter that
    * appends, or that leaves a stale sibling slot behind, fails here
    * instead of passing quietly. */
-  assert(jmap_message_set_str(m, JMAP_MSG_TO, "stale@example.com")
-         == JMAP_OK);
-  assert(jmap_message_set_str(m, JMAP_MSG_TO, "you@example.com")
-         == JMAP_OK);
+  assert(jmap_message_set_str(m, JMAP_MSG_TO, "stale@example.com") == JMAP_OK);
+  assert(jmap_message_set_str(m, JMAP_MSG_TO, "you@example.com") == JMAP_OK);
   /* Append extends the role that set just replaced: BOTH addresses are
    * asserted on the wire below, so an append that behaves as a set
    * fails here. */
-  assert(jmap_message_add_str(m, JMAP_MSG_TO, "also@example.com")
-         == JMAP_OK);
+  assert(jmap_message_add_str(m, JMAP_MSG_TO, "also@example.com") == JMAP_OK);
   /* And a set AFTER an append collapses the role back to the single
    * address supplied: the appended one is asserted absent below, so a
    * set that behaves as an append fails here. */
-  assert(jmap_message_add_str(m, JMAP_MSG_CC, "collapsed@example.com")
-         == JMAP_OK);
-  assert(jmap_message_set_str(m, JMAP_MSG_CC, "carol@example.com")
-         == JMAP_OK);
-  assert(jmap_message_set_str(m, JMAP_MSG_SUBJECT, "stale subject")
-         == JMAP_OK);
-  assert(jmap_message_set_str(m, JMAP_MSG_SUBJECT, "live subject")
-         == JMAP_OK);
-  assert(jmap_message_set_str(m, JMAP_MSG_BODY, "live body text.")
-         == JMAP_OK);
+  assert(jmap_message_add_str(m, JMAP_MSG_CC, "collapsed@example.com") ==
+         JMAP_OK);
+  assert(jmap_message_set_str(m, JMAP_MSG_CC, "carol@example.com") == JMAP_OK);
+  assert(jmap_message_set_str(m, JMAP_MSG_SUBJECT, "stale subject") == JMAP_OK);
+  assert(jmap_message_set_str(m, JMAP_MSG_SUBJECT, "live subject") == JMAP_OK);
+  assert(jmap_message_set_str(m, JMAP_MSG_BODY, "live body text.") == JMAP_OK);
 
-  const char *bodies[] = { SESSION_JSON, SEND_JSON };
-  canned_state st = { bodies, 2, 0, NULL, NULL, 0 };
+  const char *bodies[] = {SESSION_JSON, SEND_JSON};
+  canned_state st = {bodies, 2, 0, NULL, NULL, 0};
   jmap_transport *t = canned_make_transport(&st);
   jmap_client *c = NULL;
-  assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t, &c)
-         == JMAP_OK);
+  assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t, &c) ==
+         JMAP_OK);
   jmap_transport_free(t);
   const char *acct = NULL;
   assert(jmap_client_primary_account(c, &acct) == JMAP_OK);
@@ -190,8 +214,8 @@ int main(void) {
   jmap_message *partial = NULL;
   jmap_send_result *none = NULL;
   assert(jmap_message_new(&partial) == JMAP_OK);
-  assert(jmap_message_set_str(partial, JMAP_MSG_IDENTITY_ID, "identity-1")
-         == JMAP_OK);
+  assert(jmap_message_set_str(partial, JMAP_MSG_IDENTITY_ID, "identity-1") ==
+         JMAP_OK);
   assert(jmap_send(c, acct, partial, &none) == JMAP_E_MISUSE);
   assert(none == NULL);
   assert(st.last_request == NULL);
@@ -203,14 +227,13 @@ int main(void) {
    * rail, and still pre-wire. */
   jmap_message *bad = NULL;
   assert(jmap_message_new(&bad) == JMAP_OK);
-  assert(jmap_message_set_str(bad, JMAP_MSG_IDENTITY_ID, "identity-1")
-         == JMAP_OK);
-  assert(jmap_message_set_str(bad, JMAP_MSG_DRAFTS_MAILBOX, "mb-drafts")
-         == JMAP_OK);
-  assert(jmap_message_set_str(bad, JMAP_MSG_SENT_MAILBOX, "mb-sent")
-         == JMAP_OK);
-  assert(jmap_message_set_str(bad, JMAP_MSG_FROM, "me@example.com")
-         == JMAP_OK);
+  assert(jmap_message_set_str(bad, JMAP_MSG_IDENTITY_ID, "identity-1") ==
+         JMAP_OK);
+  assert(jmap_message_set_str(bad, JMAP_MSG_DRAFTS_MAILBOX, "mb-drafts") ==
+         JMAP_OK);
+  assert(jmap_message_set_str(bad, JMAP_MSG_SENT_MAILBOX, "mb-sent") ==
+         JMAP_OK);
+  assert(jmap_message_set_str(bad, JMAP_MSG_FROM, "me@example.com") == JMAP_OK);
   assert(jmap_message_set_str(bad, JMAP_MSG_TO, "") == JMAP_OK);
   assert(jmap_send(c, acct, bad, &none) == JMAP_E_VALIDATION);
   assert(none == NULL);
@@ -219,39 +242,40 @@ int main(void) {
   jmap_message_free(bad);
 
   jmap_client_free(c);
-  free(st.last_request); free(st.last_url);
+  free(st.last_request);
+  free(st.last_url);
 
   /* A refused create is JMAP_E_SET, and the reason is machine-readable:
    * strcmp against the exact wire type, not a bare non-NULL check,
    * because a caller branches on which refusal it was -- over quota,
    * too large, not allowed to send -- and a NULL check would pass for
    * any of them. */
-  const char *bodies2[] = { SESSION_JSON, REFUSED_JSON };
-  canned_state st2 = { bodies2, 2, 0, NULL, NULL, 0 };
+  const char *bodies2[] = {SESSION_JSON, REFUSED_JSON};
+  canned_state st2 = {bodies2, 2, 0, NULL, NULL, 0};
   jmap_transport *t2 = canned_make_transport(&st2);
   jmap_client *c2 = NULL;
-  assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t2, &c2)
-         == JMAP_OK);
+  assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t2, &c2) ==
+         JMAP_OK);
   jmap_transport_free(t2);
   const char *acct2 = NULL;
   assert(jmap_client_primary_account(c2, &acct2) == JMAP_OK);
   jmap_message *refused = NULL;
   jmap_send_result *no_result = NULL;
   assert(jmap_message_new(&refused) == JMAP_OK);
-  assert(jmap_message_set_str(refused, JMAP_MSG_IDENTITY_ID, "identity-1")
-         == JMAP_OK);
-  assert(jmap_message_set_str(refused, JMAP_MSG_DRAFTS_MAILBOX, "mb-drafts")
-         == JMAP_OK);
-  assert(jmap_message_set_str(refused, JMAP_MSG_SENT_MAILBOX, "mb-sent")
-         == JMAP_OK);
-  assert(jmap_message_set_str(refused, JMAP_MSG_FROM, "me@example.com")
-         == JMAP_OK);
-  assert(jmap_message_set_str(refused, JMAP_MSG_TO, "you@example.com")
-         == JMAP_OK);
-  assert(jmap_message_set_str(refused, JMAP_MSG_SUBJECT, "refused subject")
-         == JMAP_OK);
-  assert(jmap_message_set_str(refused, JMAP_MSG_BODY, "refused body text.")
-         == JMAP_OK);
+  assert(jmap_message_set_str(refused, JMAP_MSG_IDENTITY_ID, "identity-1") ==
+         JMAP_OK);
+  assert(jmap_message_set_str(refused, JMAP_MSG_DRAFTS_MAILBOX, "mb-drafts") ==
+         JMAP_OK);
+  assert(jmap_message_set_str(refused, JMAP_MSG_SENT_MAILBOX, "mb-sent") ==
+         JMAP_OK);
+  assert(jmap_message_set_str(refused, JMAP_MSG_FROM, "me@example.com") ==
+         JMAP_OK);
+  assert(jmap_message_set_str(refused, JMAP_MSG_TO, "you@example.com") ==
+         JMAP_OK);
+  assert(jmap_message_set_str(refused, JMAP_MSG_SUBJECT, "refused subject") ==
+         JMAP_OK);
+  assert(jmap_message_set_str(refused, JMAP_MSG_BODY, "refused body text.") ==
+         JMAP_OK);
   assert(jmap_send(c2, acct2, refused, &no_result) == JMAP_E_SET);
   assert(no_result == NULL);
   assert(jmap_errtype(c2) != NULL);
@@ -268,7 +292,8 @@ int main(void) {
   assert(jmap_errtype(c2) == NULL);
   jmap_message_free(refused);
   jmap_client_free(c2);
-  free(st2.last_request); free(st2.last_url);
+  free(st2.last_request);
+  free(st2.last_url);
 
   jmap_cleanup();
   printf("t12 ok\n");

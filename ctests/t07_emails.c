@@ -1,28 +1,60 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /* Copyright (c) 2026 Aryan Ameri */
+#include "canned.h"
+#include "jmap_client.h"
 #include <assert.h>
 #include <stdint.h>
-#include <string.h>
 #include <stdio.h>
-#include "jmap_client.h"
-#include "canned.h"
+#include <string.h>
 
-static const char *SESSION_JSON = "{\"username\":\"test@example.com\",\"apiUrl\":\"https://jmap.example.com/api/\",\"downloadUrl\":\"https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}\",\"uploadUrl\":\"https://jmap.example.com/upload/{accountId}/\",\"eventSourceUrl\":\"https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}\",\"state\":\"s1\",\"capabilities\":{\"urn:ietf:params:jmap:core\":{\"maxSizeUpload\":50000000,\"maxConcurrentUpload\":4,\"maxSizeRequest\":10000000,\"maxConcurrentRequests\":8,\"maxCallsInRequest\":32,\"maxObjectsInGet\":1000,\"maxObjectsInSet\":500,\"collationAlgorithms\":[\"i;ascii-casemap\",\"i;unicode-casemap\"]}},\"accounts\":{\"A1\":{\"name\":\"test\",\"isPersonal\":true,\"isReadOnly\":false,\"accountCapabilities\":{\"urn:ietf:params:jmap:mail\":{\"maxMailboxesPerEmail\":100,\"maxSizeMailboxName\":490,\"maxSizeAttachmentsPerEmail\":50000000,\"emailQuerySortOptions\":[\"receivedAt\",\"from\"],\"mayCreateTopLevelMailbox\":true}}},\"Z9\":{\"name\":\"test\",\"isPersonal\":true,\"isReadOnly\":false,\"accountCapabilities\":{}}},\"primaryAccounts\":{\"urn:ietf:params:jmap:mail\":\"A1\"}}";
-static const char *EMAIL_GET_JSON = "{\"methodResponses\":[[\"Email/get\",{\"accountId\":\"A1\",\"state\":\"es1\",\"list\":[{\"id\":\"em-1\",\"threadId\":\"th-1\",\"from\":[{\"name\":\"Alice\",\"email\":\"alice@example.com\"}],\"subject\":\"Re: phase-l 7 delta\",\"receivedAt\":\"2026-05-05T11:18:46Z\",\"hasAttachment\":false,\"preview\":\"hello preview text\",\"textBody\":[{\"partId\":\"1\",\"blobId\":\"b1\",\"size\":26,\"name\":null,\"type\":\"text/plain\",\"charset\":\"utf-8\",\"disposition\":null,\"cid\":null,\"language\":null,\"location\":null}],\"bodyValues\":{\"1\":{\"isEncodingProblem\":false,\"isTruncated\":false,\"value\":\"decoded text body\"}}},{\"id\":\"em-2\"}],\"notFound\":[\"em-gone\"]},\"c0\"]],\"sessionState\":\"s1\"}";
+static const char *SESSION_JSON =
+    "{\"username\":\"test@example.com\",\"apiUrl\":\"https://jmap.example.com/"
+    "api/\",\"downloadUrl\":\"https://jmap.example.com/download/{accountId}/"
+    "{blobId}/{name}?accept={type}\",\"uploadUrl\":\"https://jmap.example.com/"
+    "upload/{accountId}/\",\"eventSourceUrl\":\"https://jmap.example.com/"
+    "eventsource/"
+    "?types={types}&closeafter={closeafter}&ping={ping}\",\"state\":\"s1\","
+    "\"capabilities\":{\"urn:ietf:params:jmap:core\":{\"maxSizeUpload\":"
+    "50000000,\"maxConcurrentUpload\":4,\"maxSizeRequest\":10000000,"
+    "\"maxConcurrentRequests\":8,\"maxCallsInRequest\":32,\"maxObjectsInGet\":"
+    "1000,\"maxObjectsInSet\":500,\"collationAlgorithms\":[\"i;ascii-casemap\","
+    "\"i;unicode-casemap\"]}},\"accounts\":{\"A1\":{\"name\":\"test\","
+    "\"isPersonal\":true,\"isReadOnly\":false,\"accountCapabilities\":{\"urn:"
+    "ietf:params:jmap:mail\":{\"maxMailboxesPerEmail\":100,"
+    "\"maxSizeMailboxName\":490,\"maxSizeAttachmentsPerEmail\":50000000,"
+    "\"emailQuerySortOptions\":[\"receivedAt\",\"from\"],"
+    "\"mayCreateTopLevelMailbox\":true}}},\"Z9\":{\"name\":\"test\","
+    "\"isPersonal\":true,\"isReadOnly\":false,\"accountCapabilities\":{}}},"
+    "\"primaryAccounts\":{\"urn:ietf:params:jmap:mail\":\"A1\"}}";
+static const char *EMAIL_GET_JSON =
+    "{\"methodResponses\":[[\"Email/"
+    "get\",{\"accountId\":\"A1\",\"state\":\"es1\",\"list\":[{\"id\":\"em-1\","
+    "\"threadId\":\"th-1\",\"from\":[{\"name\":\"Alice\",\"email\":\"alice@"
+    "example.com\"}],\"subject\":\"Re: phase-l 7 "
+    "delta\",\"receivedAt\":\"2026-05-05T11:18:46Z\",\"hasAttachment\":false,"
+    "\"preview\":\"hello preview "
+    "text\",\"textBody\":[{\"partId\":\"1\",\"blobId\":\"b1\",\"size\":26,"
+    "\"name\":null,\"type\":\"text/"
+    "plain\",\"charset\":\"utf-8\",\"disposition\":null,\"cid\":null,"
+    "\"language\":null,\"location\":null}],\"bodyValues\":{\"1\":{"
+    "\"isEncodingProblem\":false,\"isTruncated\":false,\"value\":\"decoded "
+    "text "
+    "body\"}}},{\"id\":\"em-2\"}],\"notFound\":[\"em-gone\"]},\"c0\"]],"
+    "\"sessionState\":\"s1\"}";
 
 int main(void) {
   assert(jmap_init() == JMAP_OK);
-  const char *bodies[] = { SESSION_JSON, EMAIL_GET_JSON };
-  canned_state st = { bodies, 2, 0, NULL, NULL, 0 };
+  const char *bodies[] = {SESSION_JSON, EMAIL_GET_JSON};
+  canned_state st = {bodies, 2, 0, NULL, NULL, 0};
   jmap_transport *t = canned_make_transport(&st);
   jmap_client *c = NULL;
-  assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t, &c)
-         == JMAP_OK);
+  assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t, &c) ==
+         JMAP_OK);
   jmap_transport_free(t);
   const char *acct = NULL;
   assert(jmap_client_primary_account(c, &acct) == JMAP_OK);
 
-  const char *ids[] = { "em-1", "em-2", "em-gone" };
+  const char *ids[] = {"em-1", "em-2", "em-gone"};
   jmap_emails *es = NULL;
   assert(jmap_get_emails(c, acct, ids, 3, &es) == JMAP_OK);
   assert(jmap_emails_count(es) == 2);
@@ -37,7 +69,10 @@ int main(void) {
   for (size_t i = 0; i < jmap_emails_count(es); i++) {
     const jmap_email *e = jmap_emails_at(es, i);
     assert(e != NULL && jmap_email_id(e) != NULL);
-    if (jmap_email_subject(e) != NULL) full = e; else sparse = e;
+    if (jmap_email_subject(e) != NULL)
+      full = e;
+    else
+      sparse = e;
   }
   assert(full != NULL && sparse != NULL);
 
@@ -70,7 +105,8 @@ int main(void) {
   jmap_emails_free(es);
   jmap_emails_free(NULL);
   jmap_client_free(c);
-  free(st.last_request); free(st.last_url);
+  free(st.last_request);
+  free(st.last_url);
   jmap_cleanup();
   printf("t07 ok\n");
   return 0;
