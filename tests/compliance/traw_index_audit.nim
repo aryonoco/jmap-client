@@ -12,23 +12,38 @@ discard """
 ## loop. The macro flags violations at compile time; fix the code, never
 ## the audit.
 ##
-## Companion to ``tno_asserts_in_src.nim`` (``AssertionDefect``) and
-## ``tffi_panic_surface.nim`` (``FieldDefect``); this one closes
-## ``IndexDefect``, the third defect family that slips past
-## ``{.push raises: [], noSideEffect.}``.
+## Nim declares roughly twenty ``Defect`` subtypes, none of which
+## ``{.raises: [].}`` can see. Three are audited in this directory:
+## ``AssertionDefect`` by ``tno_asserts_in_src.nim``, ``FieldDefect`` by
+## ``tffi_panic_surface.nim``, and here ``IndexDefect`` tree-wide plus
+## ``RangeDefect`` at the C ABI boundary (below). The rest —
+## ``NilAccessDefect``, ``OverflowDefect``, ``DivByZeroDefect``,
+## ``StackOverflowDefect`` and the floating-point family among them —
+## have no audit anywhere in this repository.
+##
+## The C ABI narrowing rule
+## ------------------------
+## A second, separately scoped rule runs over ``src/jmap_client.nim``
+## alone. Narrowing a caller-supplied ``csize_t`` — ``int(i)`` on an
+## index, ``int(n)`` on a count — raises ``RangeDefect`` when the value
+## exceeds the target's range, and ``SIZE_MAX`` is the ordinary result of
+## an ``n - 1`` underflow in C caller code. The rule requires every such
+## conversion to sit behind a comparison made *in the unsigned domain*
+## (``if i >= csize_t(xs.len): return nil``), because a comparison that
+## narrows first has already raised. It is deliberately confined to the
+## one file that exports ``cdecl`` symbols declared ``raises: []``, where
+## an escaping defect is ``rawQuit(1)`` rather than a stack unwind.
 ##
 ## What the audit reads
 ## --------------------
-## Every ``.nim`` file under ``src/``, enumerated by ``staticExec find``
-## and parsed with ``parseStmt``. An empty listing is rejected outright,
-## and so is a file that reads back empty. The first check is
-## load-bearing: ``staticExec`` yields ``""`` under ``nim check``, so
-## without it the audit would pass on nothing. Reading happens inside the
-## macro body, where a missing path raises a normal compile error; the
-## same ``staticRead`` written as a ``static[string]`` macro *argument*
-## is constant-folded under an error trap that discards the diagnostic
-## and substitutes ``""``, so a stale path written that way audits an
-## empty file and still passes.
+## Every ``.nim`` file under ``src/``, enumerated with ``walkDirRec`` and
+## parsed with ``parseStmt``. An empty listing is rejected outright, and
+## so is a file that reads back empty. Reading happens inside the macro
+## body, where a missing path raises a normal compile error; the same
+## ``staticRead`` written as a ``static[string]`` macro *argument* is
+## constant-folded under an error trap that discards the diagnostic and
+## substitutes ``""``, so a stale path written that way audits an empty
+## file and still passes.
 ##
 ## What the audit cannot reach
 ## ---------------------------
@@ -38,10 +53,11 @@ discard """
 ## - Tuple, array and ``JsonNode`` indexing is indistinguishable from seq
 ##   indexing. ``pair[0]`` on a tuple cannot raise, but the audit sees the
 ##   same node it sees for ``parts[0]``. Such sites live in ``Exempt``.
-## - A collection is named by its source text. Two different locals called
-##   ``parts`` in two procs share one key, and a guard on either satisfies
-##   an index on the other. Guards are scoped to the enclosing statement
-##   list, which bounds the damage but does not eliminate it.
+## - A collection is named by its source text, so two same-named locals
+##   share one key. Facts are dropped at every routine boundary and at the
+##   end of every statement list, which confines the confusion to one
+##   routine, but two locals called ``parts`` within one routine still
+##   share a key and a guard on either satisfies an index on the other.
 ## - Only ``len``-versus-integer-literal comparisons are understood.
 ##   ``if remaining >= 2`` where ``remaining = s.len - i`` proves nothing
 ##   here, and neither does a postcondition of a called function (``split``
@@ -58,13 +74,23 @@ discard """
 ## The audit is a *syntactic* check. It does not prove absence of
 ## ``IndexDefect``: a bare identifier index (``s[i]``) is out of scope by
 ## construction — flagging every one of them would drown the signal — and
-## slice expressions (``s[a ..< b]``) are not examined either.
+## slice expressions (``s[a ..< b]``) are not examined either. The
+## narrowing rule inherits the same limits and adds one of its own: it
+## recognises a bound check only in the shape described above, so a check
+## expressed some other way reads as absent and is reported.
 
 import std/[macros, os, strutils]
 
-type Bound = tuple[name: string, minLen: int]
-  ## Proof that ``name`` holds at least ``minLen`` elements, valid for the
-  ## scope the guard that produced it encloses.
+type FactKind = enum
+  ## What kind of conclusion a guard in scope has established.
+  fkMinLen ## The named collection holds at least ``minLen`` elements.
+  fkUnsignedBound
+    ## The named ``csize_t`` parameter was compared against a
+    ## ``csize_t`` bound, so narrowing it cannot overflow.
+
+type Fact = tuple[kind: FactKind, name: string, minLen: int]
+  ## A guard's conclusion, valid for the scope that guard encloses.
+  ## ``minLen`` is meaningful for ``fkMinLen`` only.
 
 type IndexNeed = enum
   ## What discharging one bracket access would take.
@@ -72,6 +98,11 @@ type IndexNeed = enum
   inLength ## Satisfied by a proven minimum length.
   inUnprovable ## Arithmetic index — no length fact can discharge it.
 
+## Sites the untyped AST cannot decide, each with the reason it is safe.
+## A row is matched by path suffix and expression text with no line
+## number, so it also covers any *later* occurrence of the same
+## expression anywhere in the same file — several rows already discharge
+## more than one site. Keep the expressions specific for that reason.
 const Exempt: seq[tuple[file, expr, why: string]] = @[
   # Tuple element access — `it` is the (CreationId, payload) pair bound
   # by `validateUniqueByIt`; a tuple index is resolved at compile time.
@@ -192,7 +223,7 @@ proc mirrorOp(op: string): string =
   of ">=": "<="
   else: op
 
-proc comparisonBounds(cond: NimNode, holds: bool): seq[Bound] =
+proc comparisonBounds(cond: NimNode, holds: bool): seq[Fact] =
   ## Bounds implied by one ``len``-versus-integer-literal comparison,
   ## in either operand order.
   result = @[]
@@ -218,21 +249,60 @@ proc comparisonBounds(cond: NimNode, holds: bool): seq[Bound] =
       mirrorOp($cond[0])
   let bound = impliedMin(op, lit.intVal, holds)
   if bound.ok:
-    result.add (name, int(bound.m))
+    result.add (fkMinLen, name, int(bound.m))
 
-proc condBounds(cond: NimNode, holds: bool): seq[Bound] =
-  ## Bounds implied by ``cond`` evaluating to ``holds``. ``and``
+proc isCsizeConv(n: NimNode): bool =
+  ## True for ``csize_t(x)`` — the conversion that keeps a comparison in
+  ## the unsigned domain instead of narrowing the parameter first.
+  n.kind in {nnkCall, nnkCommand} and n.len == 2 and n[0].kind in {nnkIdent, nnkSym} and
+    $n[0] == "csize_t"
+
+proc unsignedCompare(cond: NimNode): tuple[name, op: string] =
+  ## Decompose a comparison between a bare identifier and an explicit
+  ## ``csize_t`` conversion into that identifier and the operator read
+  ## with the identifier on the left. Empty name for any other shape.
+  if cond.kind != nnkInfix or cond.len != 3:
+    return ("", "")
+  if cond[1].kind in {nnkIdent, nnkSym} and isCsizeConv(cond[2]):
+    return ($cond[1], $cond[0])
+  if cond[2].kind in {nnkIdent, nnkSym} and isCsizeConv(cond[1]):
+    return ($cond[2], mirrorOp($cond[0]))
+  ("", "")
+
+proc unsignedFacts(cond: NimNode, holds: bool): seq[Fact] =
+  ## ``p >= csize_t(n)`` failing, or ``p < csize_t(n)`` holding, keeps
+  ## ``p`` inside the narrowing target's range. The bound must be an
+  ## explicit ``csize_t`` conversion: that is what proves the comparison
+  ## did not itself narrow before comparing.
+  let cmp = unsignedCompare(cond)
+  let bounded =
+    if holds:
+      cmp.op in ["<", "<="]
+    else:
+      cmp.op in [">", ">="]
+  if cmp.name.len > 0 and bounded:
+    @[(fkUnsignedBound, cmp.name, 0)]
+  else:
+    @[]
+
+proc leafFacts(cond: NimNode, holds: bool): seq[Fact] =
+  ## Both readings of one comparison: the length bound it proves, and the
+  ## unsigned-domain check that makes a later narrowing safe.
+  comparisonBounds(cond, holds) & unsignedFacts(cond, holds)
+
+proc condFacts(cond: NimNode, holds: bool): seq[Fact] =
+  ## Facts implied by ``cond`` evaluating to ``holds``. ``and``
   ## contributes both operands when true and ``or`` both negations when
   ## false — respectively the positive-branch and the early-exit
   ## direction. The converses imply nothing and yield an empty seq.
   if cond.kind == nnkPrefix and cond.len == 2 and $cond[0] == "not":
-    return condBounds(cond[1], not holds)
+    return condFacts(cond[1], not holds)
   if cond.kind == nnkInfix and cond.len == 3 and $cond[0] in ["and", "or"]:
     let conjunction = $cond[0] == "and"
     if conjunction != holds:
       return @[]
-    return condBounds(cond[1], holds) & condBounds(cond[2], holds)
-  comparisonBounds(cond, holds)
+    return condFacts(cond[1], holds) & condFacts(cond[2], holds)
+  leafFacts(cond, holds)
 
 const IterNames = ["items", "mitems", "pairs", "mpairs", "keys", "values"]
 
@@ -247,13 +317,13 @@ proc iterSource(iter: NimNode): string =
     return collKey(iter[0])
   collKey(iter)
 
-proc loopBounds(iter: NimNode): seq[Bound] =
+proc loopBounds(iter: NimNode): seq[Fact] =
   ## A ``for`` body runs only when its source yields, so ``for x in s``,
   ## ``for x in s.items`` and ``for i in 0 ..< s.len`` all prove
   ## ``s.len >= 1`` for the duration of the body.
   let source = iterSource(iter)
   if source.len > 0:
-    @[(source, 1)]
+    @[(fkMinLen, source, 1)]
   else:
     @[]
 
@@ -273,10 +343,18 @@ proc indexNeed(idx: NimNode): tuple[need: IndexNeed, minLen: int] =
     return (inUnprovable, 0)
   (inIgnored, 0)
 
-proc satisfied(stack: seq[Bound], name: string, minLen: int): bool =
+proc satisfied(stack: seq[Fact], name: string, minLen: int): bool =
   ## True when some enclosing guard proves ``name`` long enough.
-  for b in stack:
-    if b.name == name and b.minLen >= minLen:
+  for f in stack:
+    if f.kind == fkMinLen and f.name == name and f.minLen >= minLen:
+      return true
+  false
+
+proc unsignedChecked(stack: seq[Fact], name: string): bool =
+  ## True when some enclosing guard compared ``name`` in the unsigned
+  ## domain, which is what makes narrowing it safe.
+  for f in stack:
+    if f.kind == fkUnsignedBound and f.name == name:
       return true
   false
 
@@ -299,9 +377,12 @@ proc isEarlyExitIf(child: NimNode): bool =
 
 type Ctx = object ## Everything the walker threads through one audit run.
   path*: string ## File currently being parsed, for the violation message.
-  stack*: seq[Bound] ## Guards in force at the current node.
+  stack*: seq[Fact] ## Guards in force at the current node.
   problems*: seq[string] ## Violation lines, reported together at the end.
   used*: seq[int] ## Indices into ``Exempt`` that matched at least once.
+  csizeParams*: seq[string]
+    ## ``csize_t`` parameters of the enclosing routine; empty outside the
+    ## C ABI entry point, which is what confines the narrowing rule to it.
 
 proc exemptIndex(ctx: Ctx, node: NimNode): int =
   ## Position in ``Exempt`` covering this site, or ``-1``. The file half
@@ -314,12 +395,12 @@ proc exemptIndex(ctx: Ctx, node: NimNode): int =
 proc walk(node: NimNode, ctx: var Ctx)
   ## Forward declaration — see implementation below for documentation.
 
-proc walkScoped(node: NimNode, ctx: var Ctx, bounds: seq[Bound]) =
-  ## Walk ``node`` with ``bounds`` in force, then drop them again.
-  for b in bounds:
-    ctx.stack.add b
+proc walkScoped(node: NimNode, ctx: var Ctx, facts: seq[Fact]) =
+  ## Walk ``node`` with ``facts`` in force, then drop them again.
+  for f in facts:
+    ctx.stack.add f
   walk(node, ctx)
-  for _ in bounds:
+  for _ in facts:
     discard ctx.stack.pop
 
 proc walkIf(node: NimNode, ctx: var Ctx) =
@@ -327,23 +408,23 @@ proc walkIf(node: NimNode, ctx: var Ctx) =
   ## when every earlier condition failed, so each inherits their
   ## negations; an ``elif`` body additionally gets what its own condition
   ## proves. That is what makes ``if s.len <= 1: … else: s[^1]`` pass.
-  var inherited: seq[Bound] = @[]
+  var inherited: seq[Fact] = @[]
   for branch in node:
     if branch.kind notin {nnkElifBranch, nnkElifExpr}:
       walkScoped(branch[^1], ctx, inherited)
       continue
     walkScoped(branch[0], ctx, inherited)
-    walkScoped(branch[1], ctx, inherited & condBounds(branch[0], true))
-    inherited.add condBounds(branch[0], false)
+    walkScoped(branch[1], ctx, inherited & condFacts(branch[0], true))
+    inherited.add condFacts(branch[0], false)
 
 proc walkShortCircuit(node: NimNode, ctx: var Ctx) =
   ## ``a and b`` evaluates ``b`` only when ``a`` holds, and ``a or b``
   ## only when ``a`` does not — so the right operand runs under the
   ## bounds the left one implies.
   walk(node[1], ctx)
-  walkScoped(node[2], ctx, condBounds(node[1], $node[0] == "and"))
+  walkScoped(node[2], ctx, condFacts(node[1], $node[0] == "and"))
 
-proc caseBranchBounds(selector: NimNode, branch: NimNode): seq[Bound] =
+proc caseBranchBounds(selector: NimNode, branch: NimNode): seq[Fact] =
   ## An ``of`` arm of ``case s.len`` proves the smallest length its labels
   ## admit. Non-literal labels prove nothing and yield an empty seq.
   let name = lenTarget(selector)
@@ -359,7 +440,7 @@ proc caseBranchBounds(selector: NimNode, branch: NimNode): seq[Bound] =
   if lowest < 0:
     @[]
   else:
-    @[(name, lowest)]
+    @[(fkMinLen, name, lowest)]
 
 proc walkCase(node: NimNode, ctx: var Ctx) =
   ## Visit a ``case`` statement, giving each ``of`` arm the length bound
@@ -379,11 +460,82 @@ proc walkStmtList(node: NimNode, ctx: var Ctx) =
     walk(child, ctx)
     if not isEarlyExitIf(child):
       continue
-    for b in condBounds(child[0][0], false):
+    for b in condFacts(child[0][0], false):
       ctx.stack.add b
       inc added
   for _ in 0 ..< added:
     discard ctx.stack.pop
+
+const L5EntryPoint = "/src/jmap_client.nim"
+
+const Narrowing = [
+  "int", "int8", "int16", "int32", "int64", "cint", "cshort", "clong", "clonglong",
+  "uint8", "uint16", "uint32", "cuchar", "cushort", "cuint", "Natural", "Positive",
+]
+
+const RoutineDefs = {
+  nnkProcDef, nnkFuncDef, nnkMethodDef, nnkIteratorDef, nnkConverterDef, nnkTemplateDef,
+  nnkMacroDef,
+}
+
+proc csizeParamNames(routine: NimNode): seq[string] =
+  ## Names of the routine's ``csize_t`` parameters — the caller-supplied
+  ## widths a narrowing conversion can overflow on.
+  result = @[]
+  let formals = routine[3]
+  if formals.kind != nnkFormalParams:
+    return
+  for i in 1 ..< formals.len:
+    let defs = formals[i]
+    if defs.kind != nnkIdentDefs or defs[^2].kind notin {nnkIdent, nnkSym} or
+        $defs[^2] != "csize_t":
+      continue
+    for j in 0 ..< defs.len - 2:
+      if defs[j].kind in {nnkIdent, nnkSym}:
+        result.add $defs[j]
+
+proc namedParam(n: NimNode, params: seq[string]): string =
+  ## First ``csize_t`` parameter appearing anywhere in ``n``, or ``""``.
+  ## A conversion of a derived expression (``int(n - 1)``) is judged on
+  ## the parameter it derives from, which is the conservative reading.
+  if n.kind in {nnkIdent, nnkSym} and $n in params:
+    return $n
+  for child in n:
+    let hit = namedParam(child, params)
+    if hit.len > 0:
+      return hit
+  ""
+
+proc checkNarrowing(node: NimNode, ctx: var Ctx) =
+  ## Judge one ``int(p)``-style conversion of a ``csize_t`` parameter.
+  ## Reachable only inside the C ABI entry point, where ``ctx.csizeParams``
+  ## is non-empty.
+  if node.len != 2 or node[0].kind notin {nnkIdent, nnkSym} or $node[0] notin Narrowing:
+    return
+  let name = namedParam(node[1], ctx.csizeParams)
+  if name.len == 0 or unsignedChecked(ctx.stack, name):
+    return
+  ctx.problems.add ctx.path & ":" & $node.lineInfoObj.line &
+    ": unchecked narrowing of csize_t parameter " & repr(node)
+
+proc walkRoutine(node: NimNode, ctx: var Ctx) =
+  ## Enter a routine definition on an empty guard stack. A nested routine
+  ## shares no scope with the one enclosing it, and facts are keyed by
+  ## source text, so without this an inner name would inherit an outer
+  ## name's discharge. The ``csize_t`` parameter set is swapped for the
+  ## same reason, and stays empty outside the C ABI entry point.
+  let savedStack = ctx.stack
+  let savedParams = ctx.csizeParams
+  ctx.stack = @[]
+  ctx.csizeParams =
+    if ctx.path.endsWith(L5EntryPoint):
+      csizeParamNames(node)
+    else:
+      @[]
+  for child in node:
+    walk(child, ctx)
+  ctx.stack = savedStack
+  ctx.csizeParams = savedParams
 
 proc checkIndex(node: NimNode, ctx: var Ctx) =
   ## Judge one ``a[b]`` node against the guards in force, recording a
@@ -413,7 +565,7 @@ proc walk(node: NimNode, ctx: var Ctx) =
     walkCase(node, ctx)
   of nnkWhileStmt:
     walk(node[0], ctx)
-    walkScoped(node[1], ctx, condBounds(node[0], true))
+    walkScoped(node[1], ctx, condFacts(node[0], true))
   of nnkForStmt:
     walk(node[^2], ctx)
     walkScoped(node[^1], ctx, loopBounds(node[^2]))
@@ -428,6 +580,12 @@ proc walk(node: NimNode, ctx: var Ctx) =
       checkIndex(node, ctx)
     for child in node:
       walk(child, ctx)
+  of nnkCall, nnkCommand:
+    checkNarrowing(node, ctx)
+    for child in node:
+      walk(child, ctx)
+  of RoutineDefs:
+    walkRoutine(node, ctx)
   else:
     for child in node:
       walk(child, ctx)
@@ -456,7 +614,7 @@ macro auditIndexing(listing: static[string]) =
   ## substitutes ``""``, which would make this audit pass on nothing.
   if listing.strip().len == 0:
     error("raw-index audit received an empty file listing — nothing was audited")
-  var ctx = Ctx(path: "", stack: @[], problems: @[], used: @[])
+  var ctx = Ctx(path: "", stack: @[], problems: @[], used: @[], csizeParams: @[])
   for line in listing.splitLines():
     let path = line.strip()
     if path.len == 0:
@@ -471,7 +629,15 @@ macro auditIndexing(listing: static[string]) =
 static:
   ## Enumerate every ``.nim`` file under ``src/``, anchored on
   ## ``currentSourcePath`` so the audit is independent of the compiler's
-  ## working directory.
+  ## working directory. ``walkDirRec`` rather than a shelled-out ``find``:
+  ## it is a compiler VM callback, so it returns the same entries under
+  ## ``nim check`` as under ``nim c``, whereas ``staticExec`` runs no
+  ## sub-process under ``nim check`` and hands back an empty string.
   const projectRoot = parentDir(parentDir(parentDir(currentSourcePath())))
-  const listing = staticExec("find " & projectRoot / "src" & " -type f -name '*.nim'")
+  const listing = block:
+    var paths: seq[string] = @[]
+    for path in walkDirRec(projectRoot / "src"):
+      if path.endsWith(".nim"):
+        paths.add path
+    paths.join("\n")
   auditIndexing(listing)

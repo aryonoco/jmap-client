@@ -119,6 +119,9 @@ jobs:
       - name: Lint (style)
         run: just lint-style
 
+      - name: Lint (defect audits)
+        run: just lint-defect-audits
+
       - name: Static analysis
         run: just analyse
 

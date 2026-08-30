@@ -590,6 +590,25 @@ lint-c-header-types:
       /tmp/jmap_c_header_emit/jmap_emitted.h
     @echo "H20 C-header type cross-check passed"
 
+# Compile the compile-time defect audits. Each parses a copy of the tree
+# inside a macro, so it cannot join testament's megatest and is skip-listed
+# for `just test` — leaving them outside every gate that runs on a push.
+# An audit only reports through the compile it never gets is silent, not
+# loud, so being unrun and being green look identical from outside.
+lint-defect-audits:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s inherit_errexit
+    echo "Compiling the defect audits..."
+    out=$(mktemp -d)
+    trap 'rm -rf "$out"' EXIT
+    for audit in tffi_panic_surface traw_index_audit tno_asserts_in_src \
+        tmail_e_reexport; do
+        nim c --hints:off --warnings:off \
+            -o:"$out/$audit" "tests/compliance/$audit.nim"
+    done
+    echo "Defect audits passed"
+
 # Static analysis with nimalyzer
 analyse:
     @echo "Running static analysis..."
@@ -600,7 +619,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes lint-c-header lint-c-header-snapshot lint-c-header-types analyse
+check: fmt-check lint lint-isolated lint-style lint-defect-audits lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes lint-c-header lint-c-header-snapshot lint-c-header-types analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -614,7 +633,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse build lint-c-header lint-c-header-snapshot lint-c-header-types test-c test
+ci: reuse fmt-check lint lint-isolated lint-style lint-defect-audits lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse build lint-c-header lint-c-header-snapshot lint-c-header-types test-c test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"
