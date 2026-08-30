@@ -19,10 +19,14 @@ That builds `bin/libjmap_client.so` first, then compiles the bench with
 links it against the shared library with an rpath into `bin/`. The
 result is `bin/jmap-c-cli`.
 
-Building the bench is a check in its own right: it is written from
-outside the library, against the header alone, so a header that no
-longer describes the library fails the build. CI builds it for that
-reason and never runs it — running it needs a live JMAP server.
+Building the bench is a spot check of the header: it is written from
+outside the library, against the header alone, so a declaration the
+bench calls that no longer matches the library fails the build. The
+bench calls about two thirds of the exported functions — 71 of 102 at
+the time of writing — so this is a spot check and not a drift gate.
+`just lint-c-header-snapshot` and `just lint-c-header-types` are the
+gates, and they run earlier in the same CI job. CI builds the bench and
+never runs it: running it needs a live JMAP server.
 
 To run it under the sanitizers, compile the same source by hand:
 
@@ -52,8 +56,10 @@ the Nim bench reads, so one `source` drives both:
 `JMAP_TEST_STALWART_SESSION_URL`, `JMAP_TEST_STALWART_ALICE_USER` and
 `JMAP_TEST_STALWART_ALICE_PASSWORD`.
 
-Every command exits non-zero on failure. `2` means the arguments were
-wrong, `1` means the call was.
+Every command exits non-zero on failure. `2` means the command line was
+rejected, before anything connects. `1` means everything else: an unset
+environment variable, a call the server refused, an id it did not
+recognise, or a write it refused for some of the ids given.
 
 ## FINDINGS
 
@@ -85,6 +91,17 @@ Every awkward call site recorded here is a bug against the C API design
   by role, so `find_role_mailbox()` fetches every mailbox in the account
   and walks the list — twice per `send`, once for Drafts and once for
   Sent.
+- **The record id is guarded like an optional field.** The header says
+  of the email getters: "These getters return NULL when the server left
+  the field out. `jmap_email_preview()` is the one exception." Preview
+  is the only name exempted, so `jmap_email_id()` sits inside that
+  group and the bench guards it. RFC 8620 section 5.1 says of the
+  `properties` argument to `/get`: "The id property of the object is
+  *always* returned, even if not explicitly requested." The library's
+  own `jmap_email_id` keeps the presence check anyway, its comment
+  saying it will not rely on "a guarantee this proc cannot itself
+  enforce". The consumer's cost is that the field it correlates
+  everything else by is the one it must null-check first.
 - **The bench cannot spell "clear this property".**
   `jmap_vacation_update_set_subject(u, NULL)` clears the subject, which
   is a different request from leaving it alone, but an absent command

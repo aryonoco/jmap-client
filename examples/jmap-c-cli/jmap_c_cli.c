@@ -99,10 +99,17 @@ static int cmd_mailboxes(void) {
   return 0;
 }
 
+/*
+ * The header puts the record id in the same group as every other
+ * optional field: these getters return NULL when the server left the
+ * field out, and preview is named as the only exception. So the id is
+ * guarded like the rest.
+ */
 static void print_email_line(const jmap_email *e) {
+  const char *id = jmap_email_id(e);
   const char *subj = jmap_email_subject(e);
   const char *from = jmap_email_from_email(e);
-  printf("%s  %s  (%s)\n", jmap_email_id(e), subj ? subj : "(no subject)",
+  printf("%s  %s  (%s)\n", id ? id : "(no id)", subj ? subj : "(no subject)",
          from ? from : "?");
 }
 
@@ -135,10 +142,18 @@ static int cmd_read(const char *id) {
   const jmap_email *e;
   const char *date;
   const char *body;
+  size_t missing, i;
   jmap_status s = jmap_get_emails(g_client, g_account, ids, 1, &es);
   if (s != JMAP_OK) return die("Email/get", s);
+  /* A get answers with two lists: the records it found, and the ids it
+   * did not recognise. A well-formed id that names nothing lands in the
+   * second one and is not an error. */
+  missing = jmap_emails_notfound_count(es);
+  for (i = 0; i < missing; i++)
+    fprintf(stderr, "not found: %s\n", jmap_emails_notfound_at(es, i));
   if (jmap_emails_count(es) == 0) {
-    fprintf(stderr, "not found: %s\n", id);
+    if (missing == 0)
+      fprintf(stderr, "%s: neither a record nor a notFound entry\n", id);
     jmap_emails_free(es);
     return 1;
   }
@@ -159,14 +174,14 @@ static int cmd_read(const char *id) {
  */
 static int print_set_result(jmap_set_result *r, const char *verb) {
   size_t i;
-  int failures;
+  size_t failures;
   for (i = 0; i < jmap_set_result_updated_count(r); i++)
     printf("%s: %s\n", verb, jmap_set_result_updated_at(r, i));
   for (i = 0; i < jmap_set_result_failure_count(r); i++)
     fprintf(stderr, "failed %s: %s (%s)\n", verb,
             jmap_set_result_failure_id_at(r, i),
             jmap_set_result_failure_type_at(r, i));
-  failures = (int)jmap_set_result_failure_count(r);
+  failures = jmap_set_result_failure_count(r);
   jmap_set_result_free(r);
   return failures == 0 ? 0 : 1;
 }
@@ -203,7 +218,20 @@ static int cmd_sync(const char *maybe_state) {
     return 0;
   }
   s = jmap_sync_emails(g_client, g_account, maybe_state, &sy);
-  if (s != JMAP_OK) return die("sync", s);
+  if (s != JMAP_OK) {
+    /* A method error is the one failure here with a recovery, and
+     * telling it apart needs the wire type rather than the prose. */
+    const char *type = s == JMAP_E_METHOD ? jmap_errtype(g_client) : NULL;
+    if (type && strcmp(type, "cannotCalculateChanges") == 0) {
+      fprintf(stderr, "sync: the server can no longer work out the changes "
+                      "since that state. Nothing built from it survives — "
+                      "discard it and take a fresh state with `sync` and no "
+                      "argument.\n");
+      return 1;
+    }
+    if (type) fprintf(stderr, "sync: method error %s\n", type);
+    return die("sync", s);
+  }
   created = jmap_sync_created(sy);
   updated = jmap_sync_updated(sy);
   for (i = 0; i < jmap_emails_count(created); i++) {
@@ -301,16 +329,11 @@ static int cmd_send(const char *to, const char *subject, const char *body) {
   return 0;
 }
 
-static int cmd_vacation(const char *state, const char *subject,
+static int cmd_vacation(jmap_vacation_state vs, const char *subject,
                         const char *body) {
-  jmap_vacation_state vs;
   jmap_vacation_update *u = NULL;
   jmap_set_result *r = NULL;
-  jmap_status s;
-  if (strcmp(state, "on") == 0) vs = JMAP_VACATION_ENABLED;
-  else if (strcmp(state, "off") == 0) vs = JMAP_VACATION_DISABLED;
-  else { fprintf(stderr, "vacation: on|off\n"); return 2; }
-  s = jmap_vacation_update_new(&u);
+  jmap_status s = jmap_vacation_update_new(&u);
   if (s != JMAP_OK) return die_status("vacation update", s);
   s = jmap_vacation_update_set_enabled(u, vs);
   /* An omitted argument leaves the property alone. This bench has no
@@ -339,34 +362,74 @@ static int usage(void) {
   return 2;
 }
 
+typedef enum {
+  CMD_NONE = 0,
+  CMD_MAILBOXES,
+  CMD_SEARCH,
+  CMD_READ,
+  CMD_FLAG,
+  CMD_MOVE,
+  CMD_SYNC,
+  CMD_SEND,
+  CMD_VACATION_ON,
+  CMD_VACATION_OFF
+} command;
+
+/*
+ * The command line is settled before anything connects, so a typo costs
+ * no round trip and always reaches the usage text rather than a
+ * complaint about the environment.
+ */
+static command parse_command(int argc, char **argv) {
+  const char *verb = argv[1];
+  if (strcmp(verb, "mailboxes") == 0 && argc == 2) return CMD_MAILBOXES;
+  if (strcmp(verb, "search") == 0 && argc == 3) return CMD_SEARCH;
+  if (strcmp(verb, "read") == 0 && argc == 3) return CMD_READ;
+  if (strcmp(verb, "flag") == 0 && argc == 3) return CMD_FLAG;
+  if (strcmp(verb, "move") == 0 && argc == 4) return CMD_MOVE;
+  if (strcmp(verb, "sync") == 0 && argc <= 3) return CMD_SYNC;
+  if (strcmp(verb, "send") == 0 && argc == 5) return CMD_SEND;
+  if (strcmp(verb, "vacation") == 0 && argc >= 3 && argc <= 5) {
+    if (strcmp(argv[2], "on") == 0) return CMD_VACATION_ON;
+    if (strcmp(argv[2], "off") == 0) return CMD_VACATION_OFF;
+  }
+  return CMD_NONE;
+}
+
+static int dispatch(command cmd, int argc, char **argv) {
+  switch (cmd) {
+  case CMD_MAILBOXES: return cmd_mailboxes();
+  case CMD_SEARCH: return cmd_search(argv[2]);
+  case CMD_READ: return cmd_read(argv[2]);
+  case CMD_FLAG: return cmd_flag(argv[2]);
+  case CMD_MOVE: return cmd_move(argv[2], argv[3]);
+  case CMD_SYNC: return cmd_sync(argc == 3 ? argv[2] : NULL);
+  case CMD_SEND: return cmd_send(argv[2], argv[3], argv[4]);
+  case CMD_VACATION_ON:
+    return cmd_vacation(JMAP_VACATION_ENABLED, argc >= 4 ? argv[3] : NULL,
+                        argc >= 5 ? argv[4] : NULL);
+  case CMD_VACATION_OFF:
+    return cmd_vacation(JMAP_VACATION_DISABLED, argc >= 4 ? argv[3] : NULL,
+                        argc >= 5 ? argv[4] : NULL);
+  case CMD_NONE: break;
+  }
+  return usage();
+}
+
 int main(int argc, char **argv) {
   jmap_status init;
+  command cmd;
   int rc;
   if (argc < 2) return usage();
+  cmd = parse_command(argc, argv);
+  if (cmd == CMD_NONE) return usage();
   init = jmap_init();
   if (init != JMAP_OK) {
     fprintf(stderr, "jmap_init: %s\n", jmap_strerror(init));
     return 1;
   }
   rc = connect_from_env();
-  if (rc == 0) {
-    if (strcmp(argv[1], "mailboxes") == 0 && argc == 2) rc = cmd_mailboxes();
-    else if (strcmp(argv[1], "search") == 0 && argc == 3)
-      rc = cmd_search(argv[2]);
-    else if (strcmp(argv[1], "read") == 0 && argc == 3) rc = cmd_read(argv[2]);
-    else if (strcmp(argv[1], "flag") == 0 && argc == 3) rc = cmd_flag(argv[2]);
-    else if (strcmp(argv[1], "move") == 0 && argc == 4)
-      rc = cmd_move(argv[2], argv[3]);
-    else if (strcmp(argv[1], "sync") == 0 && argc <= 3)
-      rc = cmd_sync(argc == 3 ? argv[2] : NULL);
-    else if (strcmp(argv[1], "send") == 0 && argc == 5)
-      rc = cmd_send(argv[2], argv[3], argv[4]);
-    else if (strcmp(argv[1], "vacation") == 0 && argc >= 3 && argc <= 5)
-      rc = cmd_vacation(argv[2], argc >= 4 ? argv[3] : NULL,
-                        argc >= 5 ? argv[4] : NULL);
-    else
-      rc = usage();
-  }
+  if (rc == 0) rc = dispatch(cmd, argc, argv);
   /* Free before jmap_cleanup(), on every path: the header forbids
    * tearing the library down while a handle is still alive. */
   jmap_client_free(g_client);

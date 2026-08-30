@@ -94,10 +94,13 @@ build-release:
     @echo "Built: bin/libjmap_client.so (release)"
 
 # Build the C consumer bench against the shipped header and library.
-# Building it is a check in its own right: the bench is written from
-# outside the library, against include/jmap_client.h alone, so a header
-# that no longer describes the library fails here. Running it needs a
-# live JMAP server and stays manual, like the Nim bench.
+# Building it is a spot check of the header: the bench is written from
+# outside the library, against include/jmap_client.h alone, so a
+# declaration the bench calls that no longer matches the library fails
+# here. It calls about two thirds of the exported functions, so this
+# does not replace lint-c-header-snapshot and lint-c-header-types,
+# which gate the header as a whole. Running it needs a live JMAP server
+# and stays manual, like the Nim bench.
 build-c-bench: build
     gcc -std=c99 -Wall -Wextra -Werror -Iinclude \
         examples/jmap-c-cli/jmap_c_cli.c \
