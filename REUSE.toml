@@ -37,6 +37,7 @@ path = [
   "**/*.yaml",
   "**/*.env",
   ".gitignore",
+  ".entire/.gitignore",
   ".editorconfig",
   "nimble.lock",
   "**/*.cfg",

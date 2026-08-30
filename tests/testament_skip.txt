@@ -8,6 +8,7 @@
 tests/compliance/tffi_panic_surface.nim
 tests/compliance/tmail_e_reexport.nim
 tests/compliance/tno_asserts_in_src.nim
+tests/compliance/traw_index_audit.nim
 tests/stress/tadversarial_blueprint.nim
 tests/stress/tadversarial_mail_f.nim
 tests/stress/tadversarial_mail_g.nim

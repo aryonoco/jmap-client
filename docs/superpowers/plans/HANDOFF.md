@@ -1,238 +1,452 @@
-# HANDOFF — post-compaction orientation (written 2026-08-04, session `api-refinement`)
+<!--
+SPDX-License-Identifier: BSD-2-Clause
+Copyright (c) 2026 Aryan Ameri
+-->
 
-You are picking up mid-stream with zero context. This document tells you
-what the project is, what has been done, what is left, and exactly how
-the human wants you to work. It is TRANSIENT — overwritten before each
-compaction; durable truth lives in the specs/plans/ledger it points to.
-Read the "Read these first" list, then resume at "WHERE WE STOPPED".
+# HANDOFF — Layer-5 C ABI execution
 
-## Read these first (in this order)
+**You are the controller for an in-flight, subagent-driven implementation.**
+Tasks 1–15 of 17 are done and reviewed clean. Your job is Tasks 16 and 17,
+then the final whole-branch review, then the PR.
 
-1. `CLAUDE.md` (auto-loaded) — what the library is, commands,
-   conventions, the MANDATORY commit-message format.
-2. `docs/design/17-L5-FFI-Principles.md` — the Layer-5 C ABI design
-   note. AUTHORITATIVE for everything L5. Three of its sketches were
-   amended by owner decision AFTER ratification (see "Settled
-   decisions" below) — the plan encodes the amended forms; doc 17
-   itself gets its dated amendments only in the plan's Task 17.
-3. `docs/superpowers/plans/2026-08-04-l5-c-abi.md` — THE PLAN you will
-   execute next. 18 tasks (0–17), complete code in every step, written
-   from a 7-agent research workflow over the real landed surface plus
-   verified compiler experiments. Its Global Constraints bind every
-   task.
-4. `docs/TODO/pre-1.0-api-alignment.md` — ONLY the status dashboard
-   (~L60–110). It is ~4200 lines; grep for specific items (C24 will be
-   new, C6, D10, H-numbers) when a task needs them.
-5. Skim `docs/design/14-Nim-API-Principles.md` — the 29-principle
-   rubric (P-numbers cited everywhere); read bodies on demand.
+**STOP: the owner has paused execution before Task 16.** Do not dispatch it
+until they say to. Read this file, confirm the state below, and wait.
 
-Your auto-memory (MEMORY.md) carries the standing user directives —
-[[ask-at-every-fork]] and [[claude-dir-timeless]] are non-negotiable.
+This document is transient orientation, rewritten before each compaction. The
+plan and the design docs are the durable record. Where they disagree with this
+file about *what to build*, they win. Where this file records an owner ruling
+or a hard-won gotcha, it wins — those are things the plan cannot know.
 
-## The project, in four sentences
+---
 
-`jmap-client` is a cross-platform JMAP (RFC 8620/8621) email library in
-Nim, layered L1–L4, whose public API is held to libcurl/SQLite
-standards via a consumer bench (`examples/jmap-cli/`) and frozen
-wire-contract snapshots. The 2026-06 API-refactor campaign (PRs #5–#15)
-and this session's PRs #16 (docs reconcile), #17 (C12 seal), #18 (L5
-design note) and #19 (the C15 easy-path one-shots: write verbs,
-vacation set, state bootstrap, `syncEmails`, plus two owner-approved
-library fixes) are ALL MERGED — `main` is at `8b22cab`. The current
-phase is Layer 5 itself: the C ABI specified in doc 17, wrapping the
-one-shot easy path only. The implementation plan for it is written and
-self-reviewed; execution has not started.
+## 1. What this project is
 
-## WHERE WE STOPPED (the exact resume point)
+`jmap-client` is a cross-platform JMAP (RFC 8620 core, RFC 8621 mail) client
+library in Nim, designed from the outset to be consumed from C. It is a
+showcase project: the owner cares about the API being *exemplary*, not merely
+working. Layers are L1 types → L2 serde → L3 protocol → L4
+client/transport/one-shots → **L5 C ABI**, and L5 is what this branch builds.
 
-- `main` is synced at `8b22cab` (PR #19 merge); the C15 branch is
-  deleted local+remote. The working tree is clean except TWO untracked
-  files: the L5 plan (`docs/superpowers/plans/2026-08-04-l5-c-abi.md`,
-  committed by its own Task 0 on branch `api/l5-c-abi`) and this
-  HANDOFF (never commit it).
-- **The pending question the user has NOT yet answered**: execution
-  approach for the L5 plan — subagent-driven
-  (`superpowers:subagent-driven-development`, recommended) vs inline
-  (`superpowers:executing-plans`). The user interrupted to request this
-  handoff instead of answering. ASK IT AGAIN before executing (one
-  AskUserQuestion, two options, recommend subagent-driven — this PR
-  introduces the repo's first C code and first exportc surface, where
-  independent review earns its cost most).
-- Do not start Task 0 until that question is answered. Nothing else is
-  pending.
+The library ships as `bin/libjmap_client.so` with a hand-curated C header at
+`include/jmap_client.h`. The C surface is modelled on **libcurl and SQLite** —
+opaque handles, paired `_new`/`_free`, status-code returns with
+out-parameters, library-owned borrows.
 
-## Settled decisions — DO NOT re-ask or re-litigate
+**Two separate rules about those two libraries, do not confuse them:**
 
-All doc-17 decisions stand (per-handle error state, easy-path-only v1,
-library-owned borrows, hand-curated header + gate, opaque views,
-single ctor with NULL-transport-default, mandatory account_id,
-jmap_version). THREE further forks were put to the owner on 2026-08-04
-during plan research and are BAKED INTO THE PLAN:
+- When *you* face a C API design fork, frame the options against what libcurl
+  and SQLite actually do, and **verify the claim** (read the installed headers
+  under `/usr/include/aarch64-linux-gnu/curl/`, or fetch the docs) rather than
+  asserting it from memory. The owner has rejected an unverified framing.
+- The **header file itself must never mention them.** The owner had all such
+  comparisons removed. `include/jmap_client.h` is the only file a C developer
+  is expected to read, and it must stand alone.
 
-1. **Typed query setters** (`jmap_query_set_str`/`jmap_query_set_u32`,
-   sqlite3_bind discipline) replace §5's ratified variadic — Nim cannot
-   read C varargs without `{.emit.}` raw C (verified). Task 17 records
-   the dated §5 amendment.
-2. **Non-const lazy-fetch account accessors** — the substrate's session
-   is lazy (connect does NO network IO; verified), so
-   `jmap_client_primary_account`/`account_count` take non-const
-   `jmap_client*` and fetch-and-cache on first use. Task 17 records the
-   §4 amendment.
-3. **Nim-private exportc** — L5 symbols carry `{.exportc.}` but NO Nim
-   export marker (verified: unstarred exportc symbols survive in the
-   `.so`). Consequence: the frozen Nim snapshots must NOT move — every
-   task verifies `git diff tests/wire_contract/` is EMPTY (the exact
-   opposite of the C15 PR's refreeze-per-task rhythm). A snapshot
-   change means a `*` leaked. The FFI skill's starred examples get
-   corrected in Task 17 (timeless edits).
+`CLAUDE.md` at the repo root is the project's own standing instruction set and
+binds you.
 
-Also settled earlier and still governing: two-plans sequencing (C15
-first — done; this is plan #2), D1/D1.5/D9/D18 deferred, B6/P18 is the
-sole remaining pre-1.0-tag decision, the pairs-leak and vendored
-nim-results raiseResultDefect patches are landed reality (main).
+---
 
-## How the user works — OBEY THESE
+## 2. Read these, in this order
 
-- **Ask at every fork.** Never assume at any decision point. One
-  AskUserQuestion per message, full context, 2–4 viable options,
-  recommendation first marked "(Recommended)". Proceed only when every
-  outstanding fork is directly answered. Absolute; enforced repeatedly.
-- **Superpowers process skills are mandatory, loaded via the Skill
-  tool.** Execution via whichever skill the user picks (see pending
-  question). The installed superpowers version is 6.2.0 — its
-  subagent-driven-development is the LEDGER-BASED process: run
-  `scripts/sdd-workspace PLAN_FILE` for the plan's workspace, keep
-  `progress.md` there (first line names the plan file), extract
-  per-task briefs with `scripts/task-brief`, build review diffs with
-  `scripts/review-package BASE HEAD`, dispatch implementer → task
-  reviewer (spec+quality) → fix rounds (resume the SAME implementer
-  via SendMessage, rounds 1–3) → scoped re-review each round → ledger
-  every completion/parked finding → final whole-branch review (ONE fix
-  wave, one scoped re-review) → finishing-a-development-branch.
-- **Subagent models**: `sonnet` for plan-complete transcription tasks
-  and scoped re-reviews, `opus` for task reviewers, the final review,
-  and judgment-heavy implementers — NEVER Haiku, NEVER omit the model
-  (omitting inherits Fable, which the user excluded for subagents).
-  For THIS plan give opus to: Task 14 (header-gate lint), Task 15
-  (raw-index audit — its macro core is adapt-from-named-siblings, the
-  plan's one deliberately thin spot), Task 16 (bench), Task 17
-  (close-out), and any fix round that stalls.
-- **Reviews are real**: they found genuine defects on every C15 task.
-  Nice-to-have findings get APPLIED (standing preference); genuine
-  design choices inside findings go back to the user as questions;
-  plan-conflicting findings are the user's call, not yours.
-- **Outward-facing**: pushes and PR-opening for commissioned work are
-  fine; MERGING is always the user's. PR bodies carry NO Claude/AI
-  footer; snapshot-relevant PRs describe their contract deltas in the
-  body (this one's headline: the Nim surface did NOT move).
-- **Git**: never work on main; branch `api/l5-c-abi` (Task 0); stage
-  explicit paths only; kernel-style commits ending with EXACTLY the
-  three trailers in CLAUDE.md (`Assisted-by: Claude:claude-5-fable`).
-  Working-tree branch, NO worktree (project convention overrides the
-  skill's worktree step).
-- **Gates**: `just ci` before EVERY commit. This plan ADDS gates
-  mid-flight: from Task 1 `just test-c` exists (gcc compliance tests;
-  needs `just build` first); Task 14 wires `build`+`lint-c-header`+
-  `test-c` into `ci` and hosted CI. The live gate (`just jmap-up` +
-  `just test-full`) is the USER'S; the PR body must ALSO recommend a
-  manual live run of `bin/jmap-c-cli` (it will never have spoken to a
-  real server).
-- **`.claude/` files are timeless** (no dates/ledger-ids/narration);
-  docs British English, why-not-what, RFC citations allowed in source,
-  design-doc/ledger references not. Dates written into docs are
-  verified against `git log`, never the session clock.
+1. `CLAUDE.md` — conventions, commands, coding rules. Binding.
+2. `docs/design/17-L5-FFI-Principles.md` — **authoritative** for L5: error
+   model, handle lifecycle, borrow rules, threading, versioning, the header
+   and its gates. ~510 lines. Read in full. Note it still carries stale
+   pre-1.0-contradicting text that Task 17 fixes (see §8).
+3. `docs/superpowers/plans/2026-08-04-l5-c-abi.md` — **the plan you execute**.
+   6416 lines, 18 tasks. Read the header, **Global Constraints** and the
+   **File Map** in full. Do NOT read the task bodies — extract those one at a
+   time with `scripts/task-brief` and hand the path to an implementer.
+   Reading task bodies into your own context is the single most expensive
+   mistake available to you.
+4. `.superpowers/sdd/2026-08-04-l5-c-abi/progress.md` — **the ledger**, 1657
+   lines, git-ignored. Your recovery map and the full per-task record. Read it
+   in full; it is long but it is the only place many rulings exist.
+5. `.superpowers/sdd/2026-08-04-l5-c-abi/minor-defect-register.md` — 165
+   lines, 26 items (A1–E13). Leftover minors awaiting the owner's triage at
+   the end. Read it; you present it in the finishing sequence.
+6. `docs/TODO/pre-1.0-api-alignment.md` — status dashboard only, for context.
 
-## What was done this session (all merged unless noted)
+Do not read `docs/superpowers/specs/`; the plan supersedes it for execution.
 
-1. **PR #19 (merged, `8b22cab`)** — the C15 easy-path one-shots,
-   executed subagent-driven: 9 tasks + fix rounds + final review; six
-   one-shots + `addEmailChangesToGetAll` combinator + CLI adoption +
-   ledger close-out (C15/C17/C21 DONE, C23 opened-and-closed,
-   dashboard 82 DONE / 32 TODO). Two owner-approved scope extensions
-   now on main and load-bearing for L5: (a) vendored nim-results'
-   `raiseResultDefect` probes effect-provability (`.error` was
-   uncompilable for Email-carrying Results; locked by
-   `tests/compile/tcompile_error_accessor_email.nim`); (b) the
-   pairs-instantiation leak sealed via `tables.pairs(...)`
-   qualification in the six /set projection iterators + two generic
-   toJson overloads.
-2. **The L5 research workflow** (7 agents, all verbatim-verified):
-   one-shot/session/entity/query surfaces, build+gates, FFI mechanics,
-   transport lifecycle, bench/test wiring. Full results in this
-   session's task output file (gone after compaction) — every fact the
-   plan needs was baked INTO the plan, so you should not need them.
-3. **Three verified compiler experiments** deciding the forks above
-   (unstarred-exportc symbol survival; `compiles()` effect-probing;
-   `bind pairs` failure vs `tables.pairs` success — the last two are
-   already on main from PR #19).
-4. **The L5 plan** written under the writing-plans skill and
-   self-reviewed; the review added Task 8 (threads/identities/vacation
-   reads — a doc 17 §8 row the draft missed, which also let the bench
-   resolve its send identity through the API instead of an env-var
-   hack), renumbered 8–16→9–17, added the missing `JMAP_E_METHOD`
-   static assert, and sanitiser guidance on `test-c`.
+---
 
-## Pitfalls and gotchas ahead (beyond the plan's own text)
+## 3. Where things stand
 
-- **`tests/c_abi/` would be DELETED by `just test-full`** unless
-  Task 1's prune-whitelist edit lands (the prune removes any
-  `tests/<dir>/` with zero `.nim` files). Do not defer that edit.
-- **Latch-before-GC**: `--noMain` means module globals are
-  uninitialised until `jmap_init` runs NimMain. Any exported proc
-  touching a string/seq/ref before checking `l5Initialised` can
-  crash the host. Reviewers should hunt for this specifically.
-- **Fixture generation**: every C test's JSON fixtures are printed
-  from the Nim suite's own builders (`tests/mfixtures.nim` etc.) via
-  throwaway `nim r` snippets and pasted verbatim — hand-written
-  session JSON will be rejected by the strict decoder. The plan gives
-  the commands; implementers must not improvise fixtures.
-- **H19 numbering**: verify the next free H-number in the ledger
-  before naming the header-gate lint (the plan flags this).
-- **Task 15's STOP rule**: if the raw-index audit demands source
-  changes at >15 sites, the implementer reports BLOCKED — that means
-  guard-recognition needs widening, not 40 unreviewed parser edits.
-  Also verify `tffi_panic_surface.nim`'s staticRead paths (possibly
-  stale post-refactor) before relying on its walker.
-- **t03 has a deliberately deferred block** (restored by Task 4 when
-  `jmap_client_primary_account` exists) — the plan says exactly what
-  to defer and restore; don't "fix" it early.
-- **Doc 17 amendments belong to Task 17 ONLY** — do not edit doc 17
-  when implementing Tasks 4/12 even though their signatures differ
-  from its ratified sketches.
-- **`resp.get().get`** in Task 12 (Result unwrap then the
-  `QueryThenGet.get` field) may fight the compiler — the plan gives
-  the let-bound fallback.
-- **CStringConv / PtrToCstringConv / AnyEnumConv are warningAsError**:
-  the plan's ordinal-matching idioms (jmap_strerror,
-  jmap_mailbox_has_right) exist because of this; copy them, never
-  cast int→enum.
-- **ASan on `test-c` is best-effort**: if the sanitised-C /
-  uninstrumented-.so mix fails at runtime, drop the flag and record it
-  (the plan licenses this explicitly).
-- **SDD ledger discipline**: the C15 run survived earlier compactions
-  because of `.superpowers/sdd/<plan>/progress.md` — create it at
-  skill start, append task completions/parked findings/user decisions
-  as they happen. After any compaction trust it + `git log` over
-  recollection. Delete the workspace only after the final review is
-  clean (the C15 one was archived to scratchpad then deleted).
-- Pre-existing red (NOT yours): `tests/compile/tcompile_a12_*` and
-  `tcompile_a2_*` fail standalone `nim c` with UnusedImport, masked in
-  megatest; reproduced on clean main. Leave them.
-- Workflow/subagent empty-result caveat: check the workflow
-  `journal.jsonl` or re-derive inline before trusting a summary.
+Branch `api/l5-c-abi`, forked from `main` at `d234e03`. HEAD `0c23ed3`, **58
+commits**, clean tree. `just ci` green, `just test-c` green (13 C programs
+under ASan+UBSan, **zero suppressions**), **102 exported C symbols**, header
+953 lines, and `git diff tests/wire_contract/` shows **only** the new
+`c-header.txt` — the Nim public surface has not moved.
 
-## The road ahead
+**Done (1–15):** init/version/strerror and the init latch; the client handle
+with its per-handle error slot, `jmap_errmsg` and `jmap_errtype`;
+bring-your-own-HTTP (C transport vtable → Nim closures) plus the
+`ctests/canned.h` offline harness; account accessors over a lazy session
+fetch; the wire-debug callback; result objects for mailboxes, emails,
+threads/identities/vacation; the email write verbs with partial-success set
+results; the vacation update handle; state bootstrap and incremental sync; the
+query handle; the send message handle; the three header gates H18/H19/H20 plus
+CI wiring; and the panic-surface audits.
 
-1. Re-ask the execution question → execute the L5 plan Tasks 0–17
-   exactly as written (per-task gates and the empty-snapshot check are
-   IN the tasks). Continuous execution; stop only for BLOCKED,
-   genuine forks, or completion.
-2. Final whole-branch review (opus) → ONE fix wave → push
-   `api/l5-c-abi` + open the PR (commissioned), body recommending
-   `just test-full` AND a manual live `bin/jmap-c-cli` run pre-merge.
-   User merges.
-3. After merge: sync main, delete the branch. Open items at the
-   user's discretion: B6/P18 ship-or-affirm (sole pre-tag decision),
-   the bench's FINDINGS section feeding a v1.1 additive pass, C6's
-   Nim-side half, D20 layer-doc uplift, H7 (CI mechanisation of
-   check-public-only), deferred D1/D1.5/D9/D18.
+**Plus, at the owner's request and outside the plan:** the entire
+`include/jmap_client.h` comment set was rewritten in plain English in
+libcurl's style (`e8415c2`, `0c23ed3`). Proven comments-only: stripping all
+comments from the current file and from the pre-rewrite original leaves
+byte-identical text.
+
+**Left (16–17):** the C bench `examples/jmap-c-cli` (16), and docs/skills/
+ledger close-out (17). Then the final whole-branch review, one fix wave, the
+register triage, the commit-message decision, workspace deletion, and the PR.
+
+Three commits are **out of plan scope** and must be called out in the PR body:
+`a0e50c7` (REUSE licence-lint fix for pre-existing breakage that blocked every
+commit gate), `0bd94a3` (a pre-existing Layer-4 memory leak, see §7.2), and
+the `cfd6347`/`040e2bc` pair (a wrong RFC citation corrected at its source in
+untouched Layer 4).
+
+---
+
+## 4. The execution model
+
+Load `superpowers:subagent-driven-development` (6.2.0) with the Skill tool and
+follow it. Scripts:
+
+```
+/home/vscode/.claude/plugins/cache/claude-plugins-official/superpowers/6.2.0/skills/subagent-driven-development/scripts/
+```
+
+Workspace (git-ignored): `/workspaces/jmap-client/.superpowers/sdd/2026-08-04-l5-c-abi/`
+
+**Per-task loop, exactly as run for Tasks 1–15:**
+
+1. `scripts/task-brief <plan> N` → writes `task-N-brief.md`, prints the path.
+2. Record BASE = `git rev-parse HEAD`.
+3. Dispatch ONE implementer (never parallel implementers on the same files).
+   The dispatch contains: one line on where the task fits; the brief path
+   introduced as *"read this first — it is your requirements, with the exact
+   values to use verbatim"*; what earlier tasks produced that the brief cannot
+   know; the binding Global Constraints copied verbatim; the accumulated
+   gotchas from §7 that apply; the report path; and the short return contract.
+   **Never paste plan text or prior-task history into a dispatch.**
+4. Controller-verify before review — see §6, and do it every time.
+5. `scripts/review-package <plan> BASE HEAD` → dispatch the task reviewer with
+   that path plus the brief and report paths, and a constraints block that
+   acts as its attention lens. **Never pre-judge** — do not tell a reviewer
+   what not to flag. Naming an *area* to scrutinise is fine and valuable;
+   telling it what to conclude is not.
+6. Fix loop: rounds 1–3 resume the SAME implementer via SendMessage with the
+   findings verbatim; rounds 4–5 use a fresh implementer one tier up. Every
+   round ends with a scoped re-review over `FIX_BASE..HEAD`. Cap 5 rounds,
+   then adjudicate.
+7. Append the completion line to the ledger, then move on.
+
+**Models — always specify explicitly.** `sonnet` for implementers on tasks
+whose plan text carries complete code, and for scoped re-reviews of small
+mechanical fix diffs. `opus` for every task reviewer, for re-reviews touching
+a template or a memory-safety boundary, for judgement-heavy implementation
+(Tasks 14–17 were all opus), and for the final whole-branch review. Never
+Haiku. Never omit the model.
+
+**Reviewer `⚠️ Cannot verify from diff` items are YOURS to resolve** — you hold
+the cross-task context the reviewer lacks. Resolve each before completing the
+task; if one is a real gap it enters the fix loop.
+
+**Do not fix findings yourself.** Controller fixes pollute your context and
+skip review. The exceptions already exercised: amendments to the *plan
+document* are controller work (dispatched to a subagent, committed separately,
+`just ci` green first), and repairing a damaged working tree (see §7.16).
+
+**A scoped re-review may be skipped only when the tracked diff is provably
+empty** — a message-only amend where `git diff OLD NEW` is empty. Record the
+determination in the ledger; never skip silently. This has been done twice and
+both are documented there.
+
+---
+
+## 5. The owner's rules — non-negotiable
+
+**Ask at every fork.** At any genuine decision point — design, scope, naming,
+doc treatment, process — do not assume. Use `AskUserQuestion`, **one question
+per message**, 2–4 viable options, recommendation first and labelled
+"(Recommended)". Give the *repercussions* of each option, not just the choice,
+and put the framing prose in the message body rather than only in the option
+blurbs — under-contextualised questions have been rejected. For C API forks,
+frame against verified libcurl/SQLite behaviour (§1). Nine forks have been
+raised and answered this way; every one improved the result.
+
+**No 1.0 freeze.** The repo has had zero users outside the owner. 1.0 gets
+called only after real-world use. Nothing on this branch may declare 1.0 or
+promise ABI stability. Version macros are `0.1.0` and stay there. The header
+gates are **change detectors**, not compatibility promises, and their own
+docstrings say so. This binds Task 16's README and Task 17's doc amendments.
+
+**Route minors into fix rounds.** Minor findings that are genuine violations
+of the stated principles get fixed in the round, not deferred. Only what is
+genuinely out of scope, cross-cutting or contestable goes to the register,
+which is presented to the owner **at the end** for triage.
+
+**Plan-mandated findings are the owner's call** — but only when fixing one
+would *contradict* the plan. Strengthening something the plan under-specified
+(e.g. adding assertions to a weak test) is additive, not contradictory, and
+goes straight into the fix round.
+
+**Never spawn a Workflow-tool fan-out** without the owner's direct, explicit
+authorisation. Ultracode being on is *not* authorisation.
+
+**Quality gates, before every commit:**
+- `just fmt && just fmt-check`
+- `just ci` green — now includes `lint-defect-audits`, `build`, the three
+  header gates, and `test-c`
+- `just test-c` green — every C test, ASan+UBSan, **zero suppressions**
+- `git diff tests/wire_contract/` shows **only** `c-header.txt`. If
+  `public-api.txt`, `type-shapes.txt` or `error-messages.txt` moves, a `*`
+  leaked: fix the leak, never re-freeze.
+- New C symbols present in `nm -D bin/libjmap_client.so`
+
+**`just test-full` and the live-server suite are the OWNER's to run.** Do not
+attempt them; `test-full` hard-errors without live JMAP servers anyway.
+
+**Git:**
+- Kernel-style commits: `subsystem: imperative subject` under 75 chars, body
+  wrapped ~75 columns explaining **why**, ending with EXACTLY:
+
+  ```
+  Co-developed-by: Aryan Ameri <github@aryan.ameri.coffee>
+  Signed-off-by: Aryan Ameri <github@aryan.ameri.coffee>
+  Assisted-by: Claude:claude-5-fable
+  ```
+
+  No other AI/LLM attribution anywhere. PR bodies carry **no** Claude/AI
+  footer.
+- **No scaffolding references in commit bodies** — no `task`, `round`,
+  `review`, `ledger`, `brief` or finding numbers. Six violations have been
+  caught. Grep every body before committing. (Naming the plan document in a
+  commit that *edits* the plan document is a self-reference, not a violation.)
+- Never name a file in a commit body without checking it exists.
+- Stage explicit paths only. **NEVER `git add -A`.**
+- Never implement on `main`. **No worktree** — this project works on a branch
+  in the main tree.
+- **The owner merges.** You open the PR; you never merge it.
+
+**Communication:** report faithfully. If a test fails, say so with the output.
+Never claim work is done until it is verified. Keep narration between tool
+calls to one short line.
+
+---
+
+## 6. Controller verification — run this after every single task
+
+Agents have reported "working tree clean" while the tree was damaged. Verify,
+never trust the claim:
+
+```sh
+git status --porcelain                      # MUST be empty
+git log --oneline BASE..HEAD
+git log BASE..HEAD --format='%h|%B' | grep -niE '\btask\b|\bround\b|\breview\b|ledger|\bbrief\b|finding'
+git diff --stat d234e03 -- tests/wire_contract/   # only c-header.txt
+grep -nE '^\s*(func|proc)\s+\w+\*.*\{\.exportc' src/jmap_client.nim   # must be empty
+nm -D bin/libjmap_client.so | grep -c ' T jmap_'
+```
+
+Also confirm every file named in a commit body exists, and re-run `just ci`
+yourself after any concurrent work — an agent's green run is evidence about
+the tree at *its* moment, not yours.
+
+---
+
+## 7. Gotchas — every one has already cost this branch
+
+**7.1 Narrowing a caller-supplied `csize_t` — this class shipped THREE times.**
+A range-checked conversion of a value ≥ 2^63 raises `RangeDefect` and
+**terminates the host process** through a `cdecl` boundary declared
+`raises: []`. The rule is **any** narrowing of a caller-supplied `size_t` —
+index, count, length or offset — validates in the unsigned domain FIRST.
+Every such site gets a `SIZE_MAX` assertion in its C test. A compile-time
+audit now covers this class at the L5 boundary; see §8, Task 15's entry.
+
+**7.2 A user-defined `=destroy` suppresses the compiler's generated field
+destruction.** `TransportObj` declared one and never released its two closure
+fields, leaking ~3.1 KB per client. Fixed in `0bd94a3`. If a task defines any
+`=destroy` on a type with fields, it owns releasing every field by hand.
+**Prefer not defining one at all** — every L5 handle relies on the generated
+destructor, which is why they are leak-free.
+
+**7.3 `-d:useMalloc` is what makes the sanitisers see anything.** Without it
+Nim takes pages via mmap and LeakSanitizer observes nothing. That is why
+`just test-c` runs with **zero suppressions**, and why a leak an implementer
+introduces is a hard failure to fix, never suppress.
+
+**7.4 A test or gate that cannot fail is worse than none — this class has now
+recurred FOUR times.** A vacuous assertion reading back a canned constant
+(Task 11); a gate passing on empty input (Task 14); a pre-existing audit green
+over an empty string (Task 15); and the narrowing rule passing on zero
+routines (Task 15 again, *inside the fix for the previous one*). **Put this in
+every review lens.** Require: a deliberate violation, the exact failure
+message, restoration, and a check that empty/missing input is refused.
+
+**7.5 `staticRead` in macro-argument position silently returns `""`.** It is
+folded under `tryConstExpr`, which both silences and un-counts the "cannot
+open file" error (`vmdeps.nim:18-30`, `sem.nim:362-403`). A stale path
+therefore compiles green while auditing nothing. Put `staticRead` in the macro
+**body**, and add a length backstop.
+
+**7.6 Fixtures must be generated, never hand-written.** The strict decoder
+rejects hand-written session JSON. Generate via a throwaway `nim r` echo,
+round-trip through the real decoder, paste, delete the throwaway. The shared
+`SESSION_JSON` is reused verbatim across `ctests/t03…t12`.
+
+**7.7 `usableAccount` (`src/jmap_client/internal/protocol/preflight.nim:40-62`)
+treats `accountCapabilities` as authoritative**; `primaryAccounts` is merely a
+pointer into it. A fixture with `accountCapabilities: {}` cannot resolve a
+mail account whatever `primaryAccounts` says.
+
+**7.8 Docstrings must not assert properties the code does not guarantee.**
+Eleven instances caught. The worst were an RFC *inference* that did not follow
+from the cited text, a claimed losslessness, a documented error outcome that
+was unreachable, and a safety caveat true for one bound kind and false for
+another. **Disclose limits in the file, not only in the report** — reports are
+deleted when the work lands.
+
+**7.9 `docs/rfcs/` is authoritative — verify every section number against the
+text.** Wrong citations were introduced twice by *fix rounds*. One wrong
+citation existed in untouched L4 and was corrected at source so it would stop
+propagating.
+
+**7.10 Reports overstate.** Three report-accuracy gaps caught: a claimed
+correction never applied; a plausible mitigation ("compile-and-link catches
+type mismatches") that was false under test; an invented justification
+attributing an instruction to the brief. Reviewers must verify claims against
+the diff, and mutation proofs must name an assertion that exists in the landed
+file.
+
+**7.11 Set errors are DATA inside a successful response.** A call returns
+`JMAP_OK` while individual ids fail. The wire type string reaches C losslessly.
+The per-handle error slot must not be polluted by per-id refusals.
+
+**7.12 Result collections come back in server order, not submission order.**
+A consumer correlating by index mispairs silently. The header says to match by
+id.
+
+**7.13 nimalyzer's complexity ceiling is 10 and no `ruleOff` is permitted** —
+decompose along a real seam. Note that refactors forced by the ceiling are
+where behaviour quietly changes; re-prove the affected guard afterwards.
+
+**7.14 `warningAsError` traps:** `CStringConv`, `PtrToCstringConv`,
+`AnyEnumConv`, and `XDeclaredButNotUsed` — an unused symbol is a build
+failure, which invalidated one mutation proof.
+
+**7.15 Two tables that must DIFFER are not a duplication to eliminate.** A DRY
+merge of a conversion-target width table and a bound-ceiling width table made
+a safety audit *less* sound while looking like cleanup. One type can
+legitimately carry two widths when the two roles have opposite safe
+directions.
+
+**7.16 An agent deleted 82 tracked files from the working tree.** A
+mutation-testing cleanup reached outside its isolated copy and removed
+`tests/serde/captured/` entirely. Nothing was committed;
+`git checkout -- <path>` restored it byte-identically. **Tell every dispatch
+not to delete or move files**, and run the §6 check after every task.
+
+**7.17 Pre-existing red to leave alone:** `tests/compile/tcompile_a12_*` and
+`tcompile_a2_*` fail under standalone `nim c` (UnusedImport) but are masked in
+the megatest. Not yours.
+
+---
+
+## 8. Settled decisions — do NOT re-litigate
+
+Nine owner rulings, all recorded in the ledger with their evidence:
+
+1. **All L5 symbols are Nim-private**: `{.exportc: "jmap_x", dynlib, cdecl,
+   raises: [].}` with **no** `*`. Adding `*` moves the frozen Nim surface.
+2. **Latch scope narrowed**: `l5Initialised` binds only exports that allocate
+   GC'd memory or return `jmap_status`. Pure reads through a live handle and
+   the `*_free` family are exempt.
+3. **C tests live in top-level `ctests/`**, never under `tests/` — testament's
+   `all` mode hard-asserts on a `tests/<dir>/` holding zero `.nim` files.
+4. **L5 projects over existing public Layer-4 API.** Where a one-shot exists
+   it MUST be called. If a task needs an operation no public L4 symbol
+   provides, the implementer reports **BLOCKED** and you escalate.
+5. **Handle boxes use `createShared`/`deallocShared`** with
+   `` `=destroy`(handle[]) `` immediately before the free; `.so` built
+   `-d:useMalloc`.
+6. **Configuring an operation uses a handle plus typed setters**, never a wide
+   flat function. This was ruled three times: the vacation update handle, the
+   query handle, and the message handle for send. `set_str` replaces;
+   `jmap_message_add_str` appends to list-valued roles; passing NULL to a
+   setter clears. The reasoning each time was that a fixed arity cannot grow
+   and that eight consecutive `const char *` parameters make a silent
+   transposition possible.
+7. **`jmap_errtype()` exists** so method-error types are machine-readable.
+   Error *text* is for humans; branching on it is what the reference libraries
+   explicitly warn against.
+8. **The four non-joinable compliance audits are gated** in `check`, `ci` and
+   hosted CI via `lint-defect-audits` (~2.9 s). They previously ran only under
+   `just test-full`, which is why one of them rotted unnoticed.
+9. **The narrowing audit is scoped to every routine in `src/jmap_client.nim`**,
+   not only `{.exportc.}` ones — the third historical incident was in a
+   private helper reached through an exported entry point.
+
+Doc 17's dated amendments are written in **Task 17 only** — do not edit doc 17
+before then.
+
+---
+
+## 9. Lookahead for Tasks 16 and 17
+
+Per-task requirements live in the plan; these are the risks *around* them.
+
+- **Task 16 (C bench, `examples/jmap-c-cli`)** — opus. CI builds it only; the
+  live run stays manual, because hosted CI stands up no JMAP server. The bench
+  is the first *consumer* of the C API written from outside, so treat anything
+  awkward in it as a finding about the API, not about the bench. Its README
+  must not claim stability. The plan's `cmd_send` uses `set_str` only (one
+  recipient) — deliberate, recorded. Its `cmd_vacation` was updated when the
+  vacation surface was reshaped.
+- **Task 17 (close-out)** — opus. The *only* task that edits
+  `docs/design/17-L5-FFI-Principles.md`, and it adds **dated amendments**
+  rather than editing ratified rows. Amendments owed: the shared-heap handle
+  pair; the bench building in CI with a manual live run; the query typed
+  setters; the lazily-fetching account accessors; and — added this session —
+  **doc 17 still asserts "ordinals never reused, nothing removed after v1" and
+  claims the header states an additive-only rule, both of which the pre-1.0
+  header rewrite made false.** Also touches `.claude/rules/nim-ffi-boundary.md`
+  and the skill files, and `docs/TODO/pre-1.0-api-alignment.md`. **`.claude/`
+  files are timeless** — no dates, no ledger IDs, no settled-narration.
+
+---
+
+## 10. Finishing
+
+1. All tasks complete → `scripts/review-package <plan> $(git merge-base main HEAD) HEAD`
+   → dispatch the final whole-branch reviewer on **opus** using
+   `superpowers:requesting-code-review`'s `code-reviewer.md`. **Point it at
+   the register and at the ledger's deferred-minor lines** so it can triage
+   what must be fixed before merge. This is the first look at all 58+ commits
+   together.
+2. ONE fix wave for its findings — a single subagent with the complete list,
+   not one fixer per finding — then exactly one scoped re-review of that wave.
+   Adjudicate residuals: park with a ruling, or stop on load-bearing ones.
+3. **Present the minor-defect register to the owner for triage.** 26 items,
+   A1–E13, in `minor-defect-register.md`. Two need their explicit word:
+   - **C1: the branch-wide commit-message rewrite.** Two subjects literally
+     read `ffi: fix vacation-view review round 1`, plus bodies referencing
+     task numbers, all predating this session. ~15 commits, message-only,
+     trees provably unchanged. Cheapest done once, immediately before the PR.
+   - **D1: the send envelope gap** — no `replyTo`/`inReplyTo`/`references`, so
+     a C consumer can send but cannot reply in-thread. Needs an L4 widening,
+     which is post-1.0 and the owner's call.
+4. `rm -rf` this plan's workspace directory. Git history is the record.
+5. `superpowers:finishing-a-development-branch`, base branch `main`.
+6. Push and open the PR. The body must:
+   - note the Nim public surface did **not** move (only `c-header.txt` is new);
+   - flag the out-of-scope commits `a0e50c7`, `0bd94a3`, `cfd6347`/`040e2bc`,
+     with why each was unavoidable;
+   - state the library is **pre-1.0** with no ABI compatibility promise;
+   - name the C API's known limitation (no in-thread reply, D1);
+   - recommend the owner run `just test-full` **and** a manual live
+     `bin/jmap-c-cli` run before merging;
+   - carry **no** Claude/AI footer.
+7. **The owner merges.** Not you.

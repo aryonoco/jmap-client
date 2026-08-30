@@ -119,6 +119,17 @@ proc `=destroy`*(t: TransportObj) {.raises: [].} =
   if not t.closeImpl.isNil:
     {.cast(gcsafe).}:
       t.closeImpl()
+  # Declaring a hook suppresses the compiler-generated field destruction,
+  # so the hook owns every field or nothing releases it. Both closures
+  # share one lifted environment holding the backend's captured state
+  # (for the default backend, the ``HttpClient``); leaving their
+  # references outstanding strands that environment for the life of the
+  # process under ``--mm:arc``, which has no collector to sweep it up
+  # afterwards. ``addr(...)[]`` supplies the mutable lvalue the ``var T``
+  # overload needs: ``system`` offers non-var ``=destroy`` only for
+  # ``ref``, ``string``, and ``seq``, and a closure is none of those.
+  `=destroy`(addr(t.sendImpl)[])
+  `=destroy`(addr(t.closeImpl)[])
 
 proc newTransport*(
     sendImpl: SendProc, closeImpl: CloseProc

@@ -119,8 +119,31 @@ jobs:
       - name: Lint (style)
         run: just lint-style
 
+      - name: Lint (defect audits)
+        run: just lint-defect-audits
+
       - name: Static analysis
         run: just analyse
+
+      - name: Build shared library
+        run: just build
+
+      - name: Lint (C header inventory)
+        run: just lint-c-header
+
+      - name: Lint (C header drift)
+        run: just lint-c-header-snapshot
+
+      - name: Lint (C header types)
+        run: just lint-c-header-types
+
+      - name: Run C compliance tests
+        run: just test-c
+
+      # Build only. The bench needs a live JMAP server to do anything,
+      # so running it stays manual, like the Nim bench.
+      - name: Build the C consumer bench
+        run: just build-c-bench
 
       - name: Run tests
         run: just test

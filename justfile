@@ -67,17 +67,68 @@ lock:
 # BUILDING
 # =============================================================================
 
+# Handle boxes crossing the C ABI may move between threads — a caller is
+# free to hand one to another thread — so they live on Nim's shared heap
+# rather than the default thread-local one. -d:useMalloc backs that
+# shared heap with libc malloc/free, which also puts every Nim
+# allocation in view of Valgrind, ASan and LeakSanitizer, not just the
+# C side of the boundary.
+#
+# Every recipe that codegens the shared object reads these from here.
+# lint-c-header-types compares Nim's emitted prototypes against the
+# hand-written header, so it has to emit under the flags the shipped
+# library is built with: a -d: added to one site and not the other would
+# have it check a configuration nobody ships.
+shared_lib_flags := "--app:lib --noMain -d:ssl -d:useMalloc"
+
 # Build shared library
 build:
     @echo "Building shared library..."
-    nim c --app:lib --noMain -d:ssl -o:bin/libjmap_client.so src/jmap_client.nim
+    nim c {{ shared_lib_flags }} -o:bin/libjmap_client.so src/jmap_client.nim
     @echo "Built: bin/libjmap_client.so"
 
 # Build shared library with release optimisations
 build-release:
     @echo "Building shared library (release)..."
-    nim c -d:release --app:lib --noMain -d:ssl -o:bin/libjmap_client.so src/jmap_client.nim
+    nim c -d:release {{ shared_lib_flags }} -o:bin/libjmap_client.so src/jmap_client.nim
     @echo "Built: bin/libjmap_client.so (release)"
+
+# Build the C consumer bench against the shipped header and library.
+# Building it is a spot check of the header: the bench is written from
+# outside the library, against include/jmap_client.h alone, so a
+# declaration the bench calls that no longer matches the library fails
+# here. It calls about two thirds of the exported functions, so this
+# does not replace lint-c-header-snapshot and lint-c-header-types,
+# which gate the header as a whole. Running it needs a live JMAP server
+# and stays manual, like the Nim bench.
+build-c-bench: build
+    gcc -std=c99 -Wall -Wextra -Werror -Iinclude \
+        examples/jmap-c-cli/jmap_c_cli.c \
+        -Lbin -ljmap_client -Wl,-rpath,"$PWD/bin" -o bin/jmap-c-cli
+    @echo "Built: bin/jmap-c-cli"
+
+# Compile and run every C compliance test against the built library.
+# These are plain-C programs proving the ABI contract from the consumer
+# side; they are NOT testament tests, which is why ctests/ sits outside
+# tests/ (testament's `all` mode asserts on a category with no .nim
+# files).
+test-c: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for f in ctests/t*.c; do
+        out="/tmp/jmap_c_$(basename "$f" .c)"
+        # -D_POSIX_C_SOURCE opts back into strdup() and friends: plain
+        # -std=c99 sets __STRICT_ANSI__, which suppresses glibc's
+        # default-source feature macros and hides everything POSIX
+        # adds on top of C99 — the canned-transport harness needs
+        # strdup() to hand the library malloc'd response buffers.
+        gcc -std=c99 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror \
+            -fsanitize=address,undefined \
+            -Iinclude "$f" \
+            -Lbin -ljmap_client -Wl,-rpath,"$PWD/bin" -o "$out"
+        "$out"
+    done
+    echo "All C compliance tests passed"
 
 # =============================================================================
 # TESTING
@@ -504,6 +555,74 @@ lint-type-shapes: _api-oracle
     nim r --hints:off --warnings:off tests/lint/h17_type_shape_snapshot.nim /tmp/jmap_shapes_live.txt
     @echo "H17 type-shape snapshot lint passed"
 
+# H18 C-header inventory lint. Every {.exportc.} under src/ must be
+# declared in include/jmap_client.h and vice versa, and every exportc
+# pragma must carry dynlib, cdecl and raises: [].
+lint-c-header:
+    @echo "Running H18 C header inventory lint..."
+    nim r --hints:off --warnings:off tests/lint/h18_c_header_inventory.nim
+    @echo "H18 C header inventory lint passed"
+
+# Regenerate the C-header snapshot. Developer convenience for a
+# deliberate header change — review the diff before committing and tag
+# the PR [C-ABI-CHANGE]. CI does not run this recipe.
+snapshot-c-header:
+    @echo "Regenerating tests/wire_contract/c-header.txt..."
+    @mkdir -p tests/wire_contract
+    @nim r --hints:off --warnings:off scripts/render_c_header.nim \
+      > tests/wire_contract/c-header.txt.new
+    @mv tests/wire_contract/c-header.txt.new tests/wire_contract/c-header.txt
+    @echo "Snapshot regenerated. Review the diff before committing."
+
+# H19 C-header snapshot lint. A change detector, not a compatibility
+# promise: the library is pre-1.0 and its C ABI may still change, but a
+# change to a parameter type, an enum ordinal or a version macro must be
+# deliberate, so it fails here until tests/wire_contract/c-header.txt is
+# regenerated.
+lint-c-header-snapshot:
+    @echo "Running H19 C-header snapshot lint..."
+    @nim r --hints:off --warnings:off scripts/render_c_header.nim \
+      > /tmp/jmap_c_header_live.txt
+    nim r --hints:off --warnings:off tests/lint/h19_c_header_snapshot.nim \
+      /tmp/jmap_c_header_live.txt
+    @echo "H19 C-header snapshot lint passed"
+
+# H20 C-header type cross-check. A change detector, not a compatibility
+# promise. Nothing else compares the hand-written declarations against
+# the Nim signatures they stand for: C linkage matches by name alone, so
+# a header that misstates a parameter type still compiles and links.
+# `nim c --header:` emits a prototype per export straight from the Nim
+# side; --compileOnly stops before the C compiler, so this costs a Nim
+# pass and no link.
+lint-c-header-types:
+    @echo "Running H20 C-header type cross-check..."
+    @rm -rf /tmp/jmap_c_header_emit
+    @nim c --compileOnly {{ shared_lib_flags }} \
+      --header:jmap_emitted.h --nimcache:/tmp/jmap_c_header_emit \
+      --hints:off --warnings:off src/jmap_client.nim
+    nim r --hints:off --warnings:off tests/lint/h20_c_header_types.nim \
+      /tmp/jmap_c_header_emit/jmap_emitted.h
+    @echo "H20 C-header type cross-check passed"
+
+# Compile the compile-time defect audits. Each parses a copy of the tree
+# inside a macro, so it cannot join testament's megatest and is skip-listed
+# for `just test` — leaving them outside every gate that runs on a push.
+# An audit only reports through the compile it never gets is silent, not
+# loud, so being unrun and being green look identical from outside.
+lint-defect-audits:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s inherit_errexit
+    echo "Compiling the defect audits..."
+    out=$(mktemp -d)
+    trap 'rm -rf "$out"' EXIT
+    for audit in tffi_panic_surface traw_index_audit tno_asserts_in_src \
+        tmail_e_reexport; do
+        nim c --hints:off --warnings:off \
+            -o:"$out/$audit" "tests/compliance/$audit.nim"
+    done
+    echo "Defect audits passed"
+
 # Static analysis with nimalyzer
 analyse:
     @echo "Running static analysis..."
@@ -514,7 +633,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse
+check: fmt-check lint lint-isolated lint-style lint-defect-audits lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes lint-c-header lint-c-header-snapshot lint-c-header-types analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -528,7 +647,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse test
+ci: reuse fmt-check lint lint-isolated lint-style lint-defect-audits lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse build lint-c-header lint-c-header-snapshot lint-c-header-types test-c build-c-bench test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"

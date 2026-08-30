@@ -128,6 +128,25 @@ typedef enum {
   audit) are part of the L5 work: a C ABI whose host process can be
   killed by a library assertion is not shippable.
 
+*Amendment (2026-08-30).* This section names `jmap_errmsg` as the whole
+of the per-handle diagnostic. A second accessor shipped beside it:
+`const char *jmap_errtype(const jmap_client *client)` hands back the
+wire `type` string of the last typed JMAP failure on that handle,
+carried off the wire unchanged — `jmap_errmsg` for prose a person
+reads, `jmap_errtype` for a value code compares, so a type one vendor
+invented reaches C intact. It spans both typed statuses: after
+`JMAP_E_METHOD` the string is a method-level error type (RFC 8620
+§3.6.2), and after `JMAP_E_SET` it is the SetError type that refused a
+single create (§5.3). Any other outcome answers NULL, and a non-NULL
+answer is never the empty string, so "no type" and "an empty type"
+cannot be confused. One accessor rather than two, because the rejected
+alternative — a second exported `jmap_set_errtype` — could only be
+chosen between by reading the status first, which is the same read the
+single accessor already requires: the two vocabularies overlap, and
+`"forbidden"` sits in both meaning a different thing in each. Owner
+decision 2026-08-30, widening an accessor that had shipped for the
+method path alone. Its borrow window is `jmap_errmsg`'s.
+
 ## 2. Handles and lifecycle
 
 **Rule.** Opaque pointers only; create/free pairs; no init ritual
@@ -190,6 +209,21 @@ beyond one process-wide call.
   `JMAP_E_MISUSE`) before any dereference — defects are fatal under
   `--panics:on`, so validation is the only acceptable response to a
   bad pointer the library can detect.
+
+*Amendment (2026-08-30).* Handles are minted with `createShared(T)` and
+released with `` `=destroy`(p[]) `` followed by `deallocShared`, not
+the `create(T)` / `dealloc` pair named above (owner decision
+2026-08-04). §7 blesses handing a handle to another thread, and
+`create` and `dealloc` are documented thread-local —
+`lib/system/memalloc.nim` says "The allocated memory belongs to its
+allocating thread!" of `create` and "The freed memory must belong to its
+allocating thread!" of `dealloc`, each pointing at the `Shared` variant
+for cross-thread use. A box the contract lets a consumer carry across
+threads therefore cannot live on the thread-local heap;
+`createShared` / `deallocShared` carry no such restriction. Nothing
+else in this section moves: the destructor call still precedes
+deallocation, and `T` is still an L5-owned wrapper holding the L4 `ref`
+plus the handle's slots.
 
 ## 3. Memory ownership
 
@@ -261,6 +295,30 @@ not copies.
   the P29 discipline: surface follows demonstrated consumer need, and
   grows additively.
 
+*Amendment (2026-08-30).* Two of the three account accessors take a
+non-const `jmap_client *`. `jmap_client_primary_account` and
+`jmap_client_account_count` fetch the session on first use and cache it
+on the handle, so they mutate what they are handed; the const sketch
+above predates the substrate's lazy session (owner decision
+2026-08-04). `jmap_client_account_count` reports through a
+`jmap_status` and a `size_t` out-parameter for the same reason — its
+first call can fail, and a bare `size_t` return has nowhere to say so.
+`jmap_client_account_at` kept its `const`: it reads the frozen cache
+and never reaches the network, which is why the header tells a caller
+to ask for the count first.
+
+The illustrative getter this section writes as
+`uint32_t jmap_mailbox_unread(...)` shipped as
+`int64_t jmap_mailbox_unread_emails(...)` — named for the RFC 8621 §2
+property it carries, and signed 64-bit because that is the width the C
+view stores an RFC 8620 §1.3 `UnsignedInt` in. The `Opt[T]` projection
+rule stands, but only its pointer-shaped half is exercised in v1: no
+value-shaped optional field reached the C surface, so no
+`jmap_x_has_y` / `jmap_x_y` pair exists yet to read. The `int`-returning
+getters that did ship (`jmap_mailbox_is_subscribed`,
+`jmap_email_has_attachment`) are total fields with defaults, not
+optionals.
+
 ## 5. Query options: one tagged-option surface
 
 **Rule.** Extensible option-setting goes through one tagged enum, not
@@ -301,6 +359,23 @@ jmap_status jmap_query_emails(jmap_client *c, const char *account_id,
 - Internally an option set lowers onto the typed Nim
   `EmailFilterCondition`/`QueryParams` — the C surface never touches
   JSON (P19).
+
+*Amendment (2026-08-30).* The option surface is two typed setters —
+`jmap_query_set_str(jmap_query *, jmap_query_opt, const char *)` and
+`jmap_query_set_u32(jmap_query *, jmap_query_opt, uint32_t)` — not the
+single variadic `jmap_query_set` sketched above (owner decision
+2026-08-04). Nim cannot read a C `va_list` without embedded raw C, so
+the variadic was not implementable here at all. Splitting by value type
+then costs nothing the tagged-option model was buying: the option set
+is unchanged, a new capability is still one enum member rather than a
+new entry point, and the sqlite3_bind discipline restores the
+compile-time value typing libcurl's `curl_easy_setopt` trades away. So
+the paragraph above trading compile-time type safety for additive
+extensibility no longer describes a trade that had to be made. The
+per-OPTION-entry-point anti-pattern this section rules out stays ruled
+out, and the wrong setter for an option is `JMAP_E_MISUSE`. Both
+setters validate as they are called, so a well-typed but illegal value
+is `JMAP_E_VALIDATION` at the setter rather than at the query.
 
 ## 6. Callbacks and transport
 
@@ -405,6 +480,74 @@ The v1 C surface is the easy path, complete for an email client:
   wrap-rate question — "would a C developer use jmap-client directly,
   or wrap it?" — is answered by this program before v1 freezes (P7).
 
+*Amendment (2026-08-30).* Two rows of the map above are flat calls that
+shipped as handles with typed setters — the same setopt discipline §5
+now carries, for the same two reasons: a value named at its call site
+cannot be transposed with its neighbour, and a further field costs one
+enum member rather than a new entry point or a `_v2` (owner decision
+2026-08-04).
+
+"Send plain text" names `jmap_send_plain_text`, a ten-parameter call
+with eight consecutive `const char *`. What shipped is
+`jmap_message_new`, `jmap_message_set_str`, `jmap_message_add_str` and
+`jmap_message_free`, then `jmap_send`. Append kept a verb of its own so
+that neither verb changes meaning with the option it is handed — set
+always replaces, add always appends — and only the three list-valued
+recipient roles accept the second. The option enum carries exactly what
+`sendPlainText` accepts; RFC 8621 fields the one-shot cannot carry are
+absent by design, not by oversight.
+
+"Set vacation" names `jmap_set_vacation` alone. That call shipped, but
+the patch it sends is assembled first through
+`jmap_vacation_update_new`, three typed setters
+(`jmap_vacation_update_set_enabled` / `_set_subject` /
+`_set_text_body`) and `jmap_vacation_update_free`. Nothing flatter can
+state the difference between leaving a property alone and clearing it
+to JSON null, which RFC 8621 §8 allows for `subject` and `textBody`: a
+setter call distinguishes the two and an argument list cannot.
+
+So §2's second tier holds three transient spec handles rather than one
+— `jmap_query`, `jmap_message`, `jmap_vacation_update` — and §12's P9
+row reads the same way. All three are caller-built and caller-freed,
+carry no error slot of their own (the status a setter returns is its
+only report), and are copied by the call that consumes them, so freeing
+one immediately after use is correct.
+
+*Amendment (2026-08-30).* The flag row of the map above names
+`jmap_mark_read` and `jmap_mark_unread`. What ships is
+`jmap_mark_emails_read` and `jmap_mark_emails_unread` (owner decision
+2026-08-30). Every other multi-object call on this surface names the
+object it acts on — `jmap_get_emails`, `jmap_query_emails`,
+`jmap_move_emails`, `jmap_destroy_emails` — and the two mark verbs take
+the identical `(client, account_id, ids, n, out)` shape as
+`jmap_destroy_emails`, which sits beside them in that row.
+`jmap_move_emails` shares the row but not the shape: it carries a sixth
+parameter naming the destination mailbox. The object belongs in the two
+mark verbs' names for the reason it belongs in the others'. Nothing
+else about the row moves; the Nim substrate was already
+`markEmailsRead` / `markEmailsUnread`.
+
+*Amendment (2026-08-30).* "Complete for an email client" overstates the
+"Read email (bodies)" row. A C consumer holding a `jmap_email` reads
+id, threadId, subject, the first From address and name, preview,
+receivedAt, the text body and hasAttachment. It cannot read `keywords`,
+so it cannot tell a read message from an unread one; nor can it read
+`mailboxIds`, `to`, `cc`, `size` or `sentAt`. `JMAP_Q_READ_STATE` lets
+a caller filter a query by read state, which is not the same as
+rendering it — a list view that greys its read rows has no way to know
+which they are. Read the table as the easy path for fetching and
+displaying a message's text, not as the whole of an email client.
+
+The omission is in the L5 projection alone. `Email`
+(`src/jmap_client/internal/mail/email.nim`) carries every one of those
+fields, and the `getEmails` one-shot sends no `properties` argument, so
+the server returns RFC 8621 §4.2's default set — which names
+`mailboxIds`, `keywords`, `size`, `to`, `cc` and `sentAt` among others.
+The values reach L4 and are dropped where the flat snapshot the C
+getters borrow from is built. Closing the gap is additive: more
+presence bits, more slots on that snapshot, more getters, nothing below
+L5 and no new handle type.
+
 ## 9. Versioning
 
 - `include/jmap_client.h` carries `JMAP_CLIENT_VERSION_MAJOR/MINOR/
@@ -415,6 +558,23 @@ The v1 C surface is the easy path, complete for an email client:
   ordinals never reused, nothing removed after v1 (P1). SemVer policy
   documents (D1/D1.5) remain deferred; the header's own comment block
   states the additive-only rule until they land.
+
+*Amendment (2026-08-30).* The second bullet promises more than the
+header delivers and more than this library is in a position to promise.
+Nothing here declares 1.0: the version macros read 0.1.0, and
+`include/jmap_client.h` says of its status ordinals and option values
+that they "are not frozen yet, but they never change by accident". The
+header's comment block states the absence of a compatibility promise,
+not an additive-only rule; the library is pre-1.0 with no consumers to
+have made the promise to. The gates of §10 are change detectors, which
+is what their own docstrings call them — they fail on an undeliberate
+change, not on an incompatible one. Additive ordinals remain how the
+surface is designed, and that is what will make a freeze cheap when it
+comes; it is not a guarantee already given. §12's P1 row ("Header
+frozen at v1") and the Verification section's "At v1 freeze" framing
+both read as though the freeze had happened, and are amended by this
+paragraph. The freeze arrives with a 1.0 tag and with D1/D1.5, still
+deferred, and the header will say so when it does.
 
 ## 10. The header and its gates
 
@@ -432,6 +592,38 @@ The v1 C surface is the easy path, complete for an email client:
   `{.push raises: [].}` with the four mandatory pragmas per export
   (rules file, unchanged).
 
+*Amendment (2026-08-30).* Three gates shipped where this section
+describes one, because the single lint sketched here folds together
+checks that fail in different ways.
+
+- `just lint-c-header` (H18) holds the two inventories to each other by
+  name in both directions, and requires all four mandatory pragmas on
+  every `{.exportc.}` under `src/`. It reports the count it matched —
+  102 symbols as this is written.
+- `just lint-c-header-snapshot` (H19) is the snapshot this section asks
+  for: a render of the header compared against
+  `tests/wire_contract/c-header.txt` as an ordered sequence — parameter
+  types, enum members and their ordinals, typedef order, version
+  macros. A name inventory can see none of that. `just
+  snapshot-c-header` regenerates the file for a deliberate change; CI
+  never runs it.
+- `just lint-c-header-types` (H20) emits a C prototype per export
+  through `nim c --header:` and compares each hand-written declaration
+  against the Nim signature it stands for, positionally. Neither of the
+  first two can: H18 sees names only, and H19 compares the header to a
+  snapshot of itself, so a corrupted type passes the moment the
+  snapshot is regenerated. That was demonstrated rather than assumed —
+  `uint32_t` written as `int` on `jmap_query_set_u32`, and `int64_t`
+  written as `int` on `jmap_mailbox_total_emails`, left the whole C
+  compliance suite green as well, because C linkage matches by name
+  alone and both misdeclarations return right answers on a 64-bit host
+  while being wrong on a 32-bit one.
+
+None of the three compiles the header against the built library, as the
+sketch above has its gate do. `just test-c` and `just build-c-bench`
+do that instead, both from outside the library and through the header
+alone.
+
 ## 11. Testing
 
 - **C compliance tests**: plain-C programs compiled against the real
@@ -445,6 +637,68 @@ The v1 C surface is the easy path, complete for an email client:
   against Stalwart/James/Cyrus alongside the Nim shards.
 - **Panic-surface macro tests** (Tier 1 of `macro-tests-ffi.md`) land
   with L5: assert/doAssert ban and raw-index audit over `src/`.
+
+*Amendment (2026-08-30).* The bench's build is gated; its live run is
+not. `.github/workflows/ci.yml` stands up no JMAP server — a hosted
+runner has none to speak to — so the workflow compiles
+`examples/jmap-c-cli/` with `-Wall -Wextra -Werror` against the shipped
+header, links it, and stops. Running it against Stalwart, James or
+Cyrus is the owner's manual lane, exactly as for the Nim bench, and
+`just test-full` refuses to start without a local server environment
+file. §12's P2 row says "bench in CI" and means that build. The build
+earns its place — the bench is written from outside the library against
+the header alone, so a declaration it calls that no longer matches the
+library fails there — but it reaches 71 of the 102 exports, which is
+why the three gates of §10 and not this compile are what hold the
+header as a whole.
+
+*Amendment (2026-08-30).* The two Tier-1 macro tests landed as
+`tests/compliance/tno_asserts_in_src.nim` and
+`tests/compliance/traw_index_audit.nim`, the second extended during
+this work to the narrowing conversion a bracket audit cannot see: an
+`int(i)` on a caller-supplied `csize_t` raises `RangeDefect` before any
+indexing happens, and `SIZE_MAX` is the ordinary result of an `n - 1`
+underflow in C caller code. Each audit parses a copy of the tree inside
+a macro, so none of them can join testament's megatest, and all four
+non-joinable compliance compiles were skip-listed from `just test` —
+which left them behind no gate that runs on a push, where an audit that
+never compiles is indistinguishable from an audit that passes.
+`just lint-defect-audits` compiles all four and runs in `check`, in
+`ci`, and in the hosted workflow.
+
+*Amendment (2026-08-30).* The C compliance suite is fourteen plain-C
+programs, and every one of the eight `JMAP_E_*` statuses is the return
+value of a real call in at least one of them — not merely a name the
+header declares. `JMAP_E_REQUEST` was the last to earn that. Nothing
+asserted it, because no test scripted a body the classifier would read
+as a rejection. One of the two shapes that rejection arrives in also
+needed harness work: the ordinary one — an HTTP error status carrying
+the RFC 7807 problem details RFC 8620 §3.6.1 asks for — cannot be
+produced by a replay that hard-codes a 200 carrying
+`application/json`, because the library classifies a response by status
+and Content-Type before it reads the body. Hence the second replay
+transport in `ctests/canned.h`.
+`ctests/t14_request_error.c` drives it three ways: the rejection as a
+server sends it, the same rejection arriving on a 200 (which the older
+transport could have produced but no test asked for), and, as the
+negative that earns the other two, a 4xx whose body is not problem
+details, which is `JMAP_E_TRANSPORT` instead. Those fourteen programs
+compile under AddressSanitizer and UndefinedBehaviorSanitizer
+unconditionally, not "where available" — but the programs are what
+carries the instrumentation. `just test-c` builds
+`bin/libjmap_client.so` without `-fsanitize`, so an overflow inside Nim
+code is not caught. What it reaches is wider than that sounds: ASan
+interposes `malloc` process-wide and the library is built
+`-d:useMalloc` (`justfile`), which routes every Nim allocation through
+libc, so a block the library allocates and never frees is visible to
+LeakSanitizer even though the code that allocated it carries no
+instrumentation of its own. What it does not do is double-free or
+use-after-free: both are undefined behaviour no library can define
+away, so the suite pins the contracts standing around them instead —
+freeing NULL is a no-op, an out-of-range index answers NULL rather than
+narrowing into range (`SIZE_MAX` included), a misuse never becomes a
+`Defect`, and `jmap_errmsg` / `jmap_errtype` are read across the calls
+that replace what they point at.
 
 ## 12. Principle-by-principle map
 
@@ -508,3 +762,35 @@ The v1 C surface is the easy path, complete for an email client:
   C compliance suite, and the bench are all green in CI, and every
   section above either holds or carries a dated amendment explaining
   why it was consciously traded off.
+
+*Amendment (2026-08-30).* What landed on branch `api/l5-c-abi`:
+
+- [x] The hand-curated `include/jmap_client.h`, covering 102 exported
+      symbols.
+- [x] `lint-c-header` (H18), the export/header name inventory.
+- [x] `lint-c-header-snapshot` (H19), the rendered-declaration snapshot
+      at `tests/wire_contract/c-header.txt`.
+- [x] `lint-c-header-types` (H20), the header-against-Nim type
+      cross-check — a third gate this note did not anticipate; see §10's
+      amendment.
+- [x] The C compliance suite, `ctests/t01`–`ctests/t14`, run by
+      `just test-c` under ASan and UBSan, reaching every `JMAP_E_*`
+      status through a real call.
+- [x] `lint-defect-audits`, putting the compile-time audits behind a
+      gate that runs on every push.
+- [x] The C bench `examples/jmap-c-cli/`, built in CI with
+      `-Wall -Wextra -Werror`, its friction recorded in its README's
+      FINDINGS.
+- [ ] The bench against a live server. Not run. Hosted CI has no JMAP
+      server, so this is the owner's manual lane, and nothing is
+      recorded here as if it had happened.
+
+The three Nim wire-contract snapshots — `public-api.txt`,
+`type-shapes.txt` and `error-messages.txt` — are byte-identical to
+`main`. The C ABI was added without moving the Nim surface, which is
+the plainest available evidence that L5 wraps the one-shot easy path
+rather than reaching into it.
+
+This section's last bullet frames its condition as "at v1 freeze".
+There is no v1 freeze (§9's amendment); read the condition as standing
+on every push, which is where those gates run.

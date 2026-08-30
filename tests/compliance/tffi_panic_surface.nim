@@ -42,13 +42,16 @@ const Guarded: seq[tuple[field, disc, variant: string]] = @[
   ("actualHtmlType", "constraint", "ebcHtmlBodyNotTextHtml"),
   ("rejectedName", "constraint", "ebcAllowedFormRejected"),
   ("rejectedForm", "constraint", "ebcAllowedFormRejected"),
-  ("subParts", "isMultipart", "true"),
-  ("leaf", "isMultipart", "false"),
-  # BlueprintLeafPart variant fields — discriminator is ``source``.
-  # The outer ``leaf`` is itself a variant field of BlueprintBodyPart
-  # gated on ``isMultipart == false`` (above). Inside the ``of false:``
-  # arm, ``leaf`` becomes accessible and its own ``source`` discriminator
-  # gates the remaining leaf-specific fields.
+  ("observedDepth", "constraint", "ebcBodyPartDepthExceeded"),
+  ("depthLocation", "constraint", "ebcBodyPartDepthExceeded"),
+  # ``BlueprintBodyPart.subParts`` and ``.leaf`` are deliberately absent:
+  # both are now total accessors over module-private ``raw*`` fields, so
+  # an unguarded ``part.leaf`` cannot raise and listing them here would
+  # report every reader as a violation.
+  #
+  # ``partId`` / ``blobId`` below are variant fields of BodyPartLocation
+  # and, under the ``source`` discriminator, accessor names on
+  # BlueprintLeafPart; a reader satisfying either guard is accepted.
   ("partId", "source", "bpsInline"),
   ("value", "source", "bpsInline"),
   ("blobId", "source", "bpsBlobRef"),
@@ -276,14 +279,24 @@ proc walk(node: NimNode, stack: var seq[Guard], aliases: var seq[Alias]) =
     for c in node:
       walk(c, stack, aliases)
 
-macro audit(src: static[string]) =
-  ## Public entry point: parse ``src`` as a Nim statement list and walk
-  ## it under empty guard/alias stacks. Emits compile errors for every
-  ## unguarded case-object access found.
+macro audit(path: static[string]) =
+  ## Public entry point: read, parse and walk the module at ``path`` under
+  ## empty guard/alias stacks. Emits compile errors for every unguarded
+  ## case-object access found.
+  ##
+  ## The read happens here rather than in a ``staticRead`` written at the
+  ## call site: an argument-position ``staticRead`` of a path that does
+  ## not exist is constant-folded under an error trap that discards the
+  ## diagnostic and substitutes ``""``, so a stale path would audit an
+  ## empty file and pass in silence. The emptiness check below is the
+  ## backstop for the same failure.
+  let src = staticRead(path)
+  if src.len == 0:
+    error("FFI panic-surface audit could not read `" & path & "`")
   var stack: seq[Guard] = @[]
   var aliases: seq[Alias] = @[]
   walk(parseStmt(src), stack, aliases)
 
 static:
-  audit(staticRead("../../src/jmap_client/mail/email_blueprint.nim"))
-  audit(staticRead("../../src/jmap_client/mail/serde_email_blueprint.nim"))
+  audit("../../src/jmap_client/internal/mail/email_blueprint.nim")
+  audit("../../src/jmap_client/internal/mail/serde_email_blueprint.nim")
