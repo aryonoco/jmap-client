@@ -93,6 +93,17 @@ build-release:
     nim c -d:release {{ shared_lib_flags }} -o:bin/libjmap_client.so src/jmap_client.nim
     @echo "Built: bin/libjmap_client.so (release)"
 
+# Build the C consumer bench against the shipped header and library.
+# Building it is a check in its own right: the bench is written from
+# outside the library, against include/jmap_client.h alone, so a header
+# that no longer describes the library fails here. Running it needs a
+# live JMAP server and stays manual, like the Nim bench.
+build-c-bench: build
+    gcc -std=c99 -Wall -Wextra -Werror -Iinclude \
+        examples/jmap-c-cli/jmap_c_cli.c \
+        -Lbin -ljmap_client -Wl,-rpath,"$PWD/bin" -o bin/jmap-c-cli
+    @echo "Built: bin/jmap-c-cli"
+
 # Compile and run every C compliance test against the built library.
 # These are plain-C programs proving the ABI contract from the consumer
 # side; they are NOT testament tests, which is why ctests/ sits outside

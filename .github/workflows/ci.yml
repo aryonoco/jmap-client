@@ -140,5 +140,10 @@ jobs:
       - name: Run C compliance tests
         run: just test-c
 
+      # Build only. The bench needs a live JMAP server to do anything,
+      # so running it stays manual, like the Nim bench.
+      - name: Build the C consumer bench
+        run: just build-c-bench
+
       - name: Run tests
         run: just test
