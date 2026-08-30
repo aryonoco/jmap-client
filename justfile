@@ -647,7 +647,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style lint-defect-audits lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse build lint-c-header lint-c-header-snapshot lint-c-header-types test-c test
+ci: reuse fmt-check lint lint-isolated lint-style lint-defect-audits lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse build lint-c-header lint-c-header-snapshot lint-c-header-types test-c build-c-bench test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"
