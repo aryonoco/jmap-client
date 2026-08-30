@@ -18,6 +18,12 @@ static const char *LIMIT_PROBLEM = "{\"type\":\"urn:ietf:params:jmap:error:limit
  * neither a title nor a detail, so the type URI is all the diagnostic
  * can be built from -- which is what makes it visible in jmap_errmsg()
  * below. */
+/* A 4xx whose body is not problem details at all: valid JSON, but with
+ * no "type" member for the problem type to be read from. Servers and
+ * the proxies in front of them produce error bodies of their own shape
+ * all the time. */
+static const char *OPAQUE_ERROR = "{\"error\":\"the gateway refused the request\",\"status\":400}";
+
 static const char *BARE_PROBLEM = "{\"type\":\"urn:ietf:params:jmap:error:notRequest\",\"status\":400}";
 
 int main(void) {
@@ -105,6 +111,46 @@ int main(void) {
   assert(st2.closes == 1);
   free(st2.last_request);
   free(st2.last_url);
+
+  /* The other side of the branch case 1 rests on. Without this, "a 400
+   * produced JMAP_E_REQUEST" would be satisfied by a blanket rule over
+   * 4xx; the rejection status is earned by the body parsing as problem
+   * details, and a body that does not is a plain transport failure
+   * carrying the status the server sent. */
+  const canned_reply replies3[] = {
+    { .body = SESSION_JSON },
+    { .body = OPAQUE_ERROR, .http_status = 400,
+      .content_type = "application/problem+json" },
+  };
+  canned_reply_state st3 = { replies3, 2, 0, NULL, NULL, 0 };
+  jmap_transport *t3 = canned_reply_make_transport(&st3);
+  assert(t3 != NULL);
+  jmap_client *c3 = NULL;
+  assert(jmap_client_new("https://canned.invalid/jmap", "u", "p", t3, &c3)
+         == JMAP_OK);
+  jmap_transport_free(t3);
+
+  const char *acct3 = NULL;
+  assert(jmap_client_primary_account(c3, &acct3) == JMAP_OK);
+
+  jmap_mailboxes *mbs3 = NULL;
+  assert(jmap_get_mailboxes(c3, acct3, &mbs3) == JMAP_E_TRANSPORT);
+  assert(mbs3 == NULL);
+  assert(st3.next == 2);
+  assert(st3.last_request != NULL);
+  assert(strstr(st3.last_request, "Mailbox/get") != NULL);
+  const char *msg3 = jmap_errmsg(c3);
+  assert(msg3 != NULL);
+  assert(strcmp(msg3, "no error") != 0);
+  /* The status the server sent is what the diagnostic has to offer, so
+   * it is what reaches C. */
+  assert(strstr(msg3, "400") != NULL);
+  assert(jmap_errtype(c3) == NULL);
+
+  jmap_client_free(c3);
+  assert(st3.closes == 1);
+  free(st3.last_request);
+  free(st3.last_url);
 
   jmap_cleanup();
   printf("t14 ok\n");

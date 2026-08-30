@@ -33,6 +33,18 @@ static inline void canned_capture(char **last_request, char **last_url,
   *last_url = strdup(url);
 }
 
+/*
+ * canned_send, canned_close and canned_make_transport are one set.
+ * Each close callback casts the userdata back to the state its own
+ * send was written for, and the two states in this file hold their
+ * fields in the same order, so a mismatched pair -- canned_reply_send
+ * with canned_close, say -- would find a plausible int at the right
+ * offset and count closes into the wrong struct without any of it
+ * showing: a wrong-type cast over a compatible layout is invisible to
+ * ASan and UBSan alike. Build a transport with the make_transport of
+ * the set you want; that is where the pairing is made, and it takes
+ * the state by its own type.
+ */
 static inline jmap_transport_code canned_send(void *userdata,
                                               jmap_http_method method,
                                               const char *url,
@@ -100,6 +112,10 @@ typedef struct {
   int closes;            /* how many times close fired */
 } canned_reply_state;
 
+/*
+ * The second set, under the same rule as the first: this send, this
+ * close and this make_transport go together.
+ */
 static inline jmap_transport_code canned_reply_send(void *userdata,
                                                     jmap_http_method method,
                                                     const char *url,

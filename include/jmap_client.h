@@ -11,8 +11,11 @@
  * jmap_strerror() and jmap_version() work before that call.
  *
  * Every function that can fail returns a jmap_status. Results come back
- * through out-parameters. jmap_errmsg() gives readable text for the
- * last error on a client.
+ * through out-parameters. A call that fails leaves its out-parameters
+ * alone, so a variable you set to NULL before the call is still NULL
+ * after one, and a failed call never leaves you holding anything to
+ * free. jmap_errmsg() gives readable text for the last error on a
+ * client.
  *
  * The library owns everything its read accessors return. A returned
  * const char *, and a returned pointer to an object such as
