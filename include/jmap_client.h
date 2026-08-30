@@ -454,8 +454,9 @@ typedef struct jmap_email jmap_email; /* a borrow, never freed */
  *
  * ids may be NULL when n is 0. That asks for nothing and hands back an
  * empty handle, which is what RFC 8620 section 5.1 says an empty ids
- * array means. The email write calls reject an empty array; a read has
- * nothing to refuse.
+ * array means. The mark and move calls below refuse an empty array,
+ * because a write that changes nothing is a caller mistake. A read of
+ * nothing is just an empty answer.
  */
 jmap_status jmap_get_emails(jmap_client *client,
                             const char *account_id,
